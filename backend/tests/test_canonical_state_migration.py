@@ -52,8 +52,15 @@ def test_ambiguous_default_tenant_waits_for_verified_access_rehome():
 def test_migration_contains_conflict_audit_and_uniqueness_guards():
     source = MIGRATION_PATH.read_text(encoding="utf-8")
 
-    assert 'status="conflict_retained"' in source
+    assert '"conflict_retained"' in source
     assert "tenant_rehome_audit" in source
+    assert "tenant_rehome_aliases" in source
+    assert "api_key_credentials" in source
+    assert "fk_analysis_versions_restored_from" in source
+    assert "fk_decisions_analysis_version" in source
+    assert "migration_replays" in source
+    assert "migration_replay_events" in source
+    assert "ck_workspaces_status" in source
     assert "project_members" in source
     assert "analysis_mutation_receipts" in source
     assert "diagram_lifecycle" in source

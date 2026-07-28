@@ -8,13 +8,18 @@ from __future__ import annotations
 import json
 import os
 import threading
+import uuid
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
-from sqlalchemy import create_engine
+from alembic import command
+from alembic.config import Config
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 from models.workspace import (
+    APIKeyCredential,
     Analysis,
     AnalysisMutationReceipt,
     AnalysisVersion,
@@ -26,14 +31,27 @@ from models.workspace import (
     DiagramLifecycle,
     SourceAsset,
     TenantRehomeAudit,
+    MigrationReplay,
+    MigrationReplayEvent,
+    TenantRehomeAlias,
     Workspace,
 )
 from session_store import InMemoryStore, RedisStore
+from routers import shared
+from routers.api_keys_routes import create_api_key, rotate_api_key
 from workspace_store import (
+    MAX_VERSIONS_PER_ANALYSIS,
+    _trim_old_versions,
+    add_migration_replay_event,
+    create_decision,
+    create_migration_replay,
     create_workspace,
+    list_migration_replays,
     load_analysis_state,
     persist_analysis_state,
     rehome_legacy_analysis_scope,
+    save_analysis_version,
+    update_workspace,
 )
 
 
@@ -42,11 +60,30 @@ pytestmark = pytest.mark.skipif(not POSTGRES_URL, reason="isolated PostgreSQL UR
 
 
 @pytest.fixture()
-def postgres_factory():
-    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+def postgres_factory(request):
+    worker = getattr(request.config, "workerinput", {}).get("workerid")
+    test_url = POSTGRES_URL
+    admin_engine = None
+    database_name = None
+    if worker:
+        from sqlalchemy.engine import make_url
+
+        base_url = make_url(POSTGRES_URL)
+        database_name = f"{base_url.database}_{worker}_{uuid.uuid4().hex[:8]}"
+        admin_engine = create_engine(base_url.set(database="postgres"), isolation_level="AUTOCOMMIT")
+        with admin_engine.connect() as connection:
+            connection.execute(text(f'CREATE DATABASE "{database_name}"'))
+        test_url = str(base_url.set(database=database_name))
+    engine = create_engine(test_url, pool_pre_ping=True)
+    config = Config(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
+    config.set_main_option("sqlalchemy.url", test_url)
+    command.upgrade(config, "head")
     factory = sessionmaker(bind=engine, expire_on_commit=False)
     db = factory()
     try:
+        db.query(APIKeyCredential).delete()
+        db.query(MigrationReplayEvent).delete()
+        db.query(MigrationReplay).delete()
         db.query(ProjectMember).delete()
         db.query(RestoreGrant).delete()
         db.query(AnalysisMutationReceipt).delete()
@@ -58,11 +95,214 @@ def postgres_factory():
         db.query(Analysis).delete()
         db.query(Workspace).delete()
         db.query(TenantRehomeAudit).delete()
+        db.query(TenantRehomeAlias).delete()
         db.commit()
     finally:
         db.close()
     yield factory
     engine.dispose()
+    if admin_engine is not None and database_name is not None:
+        with admin_engine.connect() as connection:
+            connection.execute(text(f'DROP DATABASE IF EXISTS "{database_name}" WITH (FORCE)'))
+        admin_engine.dispose()
+
+
+def test_postgres_decision_composite_fk_rejects_cross_analysis_version(postgres_factory):
+    db = postgres_factory()
+    try:
+        first = persist_analysis_state(
+            db,
+            owner_user_id="pg-decision-owner",
+            tenant_id="pg-decision-tenant",
+            diagram_id="pg-decision-one",
+            snapshot={"mappings": []},
+        )
+        second = persist_analysis_state(
+            db,
+            owner_user_id="pg-decision-owner",
+            tenant_id="pg-decision-tenant",
+            diagram_id="pg-decision-two",
+            snapshot={"mappings": []},
+        )
+        with pytest.raises(ValueError):
+            create_decision(
+                db,
+                analysis_id=first.analysis.id,
+                version_id=second.version.id,
+                owner_user_id="pg-decision-owner",
+                tenant_id="pg-decision-tenant",
+                decision_type="risk",
+                title="repository rejected",
+            )
+        db.add(Decision(
+            analysis_id=first.analysis.id,
+            version_id=second.version.id,
+            owner_user_id="pg-decision-owner",
+            tenant_id="pg-decision-tenant",
+            decision_type="risk",
+            title="database rejected",
+        ))
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+    finally:
+        db.close()
+
+
+def test_postgres_api_key_rotation_preserves_canonical_owner(postgres_factory, monkeypatch):
+    import database
+    import routers.api_keys_routes as key_routes
+
+    monkeypatch.setattr(key_routes, "_use_durable_store", lambda: True)
+    monkeypatch.setattr(database, "SessionLocal", postgres_factory)
+    monkeypatch.setattr(shared, "API_KEY", "configured-admin-key")
+    monkeypatch.setattr(shared, "API_KEY_ROTATED", "")
+    record, old_raw = create_api_key("rotating client", ["read", "write"])
+    owner = shared.get_api_key_service_principal({"x-api-key": old_raw})
+    assert owner is not None
+    tenant = f"service:{owner.split(':', 1)[-1]}"
+    db = postgres_factory()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id="pg-key-rotation",
+            snapshot={"stable": True, "mappings": []},
+        )
+    finally:
+        db.close()
+
+    rotated = rotate_api_key(record.id)
+    assert rotated is not None
+    _new_record, new_raw = rotated
+    assert shared.get_api_key_service_principal({"x-api-key": old_raw}) is None
+    assert shared.get_api_key_service_principal({"x-api-key": new_raw}) == owner
+    _foreign_record, foreign_raw = create_api_key("foreign client", ["read"])
+    foreign_owner = shared.get_api_key_service_principal({"x-api-key": foreign_raw})
+    db = postgres_factory()
+    try:
+        assert load_analysis_state(
+            db,
+            diagram_id="pg-key-rotation",
+            owner_user_id=owner,
+            tenant_id=tenant,
+        )["stable"] is True
+        assert load_analysis_state(
+            db,
+            diagram_id="pg-key-rotation",
+            owner_user_id=foreign_owner,
+            tenant_id=f"service:{foreign_owner.split(':', 1)[-1]}",
+        ) is None
+    finally:
+        db.close()
+
+
+def test_postgres_concurrent_trim_preserves_transitive_lineage(postgres_factory):
+    db = postgres_factory()
+    try:
+        result = persist_analysis_state(
+            db,
+            owner_user_id="pg-lineage-owner",
+            tenant_id="pg-lineage-tenant",
+            diagram_id="pg-lineage-diagram",
+            snapshot={"value": 1, "mappings": []},
+        )
+        for value in range(2, MAX_VERSIONS_PER_ANALYSIS + 4):
+            save_analysis_version(
+                db,
+                analysis_id=result.analysis.id,
+                owner_user_id="pg-lineage-owner",
+                tenant_id="pg-lineage-tenant",
+                snapshot={"value": value, "mappings": []},
+                restored_from=1 if value == MAX_VERSIONS_PER_ANALYSIS - 1 else (
+                    MAX_VERSIONS_PER_ANALYSIS - 1
+                    if value == MAX_VERSIONS_PER_ANALYSIS
+                    else None
+                ),
+            )
+    finally:
+        db.close()
+    barrier = threading.Barrier(2)
+
+    def trim():
+        session = postgres_factory()
+        try:
+            barrier.wait(timeout=10)
+            _trim_old_versions(session, result.analysis.id)
+        finally:
+            session.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        list(pool.map(lambda _index: trim(), range(2)))
+    db = postgres_factory()
+    try:
+        numbers = {
+            row.version_number
+            for row in db.query(AnalysisVersion).filter_by(analysis_id=result.analysis.id)
+        }
+        assert {1, MAX_VERSIONS_PER_ANALYSIS - 1, MAX_VERSIONS_PER_ANALYSIS} <= numbers
+    finally:
+        db.close()
+
+
+@pytest.mark.skipif(not os.getenv("ARCHMORPH_TEST_REDIS_URL"), reason="isolated Redis URL not configured")
+def test_real_redis_page_and_postgres_replay_survive_cache_loss(postgres_factory, monkeypatch):
+    monkeypatch.setenv("REDIS_URL", os.environ["ARCHMORPH_TEST_REDIS_URL"])
+    monkeypatch.delenv("REDIS_HOST", raising=False)
+    cache = RedisStore(prefix="archmorph-test-replay-page", ttl=120)
+    cache.clear()
+    db = postgres_factory()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id="pg-replay-owner",
+            tenant_id="pg-replay-tenant",
+            diagram_id="pg-replay-diagram",
+            snapshot={"mappings": []},
+        )
+        replay_ids = []
+        for index in range(3):
+            replay = create_migration_replay(
+                db,
+                diagram_id="pg-replay-diagram",
+                owner_user_id="pg-replay-owner",
+                tenant_id="pg-replay-tenant",
+                title=f"Replay {index}",
+            )
+            add_migration_replay_event(
+                db,
+                replay_id=replay.id,
+                owner_user_id="pg-replay-owner",
+                tenant_id="pg-replay-tenant",
+                event_type="step_entered",
+                data={"index": index},
+            )
+            replay_ids.append(replay.id)
+            cache.set(replay.id, {"replay_id": replay.id, "index": index})
+        items, total = cache.page(offset=1, limit=1)
+        assert total == 3
+        assert len(items) == 1
+        cache.clear()
+        page = list_migration_replays(
+            db,
+            owner_user_id="pg-replay-owner",
+            tenant_id="pg-replay-tenant",
+            limit=2,
+            offset=1,
+        )
+        assert page["total"] == 3
+        assert len(page["replays"]) == 2
+        assert list_migration_replays(
+            db,
+            owner_user_id="foreign-owner",
+            tenant_id="pg-replay-tenant",
+            limit=20,
+            offset=0,
+        )["total"] == 0
+    finally:
+        db.close()
+        cache.clear()
 
 
 def test_concurrent_first_write_upserts_one_analysis_and_monotonic_versions(postgres_factory):
@@ -275,6 +515,58 @@ def test_concurrent_default_workspace_api_returns_one_identity(postgres_factory)
         ).all()
         assert len(defaults) == 1
         assert set(workspace_ids) == {defaults[0].id}
+    finally:
+        db.close()
+
+
+def test_concurrent_workspace_reactivation_elects_one_default(postgres_factory):
+    seeded = postgres_factory()
+    try:
+        workspace_ids = []
+        for index in range(4):
+            workspace = create_workspace(
+                seeded,
+                owner_user_id="pg-reactivate-owner",
+                tenant_id="pg-reactivate-tenant",
+                name=f"Archived {index}",
+            )
+            workspace.status = "archived"
+            workspace_ids.append(workspace.id)
+        seeded.commit()
+    finally:
+        seeded.close()
+    barrier = threading.Barrier(len(workspace_ids))
+
+    def reactivate(workspace_id):
+        db = postgres_factory()
+        try:
+            barrier.wait(timeout=10)
+            try:
+                workspace = update_workspace(
+                    db,
+                    workspace_id,
+                    owner_user_id="pg-reactivate-owner",
+                    tenant_id="pg-reactivate-tenant",
+                    status="active",
+                )
+                return workspace.id if workspace and workspace.is_default else None
+            except IntegrityError:
+                db.rollback()
+                return None
+        finally:
+            db.close()
+
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        winners = [value for value in pool.map(reactivate, workspace_ids) if value]
+    db = postgres_factory()
+    try:
+        defaults = db.query(Workspace).filter_by(
+            owner_user_id="pg-reactivate-owner",
+            tenant_id="pg-reactivate-tenant",
+            is_default=True,
+        ).all()
+        assert len(defaults) == 1
+        assert defaults[0].id in winners
     finally:
         db.close()
 

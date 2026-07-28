@@ -79,6 +79,24 @@ class SessionStore:
                 values.append(value)
         return values
 
+    def page(
+        self,
+        *,
+        pattern: str = "*",
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[List[tuple[str, Any]], int]:
+        """Return a deterministic bounded page and total matching item count."""
+        if offset < 0 or limit < 1:
+            raise ValueError("offset must be non-negative and limit must be positive")
+        keys = sorted(self.keys(pattern))
+        items: List[tuple[str, Any]] = []
+        for key in keys[offset : offset + limit]:
+            value = self.peek(key, self._MISSING)
+            if value is not self._MISSING:
+                items.append((key, value))
+        return items, len(keys)
+
     def clear(self) -> None:
         raise NotImplementedError
 
@@ -704,6 +722,39 @@ class RedisStore(SessionStore):
             if cursor == 0:
                 break
         return result
+
+    def page(
+        self,
+        *,
+        pattern: str = "*",
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[List[tuple[str, Any]], int]:
+        """Page Redis values via SCAN and a bounded MGET batch."""
+        if offset < 0 or limit < 1:
+            raise ValueError("offset must be non-negative and limit must be positive")
+        full_pattern = f"{self._prefix}:{pattern}"
+        prefix_len = len(self._prefix) + 1
+        keys: List[str] = []
+        cursor = 0
+        while True:
+            cursor, batch = self._redis.scan(cursor=cursor, match=full_pattern, count=100)
+            keys.extend(batch)
+            if cursor == 0:
+                break
+        keys.sort()
+        selected = keys[offset : offset + limit]
+        raw_values = self._redis.mget(selected) if selected else []
+        items: List[tuple[str, Any]] = []
+        for redis_key, raw in zip(selected, raw_values):
+            if raw is None:
+                continue
+            try:
+                value = self._json.loads(raw)
+            except (self._json.JSONDecodeError, TypeError):
+                value = raw
+            items.append((redis_key[prefix_len:], value))
+        return items, len(keys)
 
     def clear(self) -> None:
         cursor = 0

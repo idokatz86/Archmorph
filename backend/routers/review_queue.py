@@ -19,9 +19,9 @@ from strict_models import StrictBaseModel
 from pydantic import Field
 
 from routers.shared import (
-    authorize_diagram_access,
+    authorize_diagram_access_async,
     limiter,
-    persist_diagram_mutation,
+    persist_diagram_mutation_async,
     require_diagram_access,
     verify_api_key_or_user_session,
 )
@@ -69,7 +69,7 @@ async def get_review_queue(
     warnings, assumptions, compliance flags).  Saved dispositions are
     merged in so the client can restore UI state.
     """
-    session = authorize_diagram_access(request, diagram_id, purpose="view review queue")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view review queue")
     items = build_review_queue(session)
     dispositions = _session_dispositions(session)
     summary = queue_summary(items, dispositions)
@@ -108,7 +108,7 @@ async def get_review_queue_summary(
     Returns the queue summary only (no item details) so the UI can decide
     whether to show a deliverables gate without fetching the full queue.
     """
-    session = authorize_diagram_access(request, diagram_id, purpose="view review queue summary")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view review queue summary")
     items = build_review_queue(session)
     dispositions = _session_dispositions(session)
     summary = queue_summary(items, dispositions)
@@ -136,7 +136,7 @@ async def set_item_disposition(
     Persists the decision to the session store and returns the updated summary
     so the client can immediately refresh gate state.
     """
-    session = authorize_diagram_access(request, diagram_id, purpose="review queue disposition")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="review queue disposition")
 
     items = build_review_queue(session)
     item_ids = {i["id"] for i in items}
@@ -155,7 +155,7 @@ async def set_item_disposition(
     if body.action == "mark_risk":
         updated_session = apply_risk_annotations(updated_session, dispositions)
 
-    persist_diagram_mutation(
+    await persist_diagram_mutation_async(
         request,
         diagram_id,
         updated_session,

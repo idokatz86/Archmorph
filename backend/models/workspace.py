@@ -20,6 +20,7 @@ Retention boundaries
 
 import json as _json
 import uuid as _uuid
+from enum import Enum
 
 from sqlalchemy import (
     and_,
@@ -29,10 +30,12 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     false,
 )
 from sqlalchemy.sql import func
@@ -42,6 +45,14 @@ from database import Base
 
 def _new_uuid() -> str:
     return str(_uuid.uuid4())
+
+
+class WorkspaceStatus(str, Enum):
+    """Supported durable workspace lifecycle states."""
+
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    DELETING = "deleting"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -60,13 +71,17 @@ class Workspace(Base):
     description = Column(Text, nullable=True)
     source_cloud = Column(String(20), nullable=False, server_default="aws")
     target_cloud = Column(String(20), nullable=False, server_default="azure")
-    status = Column(String(20), nullable=False, server_default="active")  # active | archived
+    status = Column(String(20), nullable=False, server_default=WorkspaceStatus.ACTIVE.value)
     is_public = Column(Boolean, nullable=False, server_default=false())
     is_default = Column(Boolean, nullable=False, server_default=false())
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'archived', 'deleting')",
+            name="ck_workspaces_status",
+        ),
         Index("ix_workspaces_owner_tenant", "owner_user_id", "tenant_id"),
         Index(
             "ux_workspaces_default_owner_tenant",
@@ -146,6 +161,28 @@ class ProjectMember(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class APIKeyCredential(Base):
+    """Durable hashed API-key credential mapped to a stable client principal."""
+
+    __tablename__ = "api_key_credentials"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    principal_id = Column(String(100), nullable=False, index=True)
+    name = Column(String(128), nullable=False)
+    key_hash = Column(String(64), nullable=False, unique=True)
+    key_prefix = Column(String(12), nullable=False)
+    scopes = Column(Text, nullable=False)
+    rate_limit = Column(Integer, nullable=False, server_default="100")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    revoked = Column(Boolean, nullable=False, server_default=false())
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_api_key_credentials_active", "principal_id", "revoked"),
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -309,6 +346,11 @@ class AnalysisVersion(Base):
 
     __table_args__ = (
         Index("ix_analysis_versions_analysis_num", "analysis_id", "version_number", unique=True),
+        UniqueConstraint(
+            "analysis_id",
+            "id",
+            name="uq_analysis_versions_analysis_id_id",
+        ),
     )
 
     def to_dict(self, *, include_snapshot: bool = False) -> dict:
@@ -461,7 +503,6 @@ class Decision(Base):
     )
     version_id = Column(
         String(36),
-        ForeignKey("analysis_versions.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -477,6 +518,12 @@ class Decision(Base):
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["analysis_id", "version_id"],
+            ["analysis_versions.analysis_id", "analysis_versions.id"],
+            name="fk_decisions_analysis_version",
+            ondelete="RESTRICT",
+        ),
         Index("ix_decisions_analysis_type", "analysis_id", "decision_type"),
         Index("ix_decisions_owner_tenant", "owner_user_id", "tenant_id"),
     )
@@ -511,6 +558,112 @@ class TenantRehomeAudit(Base):
     status = Column(String(40), nullable=False, index=True)
     details = Column(Text, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class TenantRehomeAlias(Base):
+    """Durable source-to-target mapping for each migrated or quarantined graph."""
+
+    __tablename__ = "tenant_rehome_aliases"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    source_owner_user_id = Column(String(100), nullable=False)
+    source_tenant_id = Column(String(100), nullable=False)
+    target_owner_user_id = Column(String(100), nullable=True)
+    target_tenant_id = Column(String(100), nullable=True)
+    entity_type = Column(String(20), nullable=False)
+    source_entity_id = Column(String(100), nullable=False)
+    target_entity_id = Column(String(100), nullable=True)
+    status = Column(String(20), nullable=False)
+    reason = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "entity_type IN ('workspace', 'analysis')",
+            name="ck_tenant_rehome_aliases_entity_type",
+        ),
+        CheckConstraint(
+            "status IN ('rehomed', 'quarantined')",
+            name="ck_tenant_rehome_aliases_status",
+        ),
+        Index(
+            "ux_tenant_rehome_aliases_source",
+            "source_owner_user_id",
+            "source_tenant_id",
+            "entity_type",
+            "source_entity_id",
+            unique=True,
+        ),
+        Index(
+            "ix_tenant_rehome_aliases_target",
+            "target_owner_user_id",
+            "target_tenant_id",
+        ),
+    )
+
+
+class MigrationReplay(Base):
+    """Canonical replay header bound to one immutable analysis version."""
+
+    __tablename__ = "migration_replays"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    analysis_id = Column(
+        String(36),
+        ForeignKey("analyses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_id = Column(String(36), nullable=False)
+    diagram_id = Column(String(50), nullable=False, index=True)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    title = Column(String(256), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["analysis_id", "version_id"],
+            ["analysis_versions.analysis_id", "analysis_versions.id"],
+            name="fk_migration_replays_analysis_version",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_migration_replays_scope_created",
+            "owner_user_id",
+            "tenant_id",
+            "created_at",
+        ),
+    )
+
+
+class MigrationReplayEvent(Base):
+    """Append-only event in a canonical migration replay."""
+
+    __tablename__ = "migration_replay_events"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    replay_id = Column(
+        String(36),
+        ForeignKey("migration_replays.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(String(40), nullable=False)
+    data = Column(Text, nullable=False, server_default="{}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "ux_migration_replay_events_sequence",
+            "replay_id",
+            "sequence",
+            unique=True,
+        ),
+    )
 
 
 class DiagramLifecycle(Base):

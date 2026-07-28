@@ -22,6 +22,7 @@ from models.model_registry import ModelEndpoint  # noqa: F401
 from models.user import UserRecord  # noqa: F401
 from models.workspace import (  # noqa: F401
     Workspace,
+    APIKeyCredential,
     SourceAsset,
     Analysis,
     AnalysisVersion,
@@ -32,5 +33,9 @@ from models.workspace import (  # noqa: F401
     ProjectMember,
     PurgeOperation,
     RestoreGrant,
+    MigrationReplay,
+    MigrationReplayEvent,
     TenantRehomeAudit,
+    TenantRehomeAlias,
+    WorkspaceStatus,
 )

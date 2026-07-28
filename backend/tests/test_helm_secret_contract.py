@@ -46,6 +46,8 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     assert remote_keys["DATABASE_URL"] == "database-url"
     assert remote_keys["REDIS_URL"] == "redis-url"
     assert remote_keys["ARCHMORPH_API_KEY"] == "api-key"
+    assert remote_keys["ARCHMORPH_API_KEY_ROTATED"] == "api-key-rotated"
+    assert remote_keys["ARCHMORPH_API_KEY_PRINCIPAL_ID"] == "api-key-principal-id"
     assert remote_keys["JWT_SECRET"] == "jwt-secret"
     env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
     refs = {
@@ -57,6 +59,15 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     assert refs["ARCHMORPH_API_KEY"] == {
         "name": "contract-archmorph-secrets",
         "key": "ARCHMORPH_API_KEY",
+    }
+    assert refs["ARCHMORPH_API_KEY_ROTATED"] == {
+        "name": "contract-archmorph-secrets",
+        "key": "ARCHMORPH_API_KEY_ROTATED",
+        "optional": True,
+    }
+    assert refs["ARCHMORPH_API_KEY_PRINCIPAL_ID"] == {
+        "name": "contract-archmorph-secrets",
+        "key": "ARCHMORPH_API_KEY_PRINCIPAL_ID",
     }
     assert refs["JWT_SECRET"] == {
         "name": "contract-archmorph-secrets",
@@ -109,7 +120,14 @@ def test_render_fails_when_external_secret_omits_database_or_redis_key():
     assert "externalSecrets.data must map required key DATABASE_URL" in rendered.stderr
 
 
-@pytest.mark.parametrize("required_key", ["ARCHMORPH_API_KEY", "JWT_SECRET"])
+@pytest.mark.parametrize(
+    "required_key",
+    [
+        "ARCHMORPH_API_KEY",
+        "ARCHMORPH_API_KEY_PRINCIPAL_ID",
+        "JWT_SECRET",
+    ],
+)
 def test_render_fails_when_external_secret_omits_auth_key(required_key):
     data = [
         {"secretKey": "AZURE_OPENAI_API_KEY", "remoteRef": {"key": "openai-api-key"}},
@@ -121,6 +139,14 @@ def test_render_fails_when_external_secret_omits_auth_key(required_key):
         },
         {"secretKey": "ARCHMORPH_ADMIN_KEY", "remoteRef": {"key": "admin-key"}},
         {"secretKey": "ARCHMORPH_API_KEY", "remoteRef": {"key": "api-key"}},
+        {
+            "secretKey": "ARCHMORPH_API_KEY_ROTATED",
+            "remoteRef": {"key": "api-key-rotated"},
+        },
+        {
+            "secretKey": "ARCHMORPH_API_KEY_PRINCIPAL_ID",
+            "remoteRef": {"key": "api-key-principal-id"},
+        },
         {"secretKey": "JWT_SECRET", "remoteRef": {"key": "jwt-secret"}},
     ]
     data = [item for item in data if item["secretKey"] != required_key]

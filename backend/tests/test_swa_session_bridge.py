@@ -52,6 +52,25 @@ def _owned_analysis(diagram_id: str) -> dict:
     }
 
 
+def _seed_owned_analysis(diagram_id: str) -> None:
+    from database import SessionLocal
+    from workspace_store import persist_analysis_state
+
+    db = SessionLocal()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id=OWNER_USER_ID,
+            tenant_id=OWNER_TENANT_ID,
+            diagram_id=diagram_id,
+            snapshot=_owned_analysis(diagram_id),
+            session_store=shared.SESSION_STORE,
+            cache_required=True,
+        )
+    finally:
+        db.close()
+
+
 def _png_bytes() -> bytes:
     return b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 
@@ -124,7 +143,11 @@ def test_architecture_package_accepts_authenticated_user_bearer_session_when_api
     monkeypatch.setattr(shared, "API_KEY", "test-api-key")
     monkeypatch.setenv("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
     diagram_id = "diag-bearer-architecture-package"
-    shared.SESSION_STORE[diagram_id] = _owned_analysis(diagram_id)
+    monkeypatch.setattr(
+        "export_artifacts._upload_blob",
+        lambda **kwargs: f"testblob://{kwargs['content_hash']}",
+    )
+    _seed_owned_analysis(diagram_id)
 
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.post(
@@ -141,7 +164,11 @@ def test_migration_package_accepts_authenticated_user_bearer_session_when_api_ke
     monkeypatch.setattr(shared, "API_KEY", "test-api-key")
     monkeypatch.setenv("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
     diagram_id = "diag-bearer-migration-package"
-    shared.SESSION_STORE[diagram_id] = _owned_analysis(diagram_id)
+    monkeypatch.setattr(
+        "export_artifacts._upload_blob",
+        lambda **kwargs: f"testblob://{kwargs['content_hash']}",
+    )
+    _seed_owned_analysis(diagram_id)
 
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.post(

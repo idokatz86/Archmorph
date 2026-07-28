@@ -70,6 +70,12 @@ externalSecrets:
     - secretKey: ARCHMORPH_API_KEY
       remoteRef:
         key: api-key
+    - secretKey: ARCHMORPH_API_KEY_ROTATED
+      remoteRef:
+        key: api-key-rotated
+    - secretKey: ARCHMORPH_API_KEY_PRINCIPAL_ID
+      remoteRef:
+        key: api-key-principal-id
     - secretKey: JWT_SECRET
       remoteRef:
         key: jwt-secret

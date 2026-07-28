@@ -59,11 +59,15 @@ from models.workspace import (
     Artifact,
     Decision,
     DiagramLifecycle,
+    MigrationReplay,
+    MigrationReplayEvent,
     PurgeOperation,
     RestoreGrant,
     SourceAsset,
     TenantRehomeAudit,
+    TenantRehomeAlias,
     Workspace,
+    WorkspaceStatus,
 )
 
 logger = logging.getLogger(__name__)
@@ -74,6 +78,7 @@ logger = logging.getLogger(__name__)
 
 MAX_VERSIONS_PER_ANALYSIS = 50
 MAX_WORKSPACES_PER_USER = 500
+WORKSPACE_STATUSES = frozenset(status.value for status in WorkspaceStatus)
 
 
 class DurableAnalysisPersistenceError(RuntimeError):
@@ -258,6 +263,8 @@ def list_workspaces(
     offset: int = 0,
 ) -> Dict[str, Any]:
     """List workspaces for a user with optional tenant/status filters."""
+    if status is not None and status not in WORKSPACE_STATUSES:
+        raise ValueError(f"Unsupported workspace status: {status}")
     q = db.query(Workspace).filter(
         Workspace.owner_user_id == owner_user_id,
         Workspace.status != "deleting",
@@ -284,15 +291,45 @@ def update_workspace(
     **fields: Any,
 ) -> Optional[Workspace]:
     """Update allowed fields on a workspace. Returns None when not found/forbidden."""
-    ws = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
+    requested_status = fields.get("status")
+    if requested_status is not None:
+        if requested_status not in {WorkspaceStatus.ACTIVE.value, WorkspaceStatus.ARCHIVED.value}:
+            raise ValueError(f"Unsupported workspace status transition: {requested_status}")
+    query = db.query(Workspace).filter(
+        Workspace.id == workspace_id,
+        Workspace.owner_user_id == owner_user_id,
+        _tenant_matches(Workspace.tenant_id, tenant_id),
+        Workspace.status != WorkspaceStatus.DELETING.value,
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        if requested_status == WorkspaceStatus.ACTIVE.value:
+            from sqlalchemy import text
+
+            lock_material = f"workspace-default:{owner_user_id}:{tenant_id or '<none>'}"
+            db.execute(
+                text("SELECT pg_advisory_xact_lock(hashtextextended(:material, 0))"),
+                {"material": lock_material},
+            )
+        query = query.with_for_update()
+    ws = query.first()
     if ws is None:
         return None
     allowed = {"name", "description", "status", "source_cloud", "target_cloud"}
     for k, v in fields.items():
         if k in allowed:
             setattr(ws, k, v)
-    if fields.get("status") == "archived" and ws.is_default:
+    if requested_status == WorkspaceStatus.ARCHIVED.value and ws.is_default:
         ws.is_default = False
+    elif requested_status == WorkspaceStatus.ACTIVE.value:
+        default_exists = db.query(Workspace.id).filter(
+            Workspace.owner_user_id == owner_user_id,
+            _tenant_matches(Workspace.tenant_id, tenant_id),
+            Workspace.status == WorkspaceStatus.ACTIVE.value,
+            Workspace.is_default.is_(True),
+            Workspace.id != ws.id,
+        ).first()
+        if default_exists is None:
+            ws.is_default = True
     db.commit()
     db.refresh(ws)
     return ws
@@ -602,26 +639,59 @@ def save_analysis_version(
 
 
 def _trim_old_versions(db: Session, analysis_id: str) -> None:
-    """Delete oldest unreferenced versions beyond MAX_VERSIONS_PER_ANALYSIS."""
+    """Delete oldest versions while preserving every transitive lineage ancestor."""
+    query = db.query(AnalysisVersion).filter(AnalysisVersion.analysis_id == analysis_id)
+    if db.get_bind().dialect.name == "postgresql":
+        query = query.with_for_update()
     versions = (
-        db.query(AnalysisVersion)
-        .filter(AnalysisVersion.analysis_id == analysis_id)
+        query
         .order_by(AnalysisVersion.version_number.asc())
         .all()
     )
     excess = len(versions) - MAX_VERSIONS_PER_ANALYSIS
-    if excess > 0:
-        for v in versions[:excess]:
-            referenced = (
-                db.query(Artifact.id)
-                .filter(Artifact.version_id == v.id)
-                .first()
-                or db.query(Decision.id).filter(Decision.version_id == v.id).first()
-            )
-            if referenced:
-                continue
-            db.delete(v)
-        db.commit()
+    if excess <= 0:
+        return
+
+    by_number = {int(version.version_number): version for version in versions}
+    protected_numbers: set[int] = set()
+    for version in versions:
+        ancestor = version.restored_from
+        seen = {int(version.version_number)}
+        while ancestor is not None:
+            ancestor_number = int(ancestor)
+            if ancestor_number in seen:
+                logger.error(
+                    "analysis_version_lineage_cycle analysis_id=%s version=%s",
+                    safe(analysis_id),
+                    version.version_number,
+                )
+                protected_numbers.update(seen)
+                break
+            seen.add(ancestor_number)
+            protected_numbers.add(ancestor_number)
+            parent = by_number.get(ancestor_number)
+            if parent is None:
+                logger.error(
+                    "analysis_version_lineage_missing analysis_id=%s ancestor=%s",
+                    safe(analysis_id),
+                    ancestor_number,
+                )
+                break
+            ancestor = parent.restored_from
+
+    deleted = 0
+    for version in versions:
+        if deleted >= excess or version.version_number in protected_numbers:
+            continue
+        referenced = (
+            db.query(Artifact.id).filter(Artifact.version_id == version.id).first()
+            or db.query(Decision.id).filter(Decision.version_id == version.id).first()
+        )
+        if referenced:
+            continue
+        db.delete(version)
+        deleted += 1
+    db.commit()
 
 
 def list_analysis_versions(
@@ -939,6 +1009,21 @@ def create_decision(
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Decision:
     """Record a risk or architectural decision."""
+    analysis = get_analysis_record(
+        db,
+        analysis_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    if analysis is None:
+        raise ValueError(f"Analysis {analysis_id!r} not found or access denied")
+    if version_id is not None:
+        version = db.query(AnalysisVersion.id).filter(
+            AnalysisVersion.id == version_id,
+            AnalysisVersion.analysis_id == analysis_id,
+        ).first()
+        if version is None:
+            raise ValueError(f"Version {version_id!r} not found for analysis")
     decision = Decision(
         analysis_id=analysis_id,
         version_id=version_id,
@@ -1984,6 +2069,435 @@ def rehome_legacy_analysis_scope(
     return "rehomed"
 
 
+def rehome_legacy_owner_scope(
+    db: Session,
+    *,
+    owner_user_ids: List[str],
+    source_tenant_id: str,
+    target_tenant_id: str,
+    target_owner_user_id: str,
+) -> Dict[str, int]:
+    """Bulk-migrate clean exact-owner workspaces and quarantine only conflicts.
+
+    This is invoked before authenticated workspace/list access, so discovery
+    does not depend on the caller already knowing a legacy diagram ID.
+    """
+    summary = {"rehomed": 0, "quarantined": 0, "already_processed": 0}
+    for source_owner_user_id in dict.fromkeys(owner_user_ids):
+        workspace_query = db.query(Workspace).filter(
+            Workspace.owner_user_id == source_owner_user_id,
+            Workspace.tenant_id == source_tenant_id,
+        )
+        if db.get_bind().dialect.name == "postgresql":
+            workspace_query = workspace_query.with_for_update()
+        for workspace in workspace_query.all():
+            existing_alias = db.query(TenantRehomeAlias).filter(
+                TenantRehomeAlias.source_owner_user_id == source_owner_user_id,
+                TenantRehomeAlias.source_tenant_id == source_tenant_id,
+                TenantRehomeAlias.entity_type == "workspace",
+                TenantRehomeAlias.source_entity_id == workspace.id,
+            ).first()
+            if existing_alias is not None:
+                summary["already_processed"] += 1
+                continue
+            analyses = db.query(Analysis).filter(
+                Analysis.workspace_id == workspace.id,
+                Analysis.owner_user_id == source_owner_user_id,
+                Analysis.tenant_id == source_tenant_id,
+            ).all()
+            analysis_ids = [analysis.id for analysis in analyses]
+            diagram_ids = [analysis.diagram_id for analysis in analyses if analysis.diagram_id]
+            mixed_scope = (
+                db.query(Analysis.id).filter(Analysis.workspace_id == workspace.id).count() != len(analyses)
+                or db.query(SourceAsset.id).filter(SourceAsset.workspace_id == workspace.id).count()
+                != db.query(SourceAsset.id).filter(
+                    SourceAsset.workspace_id == workspace.id,
+                    SourceAsset.owner_user_id == source_owner_user_id,
+                    SourceAsset.tenant_id == source_tenant_id,
+                ).count()
+                or db.query(Artifact.id).filter(Artifact.analysis_id.in_(analysis_ids)).count()
+                != db.query(Artifact.id).filter(
+                    Artifact.analysis_id.in_(analysis_ids),
+                    Artifact.owner_user_id == source_owner_user_id,
+                    Artifact.tenant_id == source_tenant_id,
+                ).count()
+                or db.query(Decision.id).filter(Decision.analysis_id.in_(analysis_ids)).count()
+                != db.query(Decision.id).filter(
+                    Decision.analysis_id.in_(analysis_ids),
+                    Decision.owner_user_id == source_owner_user_id,
+                    Decision.tenant_id == source_tenant_id,
+                ).count()
+            )
+            conflict = bool(
+                diagram_ids
+                and db.query(Analysis.id).filter(
+                    Analysis.owner_user_id == target_owner_user_id,
+                    Analysis.tenant_id == target_tenant_id,
+                    Analysis.diagram_id.in_(diagram_ids),
+                ).first()
+            )
+            if mixed_scope or conflict:
+                reason = "mixed_scope_workspace_graph" if mixed_scope else "target_diagram_conflict"
+                db.add(TenantRehomeAlias(
+                    source_owner_user_id=source_owner_user_id,
+                    source_tenant_id=source_tenant_id,
+                    target_tenant_id=target_tenant_id,
+                    entity_type="workspace",
+                    source_entity_id=workspace.id,
+                    status="quarantined",
+                    reason=reason,
+                ))
+                for analysis in analyses:
+                    db.add(TenantRehomeAlias(
+                        source_owner_user_id=source_owner_user_id,
+                        source_tenant_id=source_tenant_id,
+                        target_tenant_id=target_tenant_id,
+                        entity_type="analysis",
+                        source_entity_id=analysis.id,
+                        status="quarantined",
+                        reason=reason,
+                    ))
+                db.add(TenantRehomeAudit(
+                    owner_user_id=source_owner_user_id,
+                    source_tenant_id=source_tenant_id,
+                    target_tenant_id=target_tenant_id,
+                    status="conflict_denied",
+                    details=_json.dumps(
+                        {
+                            "workspace_id": workspace.id,
+                            "diagram_ids": sorted(diagram_ids),
+                            "reason": reason,
+                        },
+                        sort_keys=True,
+                    ),
+                ))
+                summary["quarantined"] += 1
+                continue
+
+            target_default = db.query(Workspace.id).filter(
+                Workspace.owner_user_id == target_owner_user_id,
+                Workspace.tenant_id == target_tenant_id,
+                Workspace.is_default.is_(True),
+                Workspace.id != workspace.id,
+            ).first()
+            if target_default is not None and workspace.is_default:
+                workspace.is_default = False
+            workspace.owner_user_id = target_owner_user_id
+            workspace.tenant_id = target_tenant_id
+            db.query(SourceAsset).filter(
+                SourceAsset.workspace_id == workspace.id,
+                SourceAsset.owner_user_id == source_owner_user_id,
+                SourceAsset.tenant_id == source_tenant_id,
+            ).update(
+                {
+                    SourceAsset.owner_user_id: target_owner_user_id,
+                    SourceAsset.tenant_id: target_tenant_id,
+                },
+                synchronize_session=False,
+            )
+            db.query(Analysis).filter(Analysis.id.in_(analysis_ids)).update(
+                {
+                    Analysis.owner_user_id: target_owner_user_id,
+                    Analysis.tenant_id: target_tenant_id,
+                },
+                synchronize_session=False,
+            )
+            db.query(Artifact).filter(Artifact.analysis_id.in_(analysis_ids)).update(
+                {
+                    Artifact.owner_user_id: target_owner_user_id,
+                    Artifact.tenant_id: target_tenant_id,
+                },
+                synchronize_session=False,
+            )
+            db.query(Decision).filter(Decision.analysis_id.in_(analysis_ids)).update(
+                {
+                    Decision.owner_user_id: target_owner_user_id,
+                    Decision.tenant_id: target_tenant_id,
+                },
+                synchronize_session=False,
+            )
+            db.add(TenantRehomeAlias(
+                source_owner_user_id=source_owner_user_id,
+                source_tenant_id=source_tenant_id,
+                target_owner_user_id=target_owner_user_id,
+                target_tenant_id=target_tenant_id,
+                entity_type="workspace",
+                source_entity_id=workspace.id,
+                target_entity_id=workspace.id,
+                status="rehomed",
+            ))
+            for analysis in analyses:
+                db.add(TenantRehomeAlias(
+                    source_owner_user_id=source_owner_user_id,
+                    source_tenant_id=source_tenant_id,
+                    target_owner_user_id=target_owner_user_id,
+                    target_tenant_id=target_tenant_id,
+                    entity_type="analysis",
+                    source_entity_id=analysis.id,
+                    target_entity_id=analysis.id,
+                    status="rehomed",
+                ))
+            db.add(TenantRehomeAudit(
+                owner_user_id=source_owner_user_id,
+                source_tenant_id=source_tenant_id,
+                target_tenant_id=target_tenant_id,
+                status="access_rehome_completed",
+                details=_json.dumps(
+                    {
+                        "workspace_id": workspace.id,
+                        "analysis_ids": analysis_ids,
+                        "target_owner_user_id": target_owner_user_id,
+                    },
+                    sort_keys=True,
+                ),
+            ))
+            summary["rehomed"] += 1
+        try:
+            db.commit()
+        except IntegrityError:
+            db.rollback()
+            raise
+    return summary
+
+
+def get_current_analysis_version(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+) -> tuple[Analysis, AnalysisVersion]:
+    """Return the locked current immutable version for a canonical diagram."""
+    analysis = _get_analysis_by_diagram(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        for_update=True,
+    )
+    if analysis is None or int(analysis.current_version or 0) <= 0:
+        raise ValueError("Canonical analysis version is required")
+    version = db.query(AnalysisVersion).filter(
+        AnalysisVersion.analysis_id == analysis.id,
+        AnalysisVersion.version_number == analysis.current_version,
+    ).one_or_none()
+    if version is None:
+        raise ValueError("Canonical analysis version is required")
+    return analysis, version
+
+
+def create_export_artifact(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    artifact_type: str,
+    format: str,
+    content: bytes,
+    storage_url: Optional[str] = None,
+    inline_content: Optional[str] = None,
+    expected_version_id: Optional[str] = None,
+) -> Artifact:
+    """Idempotently bind exact generated bytes to the locked current version."""
+    analysis, version = get_current_analysis_version(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    if expected_version_id is not None:
+        version = db.query(AnalysisVersion).filter(
+            AnalysisVersion.id == expected_version_id,
+            AnalysisVersion.analysis_id == analysis.id,
+        ).one_or_none()
+        if version is None:
+            raise ValueError("Canonical analysis version is required")
+    content_hash = _full_hash(content)
+    existing = db.query(Artifact).filter(
+        Artifact.analysis_id == analysis.id,
+        Artifact.version_id == version.id,
+        Artifact.owner_user_id == owner_user_id,
+        Artifact.tenant_id == tenant_id,
+        Artifact.artifact_type == artifact_type,
+        Artifact.content_hash == content_hash,
+    ).one_or_none()
+    if existing is not None:
+        db.commit()
+        return existing
+    if inline_content is None and storage_url is None:
+        inline_content = content.decode("utf-8")
+    artifact = Artifact(
+        analysis_id=analysis.id,
+        version_id=version.id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        artifact_type=artifact_type,
+        format=format,
+        content=inline_content,
+        storage_url=storage_url,
+        content_hash=content_hash,
+        size_bytes=len(content),
+    )
+    db.add(artifact)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        return db.query(Artifact).filter(
+            Artifact.version_id == version.id,
+            Artifact.artifact_type == artifact_type,
+            Artifact.content_hash == content_hash,
+        ).one()
+    db.refresh(artifact)
+    return artifact
+
+
+def create_migration_replay(
+    db: Session,
+    *,
+    diagram_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    title: str,
+) -> MigrationReplay:
+    analysis, version = get_current_analysis_version(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    replay = MigrationReplay(
+        analysis_id=analysis.id,
+        version_id=version.id,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        title=title,
+    )
+    db.add(replay)
+    db.commit()
+    db.refresh(replay)
+    return replay
+
+
+def get_migration_replay(
+    db: Session,
+    *,
+    replay_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    for_update: bool = False,
+) -> Optional[MigrationReplay]:
+    query = db.query(MigrationReplay).filter(
+        MigrationReplay.id == replay_id,
+        MigrationReplay.owner_user_id == owner_user_id,
+        MigrationReplay.tenant_id == tenant_id,
+    )
+    if for_update and db.get_bind().dialect.name == "postgresql":
+        query = query.with_for_update()
+    return query.one_or_none()
+
+
+def add_migration_replay_event(
+    db: Session,
+    *,
+    replay_id: str,
+    owner_user_id: str,
+    tenant_id: str,
+    event_type: str,
+    data: Dict[str, Any],
+) -> MigrationReplayEvent:
+    replay = get_migration_replay(
+        db,
+        replay_id=replay_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        for_update=True,
+    )
+    if replay is None:
+        raise ValueError("Replay not found")
+    sequence = int(
+        db.query(func.max(MigrationReplayEvent.sequence)).filter(
+            MigrationReplayEvent.replay_id == replay_id
+        ).scalar()
+        or -1
+    ) + 1
+    event = MigrationReplayEvent(
+        replay_id=replay_id,
+        sequence=sequence,
+        event_type=event_type,
+        data=_json.dumps(data, sort_keys=True, default=str),
+    )
+    db.add(event)
+    db.commit()
+    db.refresh(event)
+    return event
+
+
+def serialize_migration_replay(db: Session, replay: MigrationReplay) -> Dict[str, Any]:
+    events = db.query(MigrationReplayEvent).filter(
+        MigrationReplayEvent.replay_id == replay.id
+    ).order_by(MigrationReplayEvent.sequence.asc()).all()
+    return {
+        "replay_id": replay.id,
+        "analysis_id": replay.diagram_id,
+        "analysis_record_id": replay.analysis_id,
+        "version_id": replay.version_id,
+        "title": replay.title,
+        "owner_user_id": replay.owner_user_id,
+        "tenant_id": replay.tenant_id,
+        "created_at": replay.created_at.timestamp() if replay.created_at else 0,
+        "updated_at": replay.updated_at.timestamp() if replay.updated_at else 0,
+        "events": [
+            {
+                "event_id": event.id,
+                "event_type": event.event_type,
+                "data": _json.loads(event.data or "{}"),
+                "timestamp": event.created_at.timestamp() if event.created_at else 0,
+                "sequence": event.sequence,
+            }
+            for event in events
+        ],
+    }
+
+
+def list_migration_replays(
+    db: Session,
+    *,
+    owner_user_id: str,
+    tenant_id: str,
+    limit: int,
+    offset: int,
+) -> Dict[str, Any]:
+    query = db.query(MigrationReplay).filter(
+        MigrationReplay.owner_user_id == owner_user_id,
+        MigrationReplay.tenant_id == tenant_id,
+    )
+    total = query.count()
+    rows = query.order_by(MigrationReplay.created_at.desc(), MigrationReplay.id.desc()).offset(offset).limit(limit).all()
+    event_counts = dict(
+        db.query(MigrationReplayEvent.replay_id, func.count(MigrationReplayEvent.id))
+        .filter(MigrationReplayEvent.replay_id.in_([row.id for row in rows]))
+        .group_by(MigrationReplayEvent.replay_id)
+        .all()
+    ) if rows else {}
+    return {
+        "replays": [
+            {
+                "replay_id": row.id,
+                "analysis_id": row.diagram_id,
+                "version_id": row.version_id,
+                "title": row.title,
+                "event_count": int(event_counts.get(row.id, 0)),
+                "created_at": row.created_at.timestamp() if row.created_at else 0,
+            }
+            for row in rows
+        ],
+        "total": total,
+    }
+
+
 def purge_analysis_state(
     db: Session,
     *,
@@ -2056,6 +2570,23 @@ def purge_analysis_state(
         if candidate_workspace_id is not None
     }
     if analysis is not None:
+        replay_ids = [
+            replay_id
+            for (replay_id,) in db.query(MigrationReplay.id).filter(
+                MigrationReplay.analysis_id == analysis.id
+            ).all()
+        ]
+        if replay_ids:
+            replay_events_deleted = db.query(MigrationReplayEvent).filter(
+                MigrationReplayEvent.replay_id.in_(replay_ids)
+            ).delete(synchronize_session=False)
+            if replay_events_deleted:
+                counts["replay_events"] = replay_events_deleted
+        replays_deleted = db.query(MigrationReplay).filter(
+            MigrationReplay.analysis_id == analysis.id
+        ).delete(synchronize_session=False)
+        if replays_deleted:
+            counts["replays"] = replays_deleted
         counts["artifacts"] = db.query(Artifact).filter(
             Artifact.analysis_id == analysis.id
         ).delete(synchronize_session=False)

@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, Query, Request
 from typing import Optional
 
 from database import SessionLocal
-from routers.shared import SESSION_STORE, limiter, persist_diagram_mutation, require_diagram_access, verify_api_key
+from routers.shared import SESSION_STORE, limiter, persist_diagram_mutation_async, require_diagram_access, verify_api_key
 from versioning import (
     create_version, get_version_history, get_version,
     restore_version, compare_versions,
@@ -47,7 +47,7 @@ async def create_version_endpoint(
     from routers.shared import has_canonical_durable_principal
 
     if has_canonical_durable_principal(request):
-        result = persist_diagram_mutation(
+        result = await persist_diagram_mutation_async(
             request,
             diagram_id,
             analysis,

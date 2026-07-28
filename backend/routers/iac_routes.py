@@ -20,10 +20,10 @@ from typing import Any, Dict, Literal, Optional
 
 from routers.shared import (
     SESSION_STORE,
-    authorize_diagram_access,
+    authorize_diagram_access_async,
     get_api_key_service_principal,
     limiter,
-    persist_diagram_mutation,
+    persist_diagram_mutation_async,
     require_diagram_access,
     verify_api_key,
 )
@@ -221,7 +221,7 @@ async def generate_iac(
     ETag must match.  A mismatch returns HTTP 409 so that concurrent clients
     can detect and resolve conflicts instead of silently overwriting each other.
     """
-    session = authorize_diagram_access(request, diagram_id, purpose="generate IaC")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="generate IaC")
     iac_params = session.get("iac_parameters", {})
 
     # Optimistic concurrency guard: honour If-Match when code was previously
@@ -253,7 +253,7 @@ async def generate_iac(
     updated_session["iac_code_hash"] = _iac_code_hash(code)
     updated_session["iac_format"] = format
     new_etag = _store_iac_etag(updated_session, code)
-    persist_diagram_mutation(
+    await persist_diagram_mutation_async(
         request,
         diagram_id,
         updated_session,
@@ -290,7 +290,7 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
     """
     record_event("iac_chat_messages", {"diagram_id": diagram_id})
 
-    session = authorize_diagram_access(request, diagram_id, purpose="chat about IaC")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="chat about IaC")
     durable_history = session.get("iac_chat_history")
     if isinstance(durable_history, list) and not get_iac_chat_history(diagram_id):
         from iac_chat import IAC_CHAT_SESSIONS
@@ -338,7 +338,7 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
                 get_iac_chat_history(diagram_id)
             )
             new_etag = _store_iac_etag(updated_session, new_code)
-            persist_diagram_mutation(
+            await persist_diagram_mutation_async(
                 request,
                 diagram_id,
                 updated_session,
@@ -390,7 +390,7 @@ async def iac_chat_clear(
     updated_session = copy.deepcopy(_session)
     had_durable_history = bool(updated_session.get("iac_chat_history"))
     updated_session["iac_chat_history"] = []
-    persist_diagram_mutation(
+    await persist_diagram_mutation_async(
         request,
         diagram_id,
         updated_session,
@@ -424,7 +424,7 @@ async def generate_iac_async(
 
     principal = get_request_durable_principal(request)
     api_key_principal_id = get_api_key_service_principal(headers)
-    session = authorize_diagram_access(request, diagram_id, purpose="queue IaC generation")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="queue IaC generation")
     _enforce_iac_if_match(request, session)
     _check_architecture_blockers(diagram_id, session, force)
     queued_etag = _get_stored_etag(session)
@@ -689,7 +689,7 @@ async def generate_iac_scaffold(
     if format != "terraform":
         raise ArchmorphException(400, "Scaffold generation currently supports 'terraform' only")
 
-    session = authorize_diagram_access(request, diagram_id, purpose="generate IaC scaffold")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="generate IaC scaffold")
     iac_params = session.get("iac_parameters", {})
 
     try:

@@ -12,7 +12,7 @@ from typing import Optional
 import logging
 
 from database import SessionLocal
-from routers.shared import limiter, persist_diagram_mutation, require_diagram_access, verify_api_key
+from routers.shared import limiter, persist_diagram_mutation_async, require_diagram_access, verify_api_key
 from versioning import compare_versions, create_version, get_version
 
 logger = logging.getLogger(__name__)
@@ -60,7 +60,7 @@ async def save_version(
     from routers.shared import has_canonical_durable_principal
 
     if has_canonical_durable_principal(request):
-        result = persist_diagram_mutation(
+        result = await persist_diagram_mutation_async(
             request,
             diagram_id,
             analysis,
@@ -162,7 +162,7 @@ async def branch_version(
                 raise ArchmorphException(404, f"Version {version} not found for diagram {diagram_id}")
             import json
 
-            result = persist_diagram_mutation(
+            result = await persist_diagram_mutation_async(
                 request,
                 diagram_id,
                 json.loads(source.snapshot),

@@ -15,7 +15,7 @@ import logging
 from routers.shared import (
     generate_session_id,
     limiter,
-    persist_diagram_mutation,
+    persist_diagram_mutation_async,
     verify_api_key,
 )
 from usage_metrics import record_event, record_funnel_step
@@ -68,7 +68,7 @@ async def import_infrastructure(request: Request, body: InfraImportRequest, _aut
         logger.error("Infrastructure import failed: %s", e, exc_info=True)
         raise ArchmorphException(500, "Failed to parse infrastructure file")
 
-    persist_diagram_mutation(
+    await persist_diagram_mutation_async(
         request,
         diagram_id,
         analysis,

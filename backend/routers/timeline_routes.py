@@ -15,10 +15,11 @@ import json
 import logging
 
 from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
+from export_artifacts import persist_generated_export_async
 from routers.shared import (
-    authorize_diagram_access,
+    authorize_diagram_access_async,
     limiter,
-    persist_diagram_mutation,
+    persist_diagram_mutation_async,
     require_diagram_access,
     verify_api_key,
 )
@@ -47,13 +48,13 @@ async def create_migration_timeline(
     The timeline includes 7 phases, dependency-ordered services,
     parallel workstreams, and estimated durations per service.
     """
-    session = authorize_diagram_access(request, diagram_id, purpose="create a migration timeline")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="create a migration timeline")
 
     timeline = await asyncio.to_thread(generate_timeline, session, project_name)
 
     updated_session = dict(session)
     updated_session["migration_timeline"] = timeline
-    persist_diagram_mutation(
+    await persist_diagram_mutation_async(
         request,
         diagram_id,
         updated_session,
@@ -80,7 +81,7 @@ async def get_migration_timeline(
     _auth=Depends(verify_api_key),
 ):
     """Retrieve the previously generated migration timeline."""
-    session = authorize_diagram_access(request, diagram_id, purpose="view a migration timeline")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view a migration timeline")
     if not session or "migration_timeline" not in session:
         raise ArchmorphException(404, "Timeline not found. Generate one first via POST.")
 
@@ -97,7 +98,7 @@ async def export_migration_timeline(
     capability=Depends(verify_export_capability),
 ):
     """Export the migration timeline in JSON, Markdown, or CSV format."""
-    session = authorize_diagram_access(request, diagram_id, purpose="export a migration timeline")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="export a migration timeline")
     if not session or "migration_timeline" not in session:
         raise ArchmorphException(404, "Timeline not found. Generate one first via POST.")
 
@@ -116,6 +117,13 @@ async def export_migration_timeline(
         media_type = "application/json"
         extension = "json"
 
+    artifact = await persist_generated_export_async(
+        request,
+        diagram_id=diagram_id,
+        artifact_type=f"migration_timeline_export_{format}",
+        format=format,
+        content=content,
+    )
     consume_export_capability(capability)
     record_event("migration_timeline_exported", {
         "diagram_id": diagram_id,
@@ -127,6 +135,10 @@ async def export_migration_timeline(
         headers={
             "Content-Disposition": f'attachment; filename="timeline-{diagram_id}.{extension}"',
             "X-Artifact-SHA256": hashlib.sha256(content.encode("utf-8")).hexdigest(),
+            **({
+                "X-Artifact-ID": artifact.id,
+                "X-Analysis-Version-ID": artifact.version_id,
+            } if artifact is not None else {}),
             "X-Export-Capability-Next": issue_export_capability(diagram_id),
         },
     )

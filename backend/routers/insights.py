@@ -16,15 +16,18 @@ import hashlib
 import io
 import json
 import logging
+from functools import partial
+from starlette.concurrency import run_in_threadpool
 
 from routers.shared import (
     SESSION_STORE,
-    authorize_diagram_access,
+    authorize_diagram_access_async,
     limiter,
-    persist_diagram_mutation,
+    persist_diagram_mutation_async,
     require_diagram_access,
     verify_api_key,
 )
+from routers.shared import persist_diagram_mutation
 from usage_metrics import record_event
 from cost_optimizer import analyze_cost_optimizations
 from cost_assumptions import build_cost_assumptions_artifact
@@ -33,10 +36,17 @@ from terraform_preview import preview_terraform_plan
 from utils.chat_coercion import coerce_to_str_list
 from iac_generator import generate_iac_code
 from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
+from export_artifacts import persist_generated_export_async
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _persist_mutation(request, diagram_id, snapshot, **kwargs):
+    return await run_in_threadpool(
+        partial(persist_diagram_mutation, request, diagram_id, snapshot, **kwargs)
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -48,7 +58,7 @@ async def estimate_cost(request: Request, diagram_id: str, _auth=Depends(verify_
     """Estimate monthly Azure costs for the analysed architecture."""
     record_event("cost_estimates", {"diagram_id": diagram_id})
 
-    session = authorize_diagram_access(request, diagram_id, purpose="view cost estimates")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view cost estimates")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -89,7 +99,7 @@ async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify
     """
     record_event("cost_breakdown", {"diagram_id": diagram_id})
 
-    session = authorize_diagram_access(request, diagram_id, purpose="view cost breakdowns")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view cost breakdowns")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -261,7 +271,7 @@ async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify
 @limiter.limit("15/minute")
 async def get_cost_optimization(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get cost optimization recommendations for the architecture."""
-    analysis = authorize_diagram_access(request, diagram_id, purpose="view cost optimizations")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="view cost optimizations")
 
     answers = analysis.get("applied_answers", {})
     cost_estimate = analysis.get("cost_estimate")
@@ -284,7 +294,7 @@ async def preview_terraform_plan_endpoint(
     Uses simulation mode only — never executes real Terraform CLI
     to prevent Remote Code Execution via user-supplied HCL.
     """
-    analysis = authorize_diagram_access(request, diagram_id, purpose="preview Terraform")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="preview Terraform")
 
     iac_code = analysis.get("generated_iac")
     if not iac_code:
@@ -333,7 +343,7 @@ async def migration_chat(request: Request, diagram_id: str, _auth=Depends(verify
     Body: { "message": "user question" }
     Returns: { "reply": "...", "related_services": [...] }
     """
-    analysis = authorize_diagram_access(request, diagram_id, purpose="chat about migration insights")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="chat about migration insights")
 
     try:
         body = await request.json()
@@ -520,7 +530,7 @@ async def configure_cost_estimate(
     _auth=Depends(verify_api_key),
 ):
     """Update per-service cost configuration (instance count, SKU, reserved capacity)."""
-    session = authorize_diagram_access(request, diagram_id, purpose="configure cost estimates")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="configure cost estimates")
 
     overrides = copy.deepcopy(session.get("_cost_overrides", {}))
     for item in body.overrides:
@@ -532,7 +542,7 @@ async def configure_cost_estimate(
 
     updated_session = copy.deepcopy(session)
     updated_session["_cost_overrides"] = overrides
-    persist_diagram_mutation(
+    await _persist_mutation(
         request,
         diagram_id,
         updated_session,
@@ -549,7 +559,7 @@ async def configure_cost_estimate(
 @limiter.limit("30/minute")
 async def get_configured_cost(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get cost estimate with user-configured overrides applied."""
-    session = authorize_diagram_access(request, diagram_id, purpose="view configured cost estimates")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view configured cost estimates")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -588,10 +598,10 @@ async def get_configured_cost(request: Request, diagram_id: str, _auth=Depends(v
 @limiter.limit("15/minute")
 async def get_cost_assumptions(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Return a reviewable JSON artifact with cost-estimate assumptions."""
-    session = authorize_diagram_access(request, diagram_id, purpose="view cost assumptions")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view cost assumptions")
 
     artifact = build_cost_assumptions_artifact(session, analysis_id=diagram_id)
-    persist_diagram_mutation(
+    await persist_diagram_mutation_async(
         request,
         diagram_id,
         session,
@@ -607,7 +617,7 @@ async def get_cost_assumptions(request: Request, diagram_id: str, _auth=Depends(
 @limiter.limit("15/minute")
 async def get_ri_savings(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Show Reserved Instance savings vs pay-as-you-go pricing."""
-    session = authorize_diagram_access(request, diagram_id, purpose="view reserved instance savings")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view reserved instance savings")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -674,7 +684,7 @@ async def export_cost_csv(
     """Export cost breakdown as CSV with overrides applied."""
     from starlette.responses import Response
 
-    session = authorize_diagram_access(request, diagram_id, purpose="export cost estimates")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="export cost estimates")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -713,6 +723,13 @@ async def export_cost_csv(
     writer.writerow(["TOTAL", "", "", "", round(total_low, 2), round(total_high, 2), round(total_savings, 2), total_mid])
 
     csv_content = output.getvalue()
+    artifact = await persist_generated_export_async(
+        request,
+        diagram_id=diagram_id,
+        artifact_type="cost_estimate_export",
+        format="csv",
+        content=csv_content,
+    )
     consume_export_capability(capability)
     response = Response(
         content=csv_content,
@@ -720,6 +737,10 @@ async def export_cost_csv(
         headers={
             "Content-Disposition": f"attachment; filename=cost-estimate-{diagram_id}.csv",
             "X-Artifact-SHA256": hashlib.sha256(csv_content.encode("utf-8")).hexdigest(),
+            **({
+                "X-Artifact-ID": artifact.id,
+                "X-Analysis-Version-ID": artifact.version_id,
+            } if artifact is not None else {}),
         },
     )
     response.headers["X-Export-Capability-Next"] = issue_export_capability(diagram_id)

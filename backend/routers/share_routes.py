@@ -11,7 +11,7 @@ from typing import Optional, Literal
 import logging
 
 from routers.shared import (
-    authorize_diagram_access,
+    authorize_diagram_access_async,
     get_api_key_service_principal,
     limiter,
     require_diagram_access,
@@ -64,7 +64,7 @@ async def create_stakeholder_share(
     _auth=Depends(verify_api_key),
 ):
     """Generate a shareable stakeholder link with role-based views."""
-    analysis = authorize_diagram_access(request, diagram_id, purpose="create a share link")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="create a share link")
 
     # Extract creator identity when the request also carries an end-user session.
     creator_id = None

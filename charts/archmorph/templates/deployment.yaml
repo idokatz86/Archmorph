@@ -57,6 +57,14 @@ spec:
                   name: {{ include "archmorph.secretName" $ }}
                   key: {{ .secretKey }}
             {{- end }}
+            {{- range .Values.optionalSecretKeys }}
+            - name: {{ .secretKey }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "archmorph.secretName" $ }}
+                  key: {{ .secretKey }}
+                  optional: true
+            {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

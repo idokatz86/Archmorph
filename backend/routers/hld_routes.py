@@ -16,10 +16,10 @@ from typing import Any, Dict
 
 from routers.shared import (
     SESSION_STORE,
-    authorize_diagram_access,
+    authorize_diagram_access_async,
     get_api_key_service_principal,
     limiter,
-    persist_diagram_mutation,
+    persist_diagram_mutation_async,
     require_diagram_access,
     verify_api_key,
     verify_api_key_or_user_session,
@@ -33,6 +33,7 @@ from hld_export import export_hld, SUPPORTED_FORMATS
 from services.azure_pricing import estimate_services_cost
 from diagram_export import generate_diagram
 from export_capabilities import _principal_marker, attach_export_capability, consume_export_capability, verify_export_capability
+from export_artifacts import persist_generated_export_async
 
 logger = logging.getLogger(__name__)
 
@@ -73,7 +74,7 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
     """Generate a comprehensive High-Level Design document."""
     record_event("hld_generated", {"diagram_id": diagram_id})
 
-    session = authorize_diagram_access(request, diagram_id, purpose="generate an HLD")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="generate an HLD")
 
     updated_session = copy.deepcopy(session)
     analysis = updated_session
@@ -106,7 +107,7 @@ async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends
     # Store in session — must write back to store for Redis compatibility
     updated_session["hld"] = hld
     updated_session["hld_markdown"] = markdown
-    persist_diagram_mutation(
+    await persist_diagram_mutation_async(
         request,
         diagram_id,
         updated_session,
@@ -157,7 +158,7 @@ async def _ensure_hld(request: Request, session: dict, diagram_id: str) -> dict:
         markdown = diagrams_compat.generate_hld_markdown(hld)
         updated_session["hld"] = hld
         updated_session["hld_markdown"] = markdown
-        persist_diagram_mutation(
+        await persist_diagram_mutation_async(
             request,
             diagram_id,
             updated_session,
@@ -178,7 +179,7 @@ async def _ensure_hld(request: Request, session: dict, diagram_id: str) -> dict:
 @limiter.limit("30/minute")
 async def get_hld(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get previously generated HLD document."""
-    session = authorize_diagram_access(request, diagram_id, purpose="view an HLD")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view an HLD")
     session = await _ensure_hld(request, session, diagram_id)
     if "hld" not in session:
         raise ArchmorphException(404, "No HLD found. Generate one first.")
@@ -218,7 +219,7 @@ async def export_hld_endpoint(
     include_diagrams = request.query_params.get("include_diagrams", "true").lower() == "true"
     export_mode = request.query_params.get("export_mode", "internal").lower()
 
-    session = authorize_diagram_access(request, diagram_id, purpose="export an HLD")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="export an HLD")
     session = await _ensure_hld(request, session, diagram_id)
     if "hld" not in session:
         raise ArchmorphException(404, "No HLD found. Generate one first.")
@@ -282,6 +283,18 @@ async def export_hld_endpoint(
         logger.error("HLD export failed: %s", str(e).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
         raise ArchmorphException(500, "Export failed. Please try again or contact support.")
 
+    export_bytes = base64.b64decode(result["content_b64"], validate=True)
+    artifact = await persist_generated_export_async(
+        request,
+        diagram_id=diagram_id,
+        artifact_type=f"hld_export_{fmt}_{export_mode}",
+        format=fmt,
+        content=export_bytes,
+        force_blob=True,
+    )
+    if artifact is not None:
+        result["artifact_id"] = artifact.id
+        result["version_id"] = artifact.version_id
     consume_export_capability(capability)
     return attach_export_capability(result, diagram_id, principal_marker=_principal_marker(request))
 
@@ -304,7 +317,7 @@ async def generate_hld_async(
     user = get_user_from_request_headers(headers)
     principal = get_request_durable_principal(request)
     api_key_principal_id = get_api_key_service_principal(headers)
-    session = authorize_diagram_access(request, diagram_id, purpose="queue HLD generation")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="queue HLD generation")
     analysis_hash = _hld_generation_input_hash(session)
 
     try:
@@ -508,7 +521,7 @@ async def export_migration_package(
     import json
     import zipfile
 
-    session = authorize_diagram_access(request, diagram_id, purpose="export a migration package")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="export a migration package")
 
     # Parse options
     iac_format = "terraform"
@@ -707,10 +720,23 @@ Generated by Archmorph v{version}
 
     record_event("migration_package_exported", {"diagram_id": diagram_id, "iac_format": iac_format})
 
+    package_bytes = buf.getvalue()
+    artifact = await persist_generated_export_async(
+        request,
+        diagram_id=diagram_id,
+        artifact_type=f"migration_package_{iac_format}_{'diagrams' if include_diagrams else 'no_diagrams'}",
+        format="zip",
+        content=package_bytes,
+        force_blob=True,
+    )
     consume_export_capability(capability)
     return attach_export_capability({
         "filename": "archmorph-migration-package.zip",
         "content_type": "application/zip",
         "content_b64": content_b64,
-        "size_bytes": len(buf.getvalue()),
+        "size_bytes": len(package_bytes),
+        **({
+            "artifact_id": artifact.id,
+            "version_id": artifact.version_id,
+        } if artifact is not None else {}),
     }, diagram_id, principal_marker=_principal_marker(request))

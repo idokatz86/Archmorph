@@ -4183,13 +4183,12 @@
           "status": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/WorkspaceStatusValue"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Status"
+            ]
           },
           "target_cloud": {
             "anyOf": [
@@ -4246,6 +4245,14 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "WorkspaceStatusValue": {
+        "enum": [
+          "active",
+          "archived"
+        ],
+        "title": "WorkspaceStatusValue",
+        "type": "string"
       }
     },
     "securitySchemes": {
@@ -13829,7 +13836,7 @@
     },
     "/api/replay/events": {
       "post": {
-        "description": "Add an event to an existing replay recording.",
+        "description": "Append an event to a canonical replay recording.",
         "operationId": "add_event_api_replay_events_post",
         "requestBody": {
           "content": {
@@ -13874,7 +13881,7 @@
     },
     "/api/replay/record": {
       "post": {
-        "description": "Start a new replay recording linked to an analysis.",
+        "description": "Start a new replay recording linked to an immutable analysis version.",
         "operationId": "start_recording_api_replay_record_post",
         "requestBody": {
           "content": {
@@ -13919,7 +13926,7 @@
     },
     "/api/replay/{replay_id}": {
       "get": {
-        "description": "Get full replay with all events.",
+        "description": "Get the full canonical replay with all events.",
         "operationId": "get_replay_api_replay__replay_id__get",
         "parameters": [
           {
@@ -13965,7 +13972,7 @@
     },
     "/api/replay/{replay_id}/export": {
       "get": {
-        "description": "Export replay as a JSON timeline.",
+        "description": "Export replay JSON bound to the version recorded at replay start.",
         "operationId": "export_replay_api_replay__replay_id__export_get",
         "parameters": [
           {
@@ -14011,7 +14018,7 @@
     },
     "/api/replays": {
       "get": {
-        "description": "List recent replays with pagination (max 20 per page).",
+        "description": "List recent canonical replays with bounded pagination.",
         "operationId": "list_replays_api_replays_get",
         "parameters": [
           {
@@ -25154,7 +25161,7 @@
     },
     "/api/v1/replay/events": {
       "post": {
-        "description": "Add an event to an existing replay recording.",
+        "description": "Append an event to a canonical replay recording.",
         "operationId": "add_event_v1_api_v1_replay_events_post",
         "requestBody": {
           "content": {
@@ -25200,7 +25207,7 @@
     },
     "/api/v1/replay/record": {
       "post": {
-        "description": "Start a new replay recording linked to an analysis.",
+        "description": "Start a new replay recording linked to an immutable analysis version.",
         "operationId": "start_recording_v1_api_v1_replay_record_post",
         "requestBody": {
           "content": {
@@ -25246,7 +25253,7 @@
     },
     "/api/v1/replay/{replay_id}": {
       "get": {
-        "description": "Get full replay with all events.",
+        "description": "Get the full canonical replay with all events.",
         "operationId": "get_replay_v1_api_v1_replay__replay_id__get",
         "parameters": [
           {
@@ -25293,7 +25300,7 @@
     },
     "/api/v1/replay/{replay_id}/export": {
       "get": {
-        "description": "Export replay as a JSON timeline.",
+        "description": "Export replay JSON bound to the version recorded at replay start.",
         "operationId": "export_replay_v1_api_v1_replay__replay_id__export_get",
         "parameters": [
           {
@@ -25340,7 +25347,7 @@
     },
     "/api/v1/replays": {
       "get": {
-        "description": "List recent replays with pagination (max 20 per page).",
+        "description": "List recent canonical replays with bounded pagination.",
         "operationId": "list_replays_v1_api_v1_replays_get",
         "parameters": [
           {
@@ -27305,7 +27312,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/WorkspaceStatusValue"
                 },
                 {
                   "type": "null"
@@ -27974,7 +27981,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/WorkspaceStatusValue"
                 },
                 {
                   "type": "null"

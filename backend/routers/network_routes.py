@@ -10,9 +10,9 @@ import json
 import logging
 
 from routers.shared import (
-    authorize_diagram_access,
+    authorize_diagram_access_async,
     limiter,
-    persist_diagram_mutation,
+    persist_diagram_mutation_async,
     require_diagram_access,
     verify_api_key,
 )
@@ -64,7 +64,7 @@ async def generate_network_topology(
     constructs (VPC, subnets, security groups, route tables), and produces
     an Azure-equivalent VNet plan with NSGs, route tables, and NAT gateway.
     """
-    session = authorize_diagram_access(request, diagram_id, purpose="generate network topology")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="generate network topology")
 
     analysis = session.get("analysis")
     if not analysis:
@@ -109,7 +109,7 @@ async def generate_network_topology(
     result = topology.to_dict()
     updated_session = dict(session)
     updated_session["network_topology"] = result
-    persist_diagram_mutation(
+    await persist_diagram_mutation_async(
         request,
         diagram_id,
         updated_session,
@@ -143,7 +143,7 @@ async def get_network_topology(
 
     Returns 404 if no topology has been generated yet.
     """
-    session = authorize_diagram_access(request, diagram_id, purpose="view network topology")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view network topology")
     cached = session.get("network_topology")
     if not cached:
         raise ArchmorphException(

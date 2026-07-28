@@ -110,6 +110,12 @@ externalSecrets:
     - secretKey: ARCHMORPH_API_KEY
       remoteRef:
         key: api-key
+    - secretKey: ARCHMORPH_API_KEY_ROTATED
+      remoteRef:
+        key: api-key-rotated
+    - secretKey: ARCHMORPH_API_KEY_PRINCIPAL_ID
+      remoteRef:
+        key: api-key-principal-id
     - secretKey: JWT_SECRET
       remoteRef:
         key: jwt-secret
@@ -126,7 +132,11 @@ requiredSecretKeys:
   - secretKey: APPLICATIONINSIGHTS_CONNECTION_STRING
   - secretKey: ARCHMORPH_ADMIN_KEY
   - secretKey: ARCHMORPH_API_KEY
+  - secretKey: ARCHMORPH_API_KEY_PRINCIPAL_ID
   - secretKey: JWT_SECRET
+
+optionalSecretKeys:
+  - secretKey: ARCHMORPH_API_KEY_ROTATED
 
 # Alembic is a pre-install/pre-upgrade hook. One Job replica runs the
 # advisory-lock guarded migration before any application pod is rolled out.

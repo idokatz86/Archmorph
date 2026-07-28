@@ -49,12 +49,29 @@ def require_export_capabilities(monkeypatch):
 
 @pytest.fixture()
 def diagram_id():
+    from database import SessionLocal
+    from workspace_store import persist_analysis_state
+
     did = "capability-boundary-diagram"
-    SESSION_STORE[did] = {
+    snapshot = {
         **dict(SAMPLE_ANALYSIS),
+        "is_starter": True,
         "_owner_user_id": "cap-owner",
         "_tenant_id": "cap-tenant",
     }
+    db = SessionLocal()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id="cap-owner",
+            tenant_id="cap-tenant",
+            diagram_id=did,
+            snapshot=snapshot,
+            session_store=SESSION_STORE,
+            cache_required=True,
+        )
+    finally:
+        db.close()
     yield did
     try:
         del SESSION_STORE[did]
@@ -165,13 +182,42 @@ def test_diagram_export_accepts_bearer_session_with_capability_when_api_key_conf
 
 
 def test_valid_capability_survives_route_failure_before_export_success(test_client, diagram_id, auth_headers):
+    from database import SessionLocal
+    from models.workspace import Analysis
+    from workspace_store import persist_analysis_state
+
     token = issue_export_capability(diagram_id)
     SESSION_STORE.delete(diagram_id)
+    db = SessionLocal()
+    try:
+        db.query(Analysis).filter_by(
+            diagram_id=diagram_id,
+            owner_user_id="cap-owner",
+            tenant_id="cap-tenant",
+        ).delete()
+        db.commit()
+    finally:
+        db.close()
 
     failed = _export_package(test_client, diagram_id, auth_headers, token)
-    SESSION_STORE[diagram_id] = dict(SAMPLE_ANALYSIS)
-    SESSION_STORE[diagram_id]["_owner_user_id"] = "cap-owner"
-    SESSION_STORE[diagram_id]["_tenant_id"] = "cap-tenant"
+    db = SessionLocal()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id="cap-owner",
+            tenant_id="cap-tenant",
+            diagram_id=diagram_id,
+            snapshot={
+                **dict(SAMPLE_ANALYSIS),
+                "is_starter": True,
+                "_owner_user_id": "cap-owner",
+                "_tenant_id": "cap-tenant",
+            },
+            session_store=SESSION_STORE,
+            cache_required=True,
+        )
+    finally:
+        db.close()
     retried = _export_package(test_client, diagram_id, auth_headers, token)
 
     assert failed.status_code == 404

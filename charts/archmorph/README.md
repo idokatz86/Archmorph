@@ -15,6 +15,8 @@ Required keys (values are never committed):
 - `APPLICATIONINSIGHTS_CONNECTION_STRING`
 - `ARCHMORPH_ADMIN_KEY`
 - `ARCHMORPH_API_KEY`
+- `ARCHMORPH_API_KEY_ROTATED` (current credential during static-key rotation)
+- `ARCHMORPH_API_KEY_PRINCIPAL_ID` (stable non-secret durable principal ID)
 - `JWT_SECRET`
 
 Use placeholder remote keys in public examples. Supply real secret-store names,

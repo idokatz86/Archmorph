@@ -247,7 +247,22 @@ def test_shared_report_get_is_public_but_stats_and_delete_require_owner(
 
 def test_replay_get_denies_cross_tenant_access(test_client, tenant_a_auth_headers, tenant_b_auth_headers):
     diagram_id = "replay-owner-diagram"
-    SESSION_STORE[diagram_id] = _owned_session(owner_user_id="user-a-001", tenant_id="tenant-a")
+    from database import SessionLocal
+    from workspace_store import persist_analysis_state
+
+    db = SessionLocal()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id="user-a-001",
+            tenant_id="tenant-a",
+            diagram_id=diagram_id,
+            snapshot=_owned_session(owner_user_id="user-a-001", tenant_id="tenant-a"),
+            session_store=SESSION_STORE,
+            cache_required=True,
+        )
+    finally:
+        db.close()
 
     created = test_client.post(
         "/api/replay/record",

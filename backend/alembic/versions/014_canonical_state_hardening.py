@@ -90,6 +90,50 @@ def _audit(
     )
 
 
+def _alias(
+    bind,
+    aliases,
+    *,
+    source_owner_user_id: str,
+    source_tenant_id: str,
+    target_owner_user_id: str | None,
+    target_tenant_id: str | None,
+    entity_type: str,
+    source_entity_id: str,
+    target_entity_id: str | None,
+    status: str,
+    reason: str | None = None,
+) -> None:
+    existing = bind.execute(
+        sa.select(aliases.c.id).where(
+            aliases.c.source_owner_user_id == source_owner_user_id,
+            aliases.c.source_tenant_id == source_tenant_id,
+            aliases.c.entity_type == entity_type,
+            aliases.c.source_entity_id == source_entity_id,
+        )
+    ).first()
+    values = {
+        "target_owner_user_id": target_owner_user_id,
+        "target_tenant_id": target_tenant_id,
+        "target_entity_id": target_entity_id,
+        "status": status,
+        "reason": reason,
+    }
+    if existing is None:
+        bind.execute(
+            aliases.insert().values(
+                id=str(uuid.uuid4()),
+                source_owner_user_id=source_owner_user_id,
+                source_tenant_id=source_tenant_id,
+                entity_type=entity_type,
+                source_entity_id=source_entity_id,
+                **values,
+            )
+        )
+    else:
+        bind.execute(aliases.update().where(aliases.c.id == existing.id).values(**values))
+
+
 def _deduplicate_analyses(bind, tables, audit) -> None:
     analyses = tables["analyses"]
     versions = tables["analysis_versions"]
@@ -286,7 +330,7 @@ def _deduplicate_artifacts(bind, tables, audit) -> None:
         )
 
 
-def _rehome_legacy_identities(bind, tables, audit) -> None:
+def _rehome_legacy_identities(bind, tables, audit, aliases) -> None:
     analyses = tables["analyses"]
     identities: set[tuple[str, str]] = set()
     for table_name in _TENANT_TABLES:
@@ -305,7 +349,9 @@ def _rehome_legacy_identities(bind, tables, audit) -> None:
     for owner_user_id, source_tenant_id in sorted(identities):
         target_tenant_id = _legacy_tenant_scope(owner_user_id, source_tenant_id)
         assert target_tenant_id is not None
-        conflicts = bind.execute(
+        conflicts = {
+            str(value)
+            for value in bind.execute(
             sa.select(analyses.c.diagram_id)
             .where(
                 analyses.c.owner_user_id == owner_user_id,
@@ -314,7 +360,8 @@ def _rehome_legacy_identities(bind, tables, audit) -> None:
             )
             .group_by(analyses.c.diagram_id)
             .having(sa.func.count(sa.distinct(analyses.c.tenant_id)) > 1)
-        ).scalars().all()
+            ).scalars().all()
+        }
         if conflicts:
             _audit(
                 bind,
@@ -323,31 +370,132 @@ def _rehome_legacy_identities(bind, tables, audit) -> None:
                 source_tenant_id=source_tenant_id,
                 target_tenant_id=target_tenant_id,
                 status="conflict_retained",
-                details={"diagram_ids": sorted(str(value) for value in conflicts)},
+                details={"diagram_ids": sorted(conflicts)},
             )
-            continue
+        legacy_workspaces = bind.execute(
+            sa.select(tables["workspaces"].c.id).where(
+                tables["workspaces"].c.owner_user_id == owner_user_id,
+                tables["workspaces"].c.tenant_id == source_tenant_id,
+            )
+        ).scalars().all()
+        row_counts = {table_name: 0 for table_name in _TENANT_TABLES}
+        quarantined_workspaces: list[str] = []
+        for workspace_id_value in legacy_workspaces:
+            workspace_id = str(workspace_id_value)
+            workspace_analyses = bind.execute(
+                sa.select(analyses.c.id, analyses.c.diagram_id).where(
+                    analyses.c.workspace_id == workspace_id,
+                    analyses.c.owner_user_id == owner_user_id,
+                    analyses.c.tenant_id == source_tenant_id,
+                )
+            ).all()
+            workspace_conflicts = [
+                str(row.diagram_id)
+                for row in workspace_analyses
+                if row.diagram_id is not None and str(row.diagram_id) in conflicts
+            ]
+            if workspace_conflicts:
+                quarantined_workspaces.append(workspace_id)
+                _alias(
+                    bind,
+                    aliases,
+                    source_owner_user_id=owner_user_id,
+                    source_tenant_id=source_tenant_id,
+                    target_owner_user_id=None,
+                    target_tenant_id=target_tenant_id,
+                    entity_type="workspace",
+                    source_entity_id=workspace_id,
+                    target_entity_id=None,
+                    status="quarantined",
+                    reason="target_diagram_conflict",
+                )
+                for row in workspace_analyses:
+                    _alias(
+                        bind,
+                        aliases,
+                        source_owner_user_id=owner_user_id,
+                        source_tenant_id=source_tenant_id,
+                        target_owner_user_id=None,
+                        target_tenant_id=target_tenant_id,
+                        entity_type="analysis",
+                        source_entity_id=str(row.id),
+                        target_entity_id=None,
+                        status="quarantined",
+                        reason=(
+                            "target_diagram_conflict"
+                            if row.diagram_id is not None and str(row.diagram_id) in conflicts
+                            else "workspace_contains_conflict"
+                        ),
+                    )
+                continue
 
-        row_counts: dict[str, int] = {}
-        for table_name in _TENANT_TABLES:
-            table = tables[table_name]
-            predicate = sa.and_(
-                table.c.owner_user_id == owner_user_id,
-                table.c.tenant_id == source_tenant_id,
-            )
+            analysis_ids = [str(row.id) for row in workspace_analyses]
+            for table_name, predicate in (
+                ("source_assets", tables["source_assets"].c.workspace_id == workspace_id),
+                ("artifacts", tables["artifacts"].c.analysis_id.in_(analysis_ids)),
+                ("decisions", tables["decisions"].c.analysis_id.in_(analysis_ids)),
+            ):
+                table = tables[table_name]
+                result = bind.execute(
+                    table.update().where(
+                        predicate,
+                        table.c.owner_user_id == owner_user_id,
+                        table.c.tenant_id == source_tenant_id,
+                    ).values(tenant_id=target_tenant_id)
+                )
+                row_counts[table_name] += int(result.rowcount or 0)
             result = bind.execute(
-                table.update()
-                .where(predicate)
-                .values(tenant_id=target_tenant_id)
+                analyses.update().where(
+                    analyses.c.id.in_(analysis_ids),
+                    analyses.c.owner_user_id == owner_user_id,
+                    analyses.c.tenant_id == source_tenant_id,
+                ).values(tenant_id=target_tenant_id)
             )
-            row_counts[table_name] = int(result.rowcount or 0)
+            row_counts["analyses"] += int(result.rowcount or 0)
+            result = bind.execute(
+                tables["workspaces"].update().where(
+                    tables["workspaces"].c.id == workspace_id,
+                    tables["workspaces"].c.owner_user_id == owner_user_id,
+                    tables["workspaces"].c.tenant_id == source_tenant_id,
+                ).values(tenant_id=target_tenant_id)
+            )
+            row_counts["workspaces"] += int(result.rowcount or 0)
+            _alias(
+                bind,
+                aliases,
+                source_owner_user_id=owner_user_id,
+                source_tenant_id=source_tenant_id,
+                target_owner_user_id=owner_user_id,
+                target_tenant_id=target_tenant_id,
+                entity_type="workspace",
+                source_entity_id=workspace_id,
+                target_entity_id=workspace_id,
+                status="rehomed",
+            )
+            for row in workspace_analyses:
+                _alias(
+                    bind,
+                    aliases,
+                    source_owner_user_id=owner_user_id,
+                    source_tenant_id=source_tenant_id,
+                    target_owner_user_id=owner_user_id,
+                    target_tenant_id=target_tenant_id,
+                    entity_type="analysis",
+                    source_entity_id=str(row.id),
+                    target_entity_id=str(row.id),
+                    status="rehomed",
+                )
         _audit(
             bind,
             audit,
             owner_user_id=owner_user_id,
             source_tenant_id=source_tenant_id,
             target_tenant_id=target_tenant_id,
-            status="rehome_completed",
-            details={"row_counts": row_counts},
+            status="rehome_completed" if any(row_counts.values()) else "conflict_retained",
+            details={
+                "row_counts": row_counts,
+                "quarantined_workspace_ids": quarantined_workspaces,
+            },
         )
 
 
@@ -415,9 +563,66 @@ def upgrade() -> None:
     op.create_index("ix_tenant_rehome_audit_owner", "tenant_rehome_audit", ["owner_user_id"])
     op.create_index("ix_tenant_rehome_audit_status", "tenant_rehome_audit", ["status"])
 
+    op.create_table(
+        "tenant_rehome_aliases",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("source_owner_user_id", sa.String(100), nullable=False),
+        sa.Column("source_tenant_id", sa.String(100), nullable=False),
+        sa.Column("target_owner_user_id", sa.String(100), nullable=True),
+        sa.Column("target_tenant_id", sa.String(100), nullable=True),
+        sa.Column("entity_type", sa.String(20), nullable=False),
+        sa.Column("source_entity_id", sa.String(100), nullable=False),
+        sa.Column("target_entity_id", sa.String(100), nullable=True),
+        sa.Column("status", sa.String(20), nullable=False),
+        sa.Column("reason", sa.String(100), nullable=True),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.CheckConstraint(
+            "entity_type IN ('workspace', 'analysis')",
+            name="ck_tenant_rehome_aliases_entity_type",
+        ),
+        sa.CheckConstraint(
+            "status IN ('rehomed', 'quarantined')",
+            name="ck_tenant_rehome_aliases_status",
+        ),
+    )
+    op.create_index(
+        "ux_tenant_rehome_aliases_source",
+        "tenant_rehome_aliases",
+        ["source_owner_user_id", "source_tenant_id", "entity_type", "source_entity_id"],
+        unique=True,
+    )
+    op.create_index(
+        "ix_tenant_rehome_aliases_target",
+        "tenant_rehome_aliases",
+        ["target_owner_user_id", "target_tenant_id"],
+    )
+
     op.add_column(
         "workspaces",
         sa.Column("is_default", sa.Boolean(), nullable=False, server_default=sa.false()),
+    )
+
+    op.create_table(
+        "api_key_credentials",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("principal_id", sa.String(100), nullable=False),
+        sa.Column("name", sa.String(128), nullable=False),
+        sa.Column("key_hash", sa.String(64), nullable=False),
+        sa.Column("key_prefix", sa.String(12), nullable=False),
+        sa.Column("scopes", sa.Text(), nullable=False),
+        sa.Column("rate_limit", sa.Integer(), nullable=False, server_default="100"),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("expires_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("revoked", sa.Boolean(), nullable=False, server_default=sa.false()),
+        sa.Column("last_used_at", sa.DateTime(timezone=True), nullable=True),
+    )
+    op.create_index("ux_api_key_credentials_key_hash", "api_key_credentials", ["key_hash"], unique=True)
+    op.create_index("ix_api_key_credentials_principal_id", "api_key_credentials", ["principal_id"])
+    op.create_index(
+        "ix_api_key_credentials_active",
+        "api_key_credentials",
+        ["principal_id", "revoked"],
     )
 
     op.create_table(
@@ -571,6 +776,84 @@ def upgrade() -> None:
         ["analysis_id"],
     )
 
+    dialect_name = context.get_context().dialect.name
+    if dialect_name == "postgresql":
+        op.create_unique_constraint(
+            "uq_analysis_versions_analysis_id_id",
+            "analysis_versions",
+            ["analysis_id", "id"],
+        )
+        op.create_foreign_key(
+            "fk_analysis_versions_restored_from",
+            "analysis_versions",
+            "analysis_versions",
+            ["analysis_id", "restored_from"],
+            ["analysis_id", "version_number"],
+            ondelete="RESTRICT",
+        )
+        op.drop_constraint("decisions_version_id_fkey", "decisions", type_="foreignkey")
+        op.create_foreign_key(
+            "fk_decisions_analysis_version",
+            "decisions",
+            "analysis_versions",
+            ["analysis_id", "version_id"],
+            ["analysis_id", "id"],
+            ondelete="RESTRICT",
+        )
+        op.create_check_constraint(
+            "ck_workspaces_status",
+            "workspaces",
+            "status IN ('active', 'archived', 'deleting')",
+        )
+
+    op.create_table(
+        "migration_replays",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column("analysis_id", sa.String(36), nullable=False),
+        sa.Column("version_id", sa.String(36), nullable=False),
+        sa.Column("diagram_id", sa.String(50), nullable=False),
+        sa.Column("owner_user_id", sa.String(100), nullable=False),
+        sa.Column("tenant_id", sa.String(100), nullable=False),
+        sa.Column("title", sa.String(256), nullable=False),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column("updated_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.ForeignKeyConstraint(["analysis_id"], ["analyses.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(
+            ["analysis_id", "version_id"],
+            ["analysis_versions.analysis_id", "analysis_versions.id"],
+            name="fk_migration_replays_analysis_version",
+            ondelete="RESTRICT",
+        ),
+    )
+    op.create_index("ix_migration_replays_analysis_id", "migration_replays", ["analysis_id"])
+    op.create_index("ix_migration_replays_diagram_id", "migration_replays", ["diagram_id"])
+    op.create_index(
+        "ix_migration_replays_scope_created",
+        "migration_replays",
+        ["owner_user_id", "tenant_id", "created_at"],
+    )
+    op.create_table(
+        "migration_replay_events",
+        sa.Column("id", sa.String(36), primary_key=True),
+        sa.Column(
+            "replay_id",
+            sa.String(36),
+            sa.ForeignKey("migration_replays.id", ondelete="CASCADE"),
+            nullable=False,
+        ),
+        sa.Column("sequence", sa.Integer(), nullable=False),
+        sa.Column("event_type", sa.String(40), nullable=False),
+        sa.Column("data", sa.Text(), nullable=False, server_default="{}"),
+        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+    )
+    op.create_index("ix_migration_replay_events_replay_id", "migration_replay_events", ["replay_id"])
+    op.create_index(
+        "ux_migration_replay_events_sequence",
+        "migration_replay_events",
+        ["replay_id", "sequence"],
+        unique=True,
+    )
+
     if not context.is_offline_mode():
         bind = op.get_bind()
         metadata = sa.MetaData()
@@ -580,10 +863,12 @@ def upgrade() -> None:
                 *list(_TENANT_TABLES),
                 "analysis_versions",
                 "tenant_rehome_audit",
+                "tenant_rehome_aliases",
             ],
         )
         audit = metadata.tables["tenant_rehome_audit"]
-        _rehome_legacy_identities(bind, metadata.tables, audit)
+        aliases = metadata.tables["tenant_rehome_aliases"]
+        _rehome_legacy_identities(bind, metadata.tables, audit, aliases)
         _deduplicate_analyses(bind, metadata.tables, audit)
         _deduplicate_artifacts(bind, metadata.tables, audit)
         _elect_default_workspaces(bind, metadata.tables["workspaces"], audit)
@@ -631,9 +916,34 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    op.drop_index("ux_migration_replay_events_sequence", table_name="migration_replay_events")
+    op.drop_index("ix_migration_replay_events_replay_id", table_name="migration_replay_events")
+    op.drop_table("migration_replay_events")
+    op.drop_index("ix_migration_replays_scope_created", table_name="migration_replays")
+    op.drop_index("ix_migration_replays_diagram_id", table_name="migration_replays")
+    op.drop_index("ix_migration_replays_analysis_id", table_name="migration_replays")
+    op.drop_table("migration_replays")
+    dialect_name = context.get_context().dialect.name
+    if dialect_name == "postgresql":
+        op.drop_constraint("ck_workspaces_status", "workspaces", type_="check")
+        op.drop_constraint("fk_decisions_analysis_version", "decisions", type_="foreignkey")
+        op.create_foreign_key(
+            "decisions_version_id_fkey",
+            "decisions",
+            "analysis_versions",
+            ["version_id"],
+            ["id"],
+            ondelete="SET NULL",
+        )
+        op.drop_constraint("fk_analysis_versions_restored_from", "analysis_versions", type_="foreignkey")
+        op.drop_constraint("uq_analysis_versions_analysis_id_id", "analysis_versions", type_="unique")
     op.drop_index("ix_analysis_mutation_receipts_analysis", table_name="analysis_mutation_receipts")
     op.drop_index("ux_analysis_mutation_receipts_scope", table_name="analysis_mutation_receipts")
     op.drop_table("analysis_mutation_receipts")
+    op.drop_index("ix_api_key_credentials_active", table_name="api_key_credentials")
+    op.drop_index("ix_api_key_credentials_principal_id", table_name="api_key_credentials")
+    op.drop_index("ux_api_key_credentials_key_hash", table_name="api_key_credentials")
+    op.drop_table("api_key_credentials")
     op.drop_index("ux_purge_operations_scope", table_name="purge_operations")
     op.drop_index("ix_purge_operations_status", table_name="purge_operations")
     op.drop_table("purge_operations")
@@ -656,6 +966,9 @@ def downgrade() -> None:
     op.drop_index("ux_analyses_owner_no_tenant_diagram", table_name="analyses")
     op.drop_index("ux_analyses_owner_tenant_diagram", table_name="analyses")
     op.drop_column("workspaces", "is_default")
+    op.drop_index("ix_tenant_rehome_aliases_target", table_name="tenant_rehome_aliases")
+    op.drop_index("ux_tenant_rehome_aliases_source", table_name="tenant_rehome_aliases")
+    op.drop_table("tenant_rehome_aliases")
     op.drop_index("ix_tenant_rehome_audit_status", table_name="tenant_rehome_audit")
     op.drop_index("ix_tenant_rehome_audit_owner", table_name="tenant_rehome_audit")
     op.drop_table("tenant_rehome_audit")

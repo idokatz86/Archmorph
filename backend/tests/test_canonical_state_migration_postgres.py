@@ -183,6 +183,81 @@ def test_seeded_013_014_013_014_roundtrip_preserves_all_rows_and_long_tenants():
         engine.dispose()
 
 
+def test_migration_rehomes_clean_workspaces_and_quarantines_only_conflict():
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    owner = "github_conflict-owner"
+    source_tenant = f"github:{owner}"
+    target_tenant = _idp_scope("github", "conflict-owner")
+    ids = {
+        name: str(uuid.uuid4())
+        for name in (
+            "target_workspace",
+            "target_analysis",
+            "clean_workspace_one",
+            "clean_analysis_one",
+            "clean_workspace_two",
+            "clean_analysis_two",
+            "conflict_workspace",
+            "conflict_analysis",
+        )
+    }
+    try:
+        _reset_database(engine)
+        command.upgrade(config, "013")
+        with engine.begin() as connection:
+            connection.execute(text("""
+                INSERT INTO workspaces
+                    (id, owner_user_id, tenant_id, name, source_cloud, target_cloud, status, is_public)
+                VALUES
+                    (:target_workspace, :owner, :target_tenant, 'Target', 'aws', 'azure', 'active', false),
+                    (:clean_workspace_one, :owner, :source_tenant, 'Clean one', 'aws', 'azure', 'active', false),
+                    (:clean_workspace_two, :owner, :source_tenant, 'Clean two', 'aws', 'azure', 'active', false),
+                    (:conflict_workspace, :owner, :source_tenant, 'Conflict', 'aws', 'azure', 'active', false)
+            """), {**ids, "owner": owner, "source_tenant": source_tenant, "target_tenant": target_tenant})
+            connection.execute(text("""
+                INSERT INTO analyses
+                    (id, workspace_id, owner_user_id, tenant_id, diagram_id, source_cloud,
+                     target_cloud, status, services_detected, current_version)
+                VALUES
+                    (:target_analysis, :target_workspace, :owner, :target_tenant, 'same-diagram', 'aws', 'azure', 'completed', 0, 0),
+                    (:clean_analysis_one, :clean_workspace_one, :owner, :source_tenant, 'clean-one', 'aws', 'azure', 'completed', 0, 0),
+                    (:clean_analysis_two, :clean_workspace_two, :owner, :source_tenant, 'clean-two', 'aws', 'azure', 'completed', 0, 0),
+                    (:conflict_analysis, :conflict_workspace, :owner, :source_tenant, 'same-diagram', 'aws', 'azure', 'completed', 0, 0)
+            """), {**ids, "owner": owner, "source_tenant": source_tenant, "target_tenant": target_tenant})
+
+        command.upgrade(config, "014")
+        with engine.connect() as connection:
+            migrated = connection.execute(text("""
+                SELECT diagram_id FROM analyses
+                WHERE owner_user_id = :owner AND tenant_id = :target_tenant
+                ORDER BY diagram_id
+            """), {"owner": owner, "target_tenant": target_tenant}).scalars().all()
+            assert migrated == ["clean-one", "clean-two", "same-diagram"]
+            retained = connection.execute(text("""
+                SELECT diagram_id FROM analyses
+                WHERE owner_user_id = :owner AND tenant_id = :source_tenant
+            """), {"owner": owner, "source_tenant": source_tenant}).scalars().all()
+            assert retained == ["same-diagram"]
+            alias_statuses = connection.execute(text("""
+                SELECT source_entity_id, status FROM tenant_rehome_aliases
+                WHERE entity_type = 'analysis'
+            """)).all()
+            assert (ids["clean_analysis_one"], "rehomed") in alias_statuses
+            assert (ids["clean_analysis_two"], "rehomed") in alias_statuses
+            assert (ids["conflict_analysis"], "quarantined") in alias_statuses
+
+        command.downgrade(config, "013")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT count(*) FROM analyses")).scalar_one() == 4
+        command.upgrade(config, "014")
+        with engine.connect() as connection:
+            assert connection.execute(text("SELECT count(*) FROM analyses")).scalar_one() == 4
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
 def test_013_production_init_is_read_only_then_014_migrates_without_partial_schema(
     monkeypatch,
 ):
@@ -215,11 +290,15 @@ def test_013_production_init_is_read_only_then_014_migrates_without_partial_sche
             assert readiness_013["schema_at_head"] is False
             assert readiness_013["required_schema_present"] is False
             assert {
+                "table:api_key_credentials",
                 "table:analysis_mutation_receipts",
                 "table:diagram_lifecycle",
+                "table:migration_replay_events",
+                "table:migration_replays",
                 "table:purge_operations",
                 "table:restore_grants",
                 "table:tenant_rehome_audit",
+                "table:tenant_rehome_aliases",
                 "table:project_members",
                 "column:workspaces.is_default",
             } <= set(readiness_013["missing_schema_objects"])

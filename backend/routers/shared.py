@@ -10,7 +10,7 @@ import logging
 import secrets
 import hashlib
 from collections import OrderedDict
-from functools import lru_cache
+from functools import lru_cache, partial
 from typing import Optional, List
 
 from fastapi import Security, Request
@@ -26,6 +26,7 @@ from admin_auth import (
 )
 from error_envelope import ArchmorphException
 from session_store import get_store
+from starlette.concurrency import run_in_threadpool
 
 # ─────────────────────────────────────────────────────────────
 # Rate Limiting
@@ -43,6 +44,8 @@ limiter = Limiter(
 # API Key Authentication
 # ─────────────────────────────────────────────────────────────
 API_KEY = os.getenv("ARCHMORPH_API_KEY", "")  # Empty = auth disabled (dev mode)
+API_KEY_ROTATED = os.getenv("ARCHMORPH_API_KEY_ROTATED", "")
+API_KEY_PRINCIPAL_ID = os.getenv("ARCHMORPH_API_KEY_PRINCIPAL_ID", "").strip()
 API_KEY_HEADER = APIKeyHeader(name="X-API-Key", auto_error=False)
 ADMIN_BEARER = HTTPBearer(auto_error=False)
 USER_BEARER = HTTPBearer(auto_error=False)
@@ -69,8 +72,14 @@ async def verify_api_key(api_key: Optional[str] = Security(API_KEY_HEADER)):
             logger.warning("ARCHMORPH_API_KEY not set — API authentication is disabled (dev mode only)")
             _api_key_warning_logged = True
         return  # Auth disabled — dev mode only
-    if not secrets.compare_digest(api_key or "", API_KEY):
-        raise ArchmorphException(status_code=401, detail="Invalid or missing API key")
+    current_static_key = API_KEY_ROTATED or API_KEY
+    if secrets.compare_digest(api_key or "", current_static_key):
+        return
+    from routers.api_keys_routes import validate_api_key_by_raw
+
+    if api_key and validate_api_key_by_raw(api_key) is not None:
+        return
+    raise ArchmorphException(status_code=401, detail="Invalid or missing API key")
 
 
 async def verify_api_key_required(api_key: Optional[str] = Security(API_KEY_HEADER)):
@@ -103,17 +112,25 @@ async def verify_api_key_or_user_session(
 def get_api_key_service_principal(headers: dict) -> Optional[str]:
     """Return a stable API-key service principal ID for a verified key."""
     api_key = headers.get("x-api-key")
-    if API_KEY:
-        if not secrets.compare_digest(api_key or "", API_KEY):
-            return None
-        key_material = api_key
-    else:
+    current_static_key = API_KEY_ROTATED or API_KEY
+    if API_KEY and secrets.compare_digest(api_key or "", current_static_key):
+        # Compatibility: deployments should set an explicit stable principal
+        # before rotating the configured static credential. The deterministic
+        # fallback preserves ownership for existing installations.
+        stable_id = API_KEY_PRINCIPAL_ID or f"legacy-{_derive_api_key_principal_digest(API_KEY)}"
+        return f"api-key:{stable_id}"
+    if api_key:
+        from routers.api_keys_routes import validate_api_key_by_raw
+
+        record = validate_api_key_by_raw(api_key)
+        if record is not None:
+            return f"api-key:{record.principal_id}"
+    if not API_KEY:
         # Dev mode (API key auth disabled): only derive principal when a key is supplied.
-        key_material = api_key
-        if not key_material:
+        if not api_key:
             return None
-    digest = _derive_api_key_principal_digest(key_material)
-    return f"api-key:{digest}"
+        return f"api-key:dev-{_derive_api_key_principal_digest(api_key)}"
+    return None
 
 
 def get_request_durable_principal(request: Request) -> Optional[dict]:
@@ -142,10 +159,10 @@ def get_request_durable_principal(request: Request) -> Optional[dict]:
         }
     api_key_id = get_api_key_service_principal(headers)
     if api_key_id:
-        digest = api_key_id.split(":", 1)[-1]
+        principal_id = api_key_id.split(":", 1)[-1]
         return {
             "owner_user_id": api_key_id,
-            "tenant_id": f"service:{digest}",
+            "tenant_id": f"service:{principal_id}",
             "owner_api_key_id": api_key_id,
             "legacy_owner_user_ids": [],
         }
@@ -316,6 +333,17 @@ def _is_public_diagram_session(diagram_id: str, session: Optional[dict]) -> bool
         session.get("is_sample")
         or session.get("is_template")
         or session.get("is_starter")
+    )
+
+
+async def authorize_diagram_access_async(
+    request: Request,
+    diagram_id: str,
+    purpose: str = "access",
+) -> dict:
+    """Async authorization wrapper for routes that may trigger durable rehome."""
+    return await run_in_threadpool(
+        partial(authorize_diagram_access, request, diagram_id, purpose)
     )
 
 
@@ -692,6 +720,24 @@ def persist_diagram_mutation(
         ) from exc
     finally:
         db.close()
+
+
+async def persist_diagram_mutation_async(
+    request: Request,
+    diagram_id: str,
+    snapshot: dict,
+    **kwargs,
+):
+    """Run the synchronous canonical mutation UoW in Starlette's threadpool."""
+    return await run_in_threadpool(
+        partial(
+            persist_diagram_mutation,
+            request,
+            diagram_id,
+            snapshot,
+            **kwargs,
+        )
+    )
 
 
 # ─────────────────────────────────────────────────────────────

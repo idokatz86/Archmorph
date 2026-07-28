@@ -3898,7 +3898,7 @@ export interface paths {
         put?: never;
         /**
          * Add Event
-         * @description Add an event to an existing replay recording.
+         * @description Append an event to a canonical replay recording.
          */
         post: operations["add_event_api_replay_events_post"];
         delete?: never;
@@ -3918,7 +3918,7 @@ export interface paths {
         put?: never;
         /**
          * Start Recording
-         * @description Start a new replay recording linked to an analysis.
+         * @description Start a new replay recording linked to an immutable analysis version.
          */
         post: operations["start_recording_api_replay_record_post"];
         delete?: never;
@@ -3936,7 +3936,7 @@ export interface paths {
         };
         /**
          * Get Replay
-         * @description Get full replay with all events.
+         * @description Get the full canonical replay with all events.
          */
         get: operations["get_replay_api_replay__replay_id__get"];
         put?: never;
@@ -3956,7 +3956,7 @@ export interface paths {
         };
         /**
          * Export Replay
-         * @description Export replay as a JSON timeline.
+         * @description Export replay JSON bound to the version recorded at replay start.
          */
         get: operations["export_replay_api_replay__replay_id__export_get"];
         put?: never;
@@ -3976,7 +3976,7 @@ export interface paths {
         };
         /**
          * List recent replays
-         * @description List recent replays with pagination (max 20 per page).
+         * @description List recent canonical replays with bounded pagination.
          */
         get: operations["list_replays_api_replays_get"];
         put?: never;
@@ -8442,7 +8442,7 @@ export interface paths {
         put?: never;
         /**
          * Add Event V1
-         * @description Add an event to an existing replay recording.
+         * @description Append an event to a canonical replay recording.
          */
         post: operations["add_event_v1_api_v1_replay_events_post"];
         delete?: never;
@@ -8462,7 +8462,7 @@ export interface paths {
         put?: never;
         /**
          * Start Recording V1
-         * @description Start a new replay recording linked to an analysis.
+         * @description Start a new replay recording linked to an immutable analysis version.
          */
         post: operations["start_recording_v1_api_v1_replay_record_post"];
         delete?: never;
@@ -8480,7 +8480,7 @@ export interface paths {
         };
         /**
          * Get Replay V1
-         * @description Get full replay with all events.
+         * @description Get the full canonical replay with all events.
          */
         get: operations["get_replay_v1_api_v1_replay__replay_id__get"];
         put?: never;
@@ -8500,7 +8500,7 @@ export interface paths {
         };
         /**
          * Export Replay V1
-         * @description Export replay as a JSON timeline.
+         * @description Export replay JSON bound to the version recorded at replay start.
          */
         get: operations["export_replay_v1_api_v1_replay__replay_id__export_get"];
         put?: never;
@@ -8520,7 +8520,7 @@ export interface paths {
         };
         /**
          * List recent replays
-         * @description List recent replays with pagination (max 20 per page).
+         * @description List recent canonical replays with bounded pagination.
          */
         get: operations["list_replays_v1_api_v1_replays_get"];
         put?: never;
@@ -11289,8 +11289,7 @@ export interface components {
             name?: string | null;
             /** Source Cloud */
             source_cloud?: string | null;
-            /** Status */
-            status?: string | null;
+            status?: components["schemas"]["WorkspaceStatusValue"] | null;
             /** Target Cloud */
             target_cloud?: string | null;
         };
@@ -11307,6 +11306,11 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /**
+         * WorkspaceStatusValue
+         * @enum {string}
+         */
+        WorkspaceStatusValue: "active" | "archived";
     };
     responses: never;
     parameters: never;
@@ -26030,7 +26034,7 @@ export interface operations {
     list_workspaces_endpoint_v1_api_v1_workspaces_get: {
         parameters: {
             query?: {
-                status?: string | null;
+                status?: components["schemas"]["WorkspaceStatusValue"] | null;
                 limit?: number;
                 offset?: number;
             };
@@ -26465,7 +26469,7 @@ export interface operations {
     list_workspaces_endpoint_api_workspaces_get: {
         parameters: {
             query?: {
-                status?: string | null;
+                status?: components["schemas"]["WorkspaceStatusValue"] | null;
                 limit?: number;
                 offset?: number;
             };

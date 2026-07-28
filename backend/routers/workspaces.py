@@ -28,12 +28,14 @@ Route map
   POST   /api/analyses/{analysis_id}/decisions     — create decision
 """
 
+from enum import Enum
+from functools import partial
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import Field
+from starlette.concurrency import run_in_threadpool
 
-from database import get_db
 from error_envelope import ArchmorphException
 from routers.shared import (
     SESSION_STORE,
@@ -42,7 +44,7 @@ from routers.shared import (
     require_authenticated_user,
     verify_api_key,
 )
-from routers.shared import authorize_diagram_access
+from routers.shared import authorize_diagram_access_async
 from strict_models import StrictBaseModel
 from workspace_store import (
     create_analysis,
@@ -59,8 +61,10 @@ from workspace_store import (
     list_workspaces,
     persist_analysis_mutation,
     restore_analysis_version,
+    rehome_legacy_owner_scope,
     update_workspace,
 )
+from models.workspace import WorkspaceStatus
 
 router = APIRouter(prefix="/api", tags=["Workspaces"])
 
@@ -76,10 +80,15 @@ class CreateWorkspaceRequest(StrictBaseModel):
     target_cloud: str = Field(default="azure", max_length=20)
 
 
+class WorkspaceStatusValue(str, Enum):
+    active = WorkspaceStatus.ACTIVE.value
+    archived = WorkspaceStatus.ARCHIVED.value
+
+
 class UpdateWorkspaceRequest(StrictBaseModel):
     name: Optional[str] = Field(default=None, min_length=1, max_length=300)
     description: Optional[str] = Field(default=None, max_length=2000)
-    status: Optional[str] = Field(default=None)
+    status: Optional[WorkspaceStatusValue] = Field(default=None)
     source_cloud: Optional[str] = Field(default=None, max_length=20)
     target_cloud: Optional[str] = Field(default=None, max_length=20)
 
@@ -116,6 +125,37 @@ def _owner_id(request: Request, user) -> str:
     return principal["owner_user_id"] if principal else user.id
 
 
+async def _db_call(function, /, *args, **kwargs):
+    """Run one synchronous SQLAlchemy unit of work in a thread-local session."""
+    def invoke():
+        from database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            return function(db, *args, **kwargs)
+        finally:
+            db.close()
+
+    return await run_in_threadpool(partial(invoke))
+
+
+async def _migrate_legacy_owner_graphs(request: Request) -> None:
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal.get("tenant_id"):
+        return
+    source_owners = [
+        principal["owner_user_id"],
+        *principal.get("legacy_owner_user_ids", []),
+    ]
+    await _db_call(
+        rehome_legacy_owner_scope,
+        owner_user_ids=source_owners,
+        source_tenant_id="default_tenant",
+        target_tenant_id=principal["tenant_id"],
+        target_owner_user_id=principal["owner_user_id"],
+    )
+
+
 # ─────────────────────────────────────────────────────────────
 # Workspace endpoints
 # ─────────────────────────────────────────────────────────────
@@ -127,11 +167,11 @@ async def create_workspace_endpoint(
     body: CreateWorkspaceRequest,
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """Create a new durable workspace."""
-    ws = create_workspace(
-        db,
+    await _migrate_legacy_owner_graphs(request)
+    ws = await _db_call(
+        lambda db, **kwargs: create_workspace(db, **kwargs).to_dict(),
         owner_user_id=_owner_id(request, user),
         name=body.name,
         tenant_id=_tenant_id(user),
@@ -139,26 +179,26 @@ async def create_workspace_endpoint(
         source_cloud=body.source_cloud,
         target_cloud=body.target_cloud,
     )
-    return ws.to_dict()
+    return ws
 
 
 @router.get("/workspaces")
 @limiter.limit("60/minute")
 async def list_workspaces_endpoint(
     request: Request,
-    status: Optional[str] = Query(default=None),
+    status: Optional[WorkspaceStatusValue] = Query(default=None),
     limit: int = Query(default=20, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """List workspaces for the authenticated user."""
-    return list_workspaces(
-        db,
+    await _migrate_legacy_owner_graphs(request)
+    return await _db_call(
+        list_workspaces,
         owner_user_id=_owner_id(request, user),
         tenant_id=_tenant_id(user),
-        status=status,
+        status=status.value if status is not None else None,
         limit=limit,
         offset=offset,
     )
@@ -171,13 +211,22 @@ async def get_workspace_endpoint(
     workspace_id: str,
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """Get a single workspace."""
-    ws = get_workspace(db, workspace_id, owner_user_id=_owner_id(request, user), tenant_id=_tenant_id(user))
+    await _migrate_legacy_owner_graphs(request)
+    ws = await _db_call(
+        lambda db, workspace_id, **kwargs: (
+            workspace.to_dict()
+            if (workspace := get_workspace(db, workspace_id, **kwargs)) is not None
+            else None
+        ),
+        workspace_id,
+        owner_user_id=_owner_id(request, user),
+        tenant_id=_tenant_id(user),
+    )
     if ws is None:
         raise ArchmorphException(404, "Workspace not found")
-    return ws.to_dict()
+    return ws
 
 
 @router.patch("/workspaces/{workspace_id}")
@@ -188,14 +237,30 @@ async def update_workspace_endpoint(
     body: UpdateWorkspaceRequest,
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """Update workspace metadata."""
-    fields = {k: v for k, v in body.model_dump().items() if v is not None}
-    ws = update_workspace(db, workspace_id, owner_user_id=_owner_id(request, user), tenant_id=_tenant_id(user), **fields)
+    fields = {
+        key: (value.value if isinstance(value, Enum) else value)
+        for key, value in body.model_dump().items()
+        if value is not None
+    }
+    try:
+        ws = await _db_call(
+            lambda db, workspace_id, **kwargs: (
+                workspace.to_dict()
+                if (workspace := update_workspace(db, workspace_id, **kwargs)) is not None
+                else None
+            ),
+            workspace_id,
+            owner_user_id=_owner_id(request, user),
+            tenant_id=_tenant_id(user),
+            **fields,
+        )
+    except ValueError as exc:
+        raise ArchmorphException(409, str(exc)) from exc
     if ws is None:
         raise ArchmorphException(404, "Workspace not found")
-    return ws.to_dict()
+    return ws
 
 
 @router.delete("/workspaces/{workspace_id}")
@@ -205,7 +270,6 @@ async def delete_workspace_endpoint(
     workspace_id: str,
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """Converge all workspace-owned state to a confirmed deletion fixed point."""
     from purge_service import PurgeIncompleteError, purge_workspace
@@ -213,10 +277,13 @@ async def delete_workspace_endpoint(
     owner_user_id = _owner_id(request, user)
     tenant_id = _tenant_id(user)
     try:
-        result = purge_workspace(
-            workspace_id=workspace_id,
-            owner_user_id=owner_user_id,
-            tenant_id=tenant_id,
+        result = await run_in_threadpool(
+            partial(
+                purge_workspace,
+                workspace_id=workspace_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+            )
         )
     except ValueError as exc:
         raise ArchmorphException(404, "Workspace not found") from exc
@@ -250,16 +317,20 @@ async def create_analysis_endpoint(
     body: CreateAnalysisRequest,
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """Create a new analysis in a workspace."""
     # Verify workspace ownership first
     owner_user_id = _owner_id(request, user)
-    ws = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=_tenant_id(user))
+    ws = await _db_call(
+        get_workspace,
+        workspace_id,
+        owner_user_id=owner_user_id,
+        tenant_id=_tenant_id(user),
+    )
     if ws is None:
         raise ArchmorphException(404, "Workspace not found")
     if body.diagram_id:
-        snapshot = authorize_diagram_access(request, body.diagram_id, purpose="link durable analysis")
+        snapshot = await authorize_diagram_access_async(request, body.diagram_id, purpose="link durable analysis")
         expected_version = snapshot.get("_analysis_version")
         if expected_version is None:
             raise ArchmorphException(409, "Authoritative analysis snapshot is required")
@@ -279,8 +350,8 @@ async def create_analysis_endpoint(
         from workspace_store import AnalysisCacheWriteError, AnalysisVersionConflictError
 
         try:
-            result = persist_analysis_mutation(
-                db,
+            result = await _db_call(
+                lambda db, **kwargs: persist_analysis_mutation(db, **kwargs).analysis.to_dict(),
                 workspace_id=workspace_id,
                 owner_user_id=owner_user_id,
                 tenant_id=_tenant_id(user),
@@ -297,10 +368,10 @@ async def create_analysis_endpoint(
             raise ArchmorphException(409, "Authoritative analysis snapshot is required") from exc
         except AnalysisCacheWriteError as exc:
             raise ArchmorphException(503, "Analysis cache is temporarily unavailable") from exc
-        return result.analysis.to_dict()
+        return result
 
-    analysis = create_analysis(
-        db,
+    analysis = await _db_call(
+        lambda db, **kwargs: create_analysis(db, **kwargs).to_dict(),
         workspace_id=workspace_id,
         owner_user_id=owner_user_id,
         tenant_id=_tenant_id(user),
@@ -310,7 +381,7 @@ async def create_analysis_endpoint(
         source_cloud=body.source_cloud,
         target_cloud=body.target_cloud,
     )
-    return analysis.to_dict()
+    return analysis
 
 
 @router.get("/workspaces/{workspace_id}/analyses")
@@ -322,15 +393,20 @@ async def list_analyses_endpoint(
     offset: int = Query(default=0, ge=0),
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """List analyses in a workspace."""
     owner_user_id = _owner_id(request, user)
-    ws = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=_tenant_id(user))
+    await _migrate_legacy_owner_graphs(request)
+    ws = await _db_call(
+        get_workspace,
+        workspace_id,
+        owner_user_id=owner_user_id,
+        tenant_id=_tenant_id(user),
+    )
     if ws is None:
         raise ArchmorphException(404, "Workspace not found")
-    return list_analyses_in_workspace(
-        db,
+    return await _db_call(
+        list_analyses_in_workspace,
         workspace_id=workspace_id,
         owner_user_id=owner_user_id,
         tenant_id=_tenant_id(user),
@@ -350,13 +426,21 @@ async def get_analysis_endpoint(
     analysis_id: str,
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """Get a single analysis record."""
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=_owner_id(request, user), tenant_id=_tenant_id(user))
+    analysis = await _db_call(
+        lambda db, analysis_id, **kwargs: (
+            record.to_dict()
+            if (record := get_analysis_record(db, analysis_id, **kwargs)) is not None
+            else None
+        ),
+        analysis_id,
+        owner_user_id=_owner_id(request, user),
+        tenant_id=_tenant_id(user),
+    )
     if analysis is None:
         raise ArchmorphException(404, "Analysis not found")
-    return analysis.to_dict()
+    return analysis
 
 
 @router.get("/analyses/{analysis_id}/versions")
@@ -366,14 +450,24 @@ async def list_versions_endpoint(
     analysis_id: str,
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """List version metadata for an analysis (snapshots excluded)."""
     owner_user_id = _owner_id(request, user)
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=owner_user_id, tenant_id=_tenant_id(user))
+    analysis = await _db_call(
+        get_analysis_record,
+        analysis_id,
+        owner_user_id=owner_user_id,
+        tenant_id=_tenant_id(user),
+    )
     if analysis is None:
         raise ArchmorphException(404, "Analysis not found")
-    return {"versions": list_analysis_versions(db, analysis_id=analysis_id, owner_user_id=owner_user_id, tenant_id=_tenant_id(user))}
+    versions = await _db_call(
+        list_analysis_versions,
+        analysis_id=analysis_id,
+        owner_user_id=owner_user_id,
+        tenant_id=_tenant_id(user),
+    )
+    return {"versions": versions}
 
 
 @router.get("/analyses/{analysis_id}/versions/{version_number}")
@@ -384,11 +478,14 @@ async def get_version_endpoint(
     version_number: int,
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """Get a specific analysis version including the full snapshot."""
-    version = get_analysis_version(
-        db,
+    version = await _db_call(
+        lambda db, **kwargs: (
+            record.to_dict(include_snapshot=True)
+            if (record := get_analysis_version(db, **kwargs)) is not None
+            else None
+        ),
         analysis_id=analysis_id,
         version_number=version_number,
         owner_user_id=_owner_id(request, user),
@@ -396,7 +493,7 @@ async def get_version_endpoint(
     )
     if version is None:
         raise ArchmorphException(404, f"Version {version_number} not found")
-    return version.to_dict(include_snapshot=True)
+    return version
 
 
 @router.post("/analyses/{analysis_id}/versions/{version_number}/restore")
@@ -407,11 +504,14 @@ async def restore_version_endpoint(
     version_number: int,
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """Restore an earlier version: creates a new version from it and updates the live session."""
-    new_version = restore_analysis_version(
-        db,
+    new_version = await _db_call(
+        lambda db, **kwargs: (
+            record.to_dict(include_snapshot=False)
+            if (record := restore_analysis_version(db, **kwargs)) is not None
+            else None
+        ),
         analysis_id=analysis_id,
         version_number=version_number,
         owner_user_id=_owner_id(request, user),
@@ -422,7 +522,7 @@ async def restore_version_endpoint(
         raise ArchmorphException(404, f"Version {version_number} not found")
     return {
         "restored_from": version_number,
-        "new_version": new_version.to_dict(include_snapshot=False),
+        "new_version": new_version,
     }
 
 
@@ -440,15 +540,19 @@ async def list_artifacts_endpoint(
     offset: int = Query(default=0, ge=0),
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """List artifacts linked to an analysis."""
     owner_user_id = _owner_id(request, user)
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=owner_user_id, tenant_id=_tenant_id(user))
+    analysis = await _db_call(
+        get_analysis_record,
+        analysis_id,
+        owner_user_id=owner_user_id,
+        tenant_id=_tenant_id(user),
+    )
     if analysis is None:
         raise ArchmorphException(404, "Analysis not found")
-    return list_artifacts(
-        db,
+    return await _db_call(
+        list_artifacts,
         analysis_id=analysis_id,
         owner_user_id=owner_user_id,
         tenant_id=_tenant_id(user),
@@ -467,17 +571,30 @@ async def get_artifact_endpoint(
     include_content: bool = Query(default=False),
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """Get a single artifact, optionally including inline content."""
     owner_user_id = _owner_id(request, user)
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=owner_user_id, tenant_id=_tenant_id(user))
+    analysis = await _db_call(
+        get_analysis_record,
+        analysis_id,
+        owner_user_id=owner_user_id,
+        tenant_id=_tenant_id(user),
+    )
     if analysis is None:
         raise ArchmorphException(404, "Analysis not found")
-    artifact = get_artifact(db, artifact_id, owner_user_id=owner_user_id, tenant_id=_tenant_id(user))
-    if artifact is None or artifact.analysis_id != analysis_id:
+    artifact = await _db_call(
+        lambda db, artifact_id, **kwargs: (
+            record.to_dict(include_content=include_content)
+            if (record := get_artifact(db, artifact_id, **kwargs)) is not None
+            else None
+        ),
+        artifact_id,
+        owner_user_id=owner_user_id,
+        tenant_id=_tenant_id(user),
+    )
+    if artifact is None or artifact["analysis_id"] != analysis_id:
         raise ArchmorphException(404, "Artifact not found")
-    return artifact.to_dict(include_content=include_content)
+    return artifact
 
 
 # ─────────────────────────────────────────────────────────────
@@ -492,16 +609,20 @@ async def list_decisions_endpoint(
     decision_type: Optional[str] = Query(default=None),
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """List decisions/risks for an analysis."""
     owner_user_id = _owner_id(request, user)
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=owner_user_id, tenant_id=_tenant_id(user))
+    analysis = await _db_call(
+        get_analysis_record,
+        analysis_id,
+        owner_user_id=owner_user_id,
+        tenant_id=_tenant_id(user),
+    )
     if analysis is None:
         raise ArchmorphException(404, "Analysis not found")
     return {
-        "decisions": list_decisions(
-            db,
+        "decisions": await _db_call(
+            list_decisions,
             analysis_id=analysis_id,
             owner_user_id=owner_user_id,
             tenant_id=_tenant_id(user),
@@ -518,22 +639,29 @@ async def create_decision_endpoint(
     body: CreateDecisionRequest,
     user=Depends(require_authenticated_user),
     _auth=Depends(verify_api_key),
-    db=Depends(get_db),
 ):
     """Record a risk or architectural decision for an analysis."""
     owner_user_id = _owner_id(request, user)
-    analysis = get_analysis_record(db, analysis_id, owner_user_id=owner_user_id, tenant_id=_tenant_id(user))
-    if analysis is None:
-        raise ArchmorphException(404, "Analysis not found")
-    decision = create_decision(
-        db,
-        analysis_id=analysis_id,
+    analysis = await _db_call(
+        get_analysis_record,
+        analysis_id,
         owner_user_id=owner_user_id,
         tenant_id=_tenant_id(user),
-        decision_type=body.decision_type,
-        title=body.title,
-        description=body.description,
-        severity=body.severity,
-        version_id=body.version_id,
     )
-    return decision.to_dict()
+    if analysis is None:
+        raise ArchmorphException(404, "Analysis not found")
+    try:
+        decision = await _db_call(
+            lambda db, **kwargs: create_decision(db, **kwargs).to_dict(),
+            analysis_id=analysis_id,
+            owner_user_id=owner_user_id,
+            tenant_id=_tenant_id(user),
+            decision_type=body.decision_type,
+            title=body.title,
+            description=body.description,
+            severity=body.severity,
+            version_id=body.version_id,
+        )
+    except ValueError as exc:
+        raise ArchmorphException(422, str(exc)) from exc
+    return decision

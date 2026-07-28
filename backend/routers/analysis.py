@@ -8,13 +8,14 @@ from fastapi import APIRouter, Request, Depends
 from strict_models import StrictBaseModel
 from typing import Dict, Any
 import asyncio
+import base64
 import logging
 
 from routers.shared import (
     SESSION_STORE,
-    authorize_diagram_access,
+    authorize_diagram_access_async,
     limiter,
-    persist_diagram_mutation,
+    persist_diagram_mutation_async,
     require_diagram_access,
     verify_api_key_or_user_session,
 )
@@ -26,6 +27,7 @@ from architecture_package import generate_architecture_package
 from error_envelope import ArchmorphException
 from export_capabilities import _principal_marker, attach_export_capability, consume_export_capability, verify_export_capability
 from analysis_payload_bounds import AnalysisPayloadTooLarge, validate_analysis_payload_bounds
+from export_artifacts import persist_generated_export_async
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +50,7 @@ async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: b
     If smart_dedup=True, questions that have been implicitly answered
     by user context (e.g., natural language additions) are filtered out.
     """
-    analysis = authorize_diagram_access(request, diagram_id, purpose="view questions")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="view questions")
 
     detected = [
         m["source_service"]["name"] if isinstance(m["source_service"], dict) else m["source_service"]
@@ -103,7 +105,7 @@ async def add_services_natural_language(
     The services are added to the existing analysis, and users can continue
     to the guided questions or IaC generation.
     """
-    analysis = authorize_diagram_access(request, diagram_id, purpose="modify services")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="modify services")
 
     try:
         updated = await asyncio.to_thread(
@@ -123,7 +125,7 @@ async def add_services_natural_language(
         "services_added": updated.get("services_added", []),
     })
 
-    persist_diagram_mutation(
+    await persist_diagram_mutation_async(
         request,
         diagram_id,
         updated,
@@ -159,10 +161,10 @@ async def apply_guided_answers(
     _auth=Depends(verify_api_key_or_user_session),
 ):
     """Apply user answers to refine the Azure architecture analysis."""
-    analysis = authorize_diagram_access(request, diagram_id, purpose="apply answers")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="apply answers")
 
     refined = apply_answers(analysis, answers)
-    persist_diagram_mutation(
+    await persist_diagram_mutation_async(
         request,
         diagram_id,
         refined,
@@ -219,7 +221,7 @@ async def export_architecture_diagram(
             "dr_variant must be 'primary' or 'dr'",
         )
 
-    analysis = authorize_diagram_access(request, diagram_id, purpose="export diagram")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="export diagram")
 
     try:
         validate_analysis_payload_bounds(analysis)
@@ -242,6 +244,17 @@ async def export_architecture_diagram(
             "dr_variant": dr_variant,
         })
         record_funnel_step(diagram_id, "export")
+        content = result.get("content", "")
+        artifact = await persist_generated_export_async(
+            request,
+            diagram_id=diagram_id,
+            artifact_type="architecture_diagram_landing_zone_svg",
+            format="landing-zone-svg",
+            content=content,
+        )
+        if artifact is not None:
+            result["artifact_id"] = artifact.id
+            result["version_id"] = artifact.version_id
         consume_export_capability(capability)
         return attach_export_capability(result, diagram_id, principal_marker=_principal_marker(request))
 
@@ -269,6 +282,16 @@ async def export_architecture_diagram(
 
     record_event(f"exports_{format}", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "export")
+    artifact = await persist_generated_export_async(
+        request,
+        diagram_id=diagram_id,
+        artifact_type=f"architecture_diagram_{format}",
+        format=format,
+        content=result["content"],
+    )
+    if artifact is not None:
+        result["artifact_id"] = artifact.id
+        result["version_id"] = artifact.version_id
     consume_export_capability(capability)
     return attach_export_capability(result, diagram_id, principal_marker=_principal_marker(request))
 
@@ -296,7 +319,7 @@ async def export_architecture_package(
     if diagram not in ("primary", "dr"):
         raise ArchmorphException(400, "diagram must be 'primary' or 'dr'")
 
-    analysis = authorize_diagram_access(request, diagram_id, purpose="export architecture package")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="export architecture package")
 
     try:
         validate_analysis_payload_bounds(analysis)
@@ -321,5 +344,21 @@ async def export_architecture_package(
         "diagram": diagram,
     })
     record_funnel_step(diagram_id, "export")
+    package_content = result.get("content")
+    if package_content is None and result.get("content_b64"):
+        package_content = base64.b64decode(result["content_b64"], validate=True)
+    if package_content is None:
+        raise ArchmorphException(502, "Architecture package produced no content")
+    artifact = await persist_generated_export_async(
+        request,
+        diagram_id=diagram_id,
+        artifact_type=f"architecture_package_{format}_{diagram}",
+        format=format,
+        content=package_content,
+        force_blob=isinstance(package_content, bytes),
+    )
+    if artifact is not None:
+        result["artifact_id"] = artifact.id
+        result["version_id"] = artifact.version_id
     consume_export_capability(capability)
     return attach_export_capability(result, diagram_id, principal_marker=_principal_marker(request))
