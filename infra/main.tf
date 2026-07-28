@@ -1422,7 +1422,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure
   name                 = "archmorph-migration-job-failure"
   resource_group_name  = azurerm_resource_group.main.name
   location             = azurerm_resource_group.main.location
-  description          = "Platform Engineering: migration Job failed, timed out, or was cancelled; production rollout must remain blocked"
+  description          = "Platform Engineering: migration Job failed or was cancelled; production rollout must remain blocked"
   severity             = 1
   enabled              = true
   scopes               = [azurerm_application_insights.main.id]
@@ -1432,7 +1432,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure
   criteria {
     query                   = <<-KQL
       AppEvents
-      | where Name in ('migration_failed', 'migration_timed_out')
+      | where Name == 'migration_failed'
       | where tostring(Properties['application']) == 'archmorph'
       | where tostring(Properties['owner']) == 'platform-engineering'
       | summarize FailureEvents = count()
@@ -1441,6 +1441,45 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure
     operator                = "GreaterThan"
     threshold               = 0
     metric_measure_column   = "FailureEvents"
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.critical.id]
+  }
+
+  auto_mitigation_enabled = true
+  tags = merge(local.tags, {
+    owner = "platform-engineering"
+  })
+}
+
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_timeout" {
+  name                 = "archmorph-migration-job-timeout"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Platform Engineering: migration Job timed out; production rollout must remain blocked"
+  severity             = 1
+  enabled              = true
+  scopes               = [azurerm_application_insights.main.id]
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT15M"
+
+  criteria {
+    query                   = <<-KQL
+      AppEvents
+      | where Name == 'migration_timed_out'
+      | where tostring(Properties['application']) == 'archmorph'
+      | where tostring(Properties['owner']) == 'platform-engineering'
+      | summarize TimeoutEvents = count()
+    KQL
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = 0
+    metric_measure_column   = "TimeoutEvents"
     failing_periods {
       minimum_failing_periods_to_trigger_alert = 1
       number_of_evaluation_periods             = 1

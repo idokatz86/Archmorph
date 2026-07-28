@@ -16,8 +16,14 @@ rollout = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(rollout)
 
 apply_traffic = rollout.apply_traffic
+authoritative_latest_revision = rollout.authoritative_latest_revision
 canonical_traffic = rollout.canonical_traffic
+create_release_state = rollout.create_release_state
 explicit_traffic = rollout.explicit_traffic
+mark_release_stage = rollout.mark_release_stage
+recovery_decision = rollout.recovery_decision
+recover_release = rollout.recover_release
+set_release_bridge = rollout.set_release_bridge
 traffic_command = rollout.traffic_command
 verify_manifest = rollout.verify_manifest
 write_manifest = rollout.write_manifest
@@ -45,12 +51,195 @@ def test_latest_traffic_becomes_explicit_without_changing_multi_revision_weights
     assert "stable=10" in traffic_command(result)
 
 
+def test_authoritative_latest_not_highest_weight_preserves_stable90_latest10():
+    source = [
+        {"revisionName": "api-stable", "weight": 90, "label": "stable"},
+        {"latestRevision": True, "weight": 10},
+    ]
+    app = {
+        "properties": {
+            "latestRevisionName": "api-created-but-not-ready",
+            "latestReadyRevisionName": "api-authoritative-latest",
+        }
+    }
+
+    result = explicit_traffic(
+        source,
+        latest_revision=authoritative_latest_revision(app),
+    )
+
+    assert result == canonical_traffic(
+        [
+            {"revisionName": "api-stable", "weight": 90, "label": "stable"},
+            {"revisionName": "api-authoritative-latest", "weight": 10},
+        ]
+    )
+
+
+def test_authoritative_latest_preserves_labels_and_multiple_revisions_exactly():
+    source = [
+        {"revisionName": "api-a", "weight": 40},
+        {"revisionName": "api-b", "weight": 20, "label": "canary"},
+        {"latestRevision": True, "weight": 30},
+        {"revisionName": "api-c", "weight": 10, "label": "stable"},
+    ]
+    result = explicit_traffic(
+        source,
+        latest_revision=authoritative_latest_revision(
+            {"properties": {"latestRevisionName": "api-d"}}
+        ),
+    )
+    assert result == canonical_traffic(
+        [
+            {"revisionName": "api-a", "weight": 40},
+            {"revisionName": "api-b", "weight": 20, "label": "canary"},
+            {"revisionName": "api-d", "weight": 30},
+            {"revisionName": "api-c", "weight": 10, "label": "stable"},
+        ]
+    )
+
+
+def test_authoritative_latest_merges_existing_unlabeled_route_without_weight_loss():
+    source = [
+        {"revisionName": "api-latest", "weight": 15},
+        {"latestRevision": True, "weight": 10},
+        {"revisionName": "api-stable", "weight": 75, "label": "stable"},
+    ]
+    assert explicit_traffic(source, latest_revision="api-latest") == canonical_traffic(
+        [
+            {"revisionName": "api-latest", "weight": 25},
+            {"revisionName": "api-stable", "weight": 75, "label": "stable"},
+        ]
+    )
+
+
+def _release_state(*, schema="013", original=None):
+    original = original or [
+        {"revisionName": "api-blue", "weight": 70},
+        {"revisionName": "api-canary", "weight": 20, "label": "canary"},
+        {"revisionName": "api-stable", "weight": 10, "label": "stable"},
+    ]
+    return create_release_state(
+        current_schema=schema,
+        migration_from="013",
+        target_schema="014",
+        original_traffic=original,
+        baseline_traffic=original,
+        bridge_revision="api-bridge" if schema == "013" else "",
+    )
+
+
+def test_release_state_migration_branch_requires_bridge_but_routine_preserves_weights():
+    migration = _release_state(schema="013")
+    routine = _release_state(schema="014")
+    repeated = create_release_state(
+        current_schema="014",
+        migration_from="013",
+        target_schema="014",
+        original_traffic=routine["pre_green_traffic"],
+        baseline_traffic=routine["pre_green_traffic"],
+    )
+
+    assert migration["branch"] == "migration"
+    assert migration["pre_green_traffic"] == canonical_traffic(
+        [{"revisionName": "api-bridge", "weight": 100}]
+    )
+    assert routine["branch"] == "routine"
+    assert routine["pre_green_traffic"] == routine["original_traffic"]
+    assert repeated["pre_green_traffic"] == routine["pre_green_traffic"]
+    captured = create_release_state(
+        current_schema="013",
+        migration_from="013",
+        target_schema="014",
+        original_traffic=routine["original_traffic"],
+        baseline_traffic=routine["original_traffic"],
+    )
+    assert captured["pre_green_traffic"] == []
+    assert set_release_bridge(captured, "api-bridge")["pre_green_traffic"] == migration[
+        "pre_green_traffic"
+    ]
+    with pytest.raises(ValueError, match="must not resolve or route"):
+        create_release_state(
+            current_schema="014",
+            migration_from="013",
+            target_schema="014",
+            original_traffic=routine["original_traffic"],
+            baseline_traffic=routine["original_traffic"],
+            bridge_revision="api-bridge",
+        )
+
+
+@pytest.mark.parametrize(
+    ("stage", "schema", "expected_action"),
+    [
+        ("baseline_attempted", "013", "restore_original"),
+        ("bridge_route_attempted", "013", "restore_original"),
+        ("migration_attempted", "013", "restore_original"),
+        ("migration_attempted", "014", "retain_bridge"),
+        ("green_shift_attempted", "014", "retain_bridge"),
+    ],
+)
+def test_migration_failure_recovery_is_schema_aware_and_exact(stage, schema, expected_action):
+    state = mark_release_stage(_release_state(schema="013"), stage)
+    action, target = recovery_decision(state, observed_schema=schema)
+    assert action == expected_action
+    expected = (
+        state["original_traffic"]
+        if expected_action == "restore_original"
+        else state["pre_green_traffic"]
+    )
+    assert target == expected
+
+
+def test_recover_release_records_incident_when_schema_advanced_and_verifies_bridge(tmp_path):
+    state = mark_release_stage(_release_state(schema="013"), "migration_attempted")
+    evidence = tmp_path / "incident.json"
+    with patch.object(rollout, "apply_traffic") as apply:
+        result = recover_release(
+            state,
+            observed_schema="014",
+            name="api",
+            resource_group="example-rg",
+            evidence_output=evidence,
+        )
+    apply.assert_called_once_with(
+        state["pre_green_traffic"],
+        name="api",
+        resource_group="example-rg",
+    )
+    assert result["status"] == "bridge_retained"
+    assert json.loads(evidence.read_text())["action"] == "retain_bridge"
+
+
+def test_recover_release_preserves_primary_error_when_cleanup_fails(tmp_path):
+    state = mark_release_stage(_release_state(schema="013"), "bridge_route_attempted")
+    evidence = tmp_path / "incident.json"
+    with (
+        patch.object(rollout, "apply_traffic", side_effect=RuntimeError("partial command failure")),
+        pytest.raises(RuntimeError, match="partial command failure"),
+    ):
+        recover_release(
+            state,
+            observed_schema="013",
+            name="api",
+            resource_group="example-rg",
+            evidence_output=evidence,
+        )
+
+
+def test_routine_failure_restores_exact_original_when_health_schema_probe_is_unavailable():
+    state = mark_release_stage(_release_state(schema="014"), "green_shift_attempted")
+    action, target = recovery_decision(state, observed_schema="")
+    assert action == "restore_original"
+    assert target == state["original_traffic"]
+
+
 def test_traffic_validation_rejects_implicit_or_invalid_manifest():
     with pytest.raises(ValueError, match="valid revision"):
         canonical_traffic([{"revisionName": "", "weight": 100}])
     with pytest.raises(ValueError, match="between 0 and 100"):
         canonical_traffic([{"revisionName": "api-blue", "weight": 101}])
-    with pytest.raises(ValueError, match="sum to 100"):
+    with pytest.raises(ValueError, match="sum to 0 or 100"):
         canonical_traffic([{"revisionName": "api-blue", "weight": 99}])
 
 
@@ -73,6 +262,7 @@ def test_apply_traffic_sets_then_reads_and_requires_exact_restoration(tmp_path):
         rollout.subprocess,
         "run",
         side_effect=[
+            CompletedProcess([], 0, stdout=json.dumps(manifest)),
             CompletedProcess([], 0),
             CompletedProcess([], 0, stdout=json.dumps(manifest)),
         ],
@@ -84,12 +274,12 @@ def test_apply_traffic_sets_then_reads_and_requires_exact_restoration(tmp_path):
             actual_output=output,
         )
 
-    assert run.call_args_list[0].args[0][-3:] == [
+    assert run.call_args_list[1].args[0][-3:] == [
         "--revision-weight",
         "api-blue=70",
         "api-canary=30",
     ]
-    assert run.call_args_list[1].args[0][1:3] == ["containerapp", "show"]
+    assert run.call_args_list[2].args[0][1:3] == ["containerapp", "show"]
     assert json.loads(output.read_text()) == manifest
 
 
@@ -104,6 +294,7 @@ def test_apply_traffic_fails_when_platform_returns_partial_shift():
             rollout.subprocess,
             "run",
             side_effect=[
+                CompletedProcess([], 0, stdout=json.dumps(actual)),
                 CompletedProcess([], 0),
                 CompletedProcess([], 0, stdout=json.dumps(actual)),
             ],
@@ -111,6 +302,31 @@ def test_apply_traffic_fails_when_platform_returns_partial_shift():
         pytest.raises(RuntimeError, match="mismatch after apply"),
     ):
         apply_traffic(expected, name="api", resource_group="example-rg")
+
+
+def test_apply_traffic_explicitly_clears_extra_current_targets_and_preserves_zero_entries():
+    current = [
+        {"revisionName": "api-blue", "weight": 50},
+        {"revisionName": "api-old", "weight": 50, "label": "old"},
+    ]
+    expected = [
+        {"revisionName": "api-blue", "weight": 100},
+        {"revisionName": "api-old", "weight": 0, "label": "old"},
+    ]
+    with patch.object(
+        rollout.subprocess,
+        "run",
+        side_effect=[
+            CompletedProcess([], 0, stdout=json.dumps(current)),
+            CompletedProcess([], 0),
+            CompletedProcess([], 0, stdout=json.dumps(expected)),
+        ],
+    ) as run:
+        apply_traffic(expected, name="api", resource_group="example-rg")
+
+    command = run.call_args_list[1].args[0]
+    assert "api-blue=100" in command
+    assert "old=0" in command
 
 
 def test_signed_bridge_manifest_is_immutable_and_role_bound(tmp_path, monkeypatch):

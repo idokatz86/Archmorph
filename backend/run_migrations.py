@@ -83,6 +83,7 @@ def run(*, expected_head: str) -> dict[str, str]:
     config = Config(str(backend_dir / "alembic.ini"))
     config.set_main_option("sqlalchemy.url", database_url)
     engine = create_engine(database_url, pool_pre_ping=True)
+    already_at_head = False
     try:
         with engine.connect() as connection:
             connection.execute(
@@ -93,7 +94,19 @@ def run(*, expected_head: str) -> dict[str, str]:
                 connection.commit()
                 with connection.begin():
                     config.attributes["connection"] = connection
-                    command.upgrade(config, "head")
+                    current_revisions = tuple(
+                        connection.execute(
+                            text("SELECT version_num FROM alembic_version ORDER BY version_num")
+                        ).scalars()
+                    )
+                    if current_revisions == (expected_head,):
+                        already_at_head = True
+                        logger.info(
+                            "Database already at exact Alembic head %s; DDL skipped",
+                            expected_head,
+                        )
+                    else:
+                        command.upgrade(config, "head")
             finally:
                 connection.execute(
                     text("SELECT pg_advisory_unlock(:lock_id)"),
@@ -118,7 +131,7 @@ def run(*, expected_head: str) -> dict[str, str]:
             "Migration completed without satisfying the exact expected schema contract"
         )
     evidence = {
-        "status": "migrated",
+        "status": "already_at_head" if already_at_head else "migrated",
         "current_revision": expected_head,
         "expected_revision": expected_head,
         "image_reference": os.environ.get("MIGRATION_IMAGE_REFERENCE", "unknown"),

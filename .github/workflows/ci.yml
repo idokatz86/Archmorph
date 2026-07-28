@@ -194,6 +194,38 @@ jobs:
             backend-sbom.json
             ${{ steps.grype-python.outputs.sarif }}
 
+  rollout-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install rollout contract dependencies
+        run: python -m pip install -r backend/requirements.txt pytest pytest-xdist pyyaml ruff
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.17.3
+
+      - name: Run deterministic rollout contracts
+        run: |
+          python -m pytest -q -n 0 \
+            backend/tests/test_containerapp_rollout.py \
+            backend/tests/test_migration_bootstrap_verifier.py \
+            backend/tests/test_migration_alert_attestation.py \
+            backend/tests/test_frontend_release.py \
+            backend/tests/test_helm_secret_contract.py \
+            backend/tests/test_helm_release_workflow.py \
+            backend/tests/test_release_safety_workflows.py \
+            backend/tests/test_ci_workflow_post_deploy_smoke.py \
+            backend/tests/test_terraform_prod_workflow.py
+
   # ============================================
   # ALEMBIC MIGRATION SMOKE
   # ============================================
@@ -613,7 +645,7 @@ jobs:
   # BACKEND DEPLOY (Blue-Green)
   # ============================================
   deploy-backend:
-    needs: [backend-tests, frontend-build, openapi-client-drift, iac-validate, alembic-migration-smoke, terraform-config-validate, terraform-policy-as-code]
+    needs: [backend-tests, rollout-contracts, frontend-build, openapi-client-drift, iac-validate, alembic-migration-smoke, terraform-config-validate, terraform-policy-as-code]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     if: github.ref == 'refs/heads/main'
@@ -645,9 +677,14 @@ jobs:
       TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ secrets.TFSTATE_CONTAINER }}
       TFSTATE_KEY: ${{ secrets.TFSTATE_KEY }}
+      MIGRATION_TFSTATE_STORAGE_ACCOUNT: ${{ secrets.MIGRATION_TFSTATE_STORAGE_ACCOUNT }}
+      MIGRATION_TFSTATE_CONTAINER: ${{ secrets.MIGRATION_TFSTATE_CONTAINER }}
       MIGRATION_TFSTATE_KEY: ${{ secrets.MIGRATION_TFSTATE_KEY }}
       RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
       APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+      STATIC_WEB_APP_NAME: ${{ vars.STATIC_WEB_APP_NAME || 'archmorph-frontend' }}
+      ARCHMORPH_BACKEND_API_BASE: ${{ secrets.API_URL }}
+      SWA_RESTORE_IMAGE: ${{ secrets.SWA_RESTORE_IMAGE }}
       REQUIRE_FRONT_DOOR_ORIGIN_LOCK: ${{ vars.REQUIRE_FRONT_DOOR_ORIGIN_LOCK || 'false' }}
       ARM_USE_OIDC: true
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -700,6 +737,8 @@ jobs:
             TFSTATE_STORAGE_ACCOUNT \
             TFSTATE_CONTAINER \
             TFSTATE_KEY \
+            MIGRATION_TFSTATE_STORAGE_ACCOUNT \
+            MIGRATION_TFSTATE_CONTAINER \
             MIGRATION_TFSTATE_KEY; do
             value="${!name:-}"
             if [ -z "$value" ]; then
@@ -804,34 +843,20 @@ jobs:
           vuln-type: library
           scanners: vuln
 
-      - name: Capture blue traffic and make latest routing explicit
-        id: blue
+      - name: Capture exact original production traffic
+        id: production_traffic
         run: |
           set -euo pipefail
           az containerapp show \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query 'properties.configuration.ingress.traffic' -o json \
+            -o json > containerapp-before-rollout.json
+          jq '.properties.configuration.ingress.traffic' containerapp-before-rollout.json \
             > blue-traffic-original.json
-          LATEST_REVISION=$(az containerapp revision list \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query "sort_by([?properties.active && properties.trafficWeight > \`0\`], &properties.trafficWeight)[-1].name" \
-            -o tsv)
-          if [ -z "$LATEST_REVISION" ]; then
-            echo "::error::No explicit routed revision is available to resolve latestRevision traffic"
-            exit 1
-          fi
           python scripts/containerapp_rollout.py explicit-traffic \
             --input blue-traffic-original.json \
-            --latest-revision "$LATEST_REVISION" \
+            --container-app containerapp-before-rollout.json \
             --output blue-traffic-manifest.json
-          python scripts/containerapp_rollout.py apply-traffic \
-            --input blue-traffic-manifest.json \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --actual-output blue-traffic-current.json
-          echo "blue_revision=$LATEST_REVISION" >> "$GITHUB_OUTPUT"
 
       - name: Stage schema bridge rollout script
         run: |
@@ -1025,6 +1050,14 @@ jobs:
           export TF_VAR_expected_alembic_head="$EXPECTED_ALEMBIC_HEAD"
           export TF_VAR_environment="prod"
 
+          python scripts/verify_migration_bootstrap.py backend \
+            --primary-account "$TFSTATE_STORAGE_ACCOUNT" \
+            --primary-container "$TFSTATE_CONTAINER" \
+            --primary-key "$TFSTATE_KEY" \
+            --bootstrap-account "$MIGRATION_TFSTATE_STORAGE_ACCOUNT" \
+            --bootstrap-container "$MIGRATION_TFSTATE_CONTAINER" \
+            --bootstrap-key "$MIGRATION_TFSTATE_KEY"
+
           terraform -chdir=infra init -input=false -lockfile=readonly \
             -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
             -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
@@ -1038,8 +1071,8 @@ jobs:
 
           terraform -chdir=infra/migration-bootstrap init -input=false -lockfile=readonly \
             -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
-            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
-            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="storage_account_name=${MIGRATION_TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}" \
             -backend-config="key=${MIGRATION_TFSTATE_KEY}"
           terraform -chdir=infra/migration-bootstrap validate -no-color
 
@@ -1127,10 +1160,32 @@ jobs:
 
           terraform -chdir=infra/migration-bootstrap plan -input=false \
             -out=migration-bootstrap.tfplan
+          terraform -chdir=infra/migration-bootstrap show -json migration-bootstrap.tfplan \
+            > infra/migration-bootstrap/migration-bootstrap-plan.json
+          python scripts/verify_migration_bootstrap.py plan \
+            --input infra/migration-bootstrap/migration-bootstrap-plan.json
+          terraform -chdir=infra state pull > infra/primary-state-before-bootstrap.json
+          terraform -chdir=infra/migration-bootstrap state pull \
+            > infra/migration-bootstrap/state-before-apply.json
+          python scripts/verify_migration_bootstrap.py write-metadata \
+            --plan infra/migration-bootstrap/migration-bootstrap.tfplan \
+            --lock infra/migration-bootstrap/.terraform.lock.hcl \
+            --primary-state infra/primary-state-before-bootstrap.json \
+            --bootstrap-state infra/migration-bootstrap/state-before-apply.json \
+            --metadata infra/migration-bootstrap/plan-metadata.json
 
       - name: Apply migration bootstrap (Phase A)
         run: |
           set -euo pipefail
+          terraform -chdir=infra state pull > infra/primary-state-before-apply.json
+          terraform -chdir=infra/migration-bootstrap state pull \
+            > infra/migration-bootstrap/state-before-apply-current.json
+          python scripts/verify_migration_bootstrap.py verify-metadata \
+            --plan infra/migration-bootstrap/migration-bootstrap.tfplan \
+            --lock infra/migration-bootstrap/.terraform.lock.hcl \
+            --primary-state infra/primary-state-before-apply.json \
+            --bootstrap-state infra/migration-bootstrap/state-before-apply-current.json \
+            --metadata infra/migration-bootstrap/plan-metadata.json
           terraform -chdir=infra/migration-bootstrap apply -input=false \
             migration-bootstrap.tfplan
 
@@ -1194,6 +1249,34 @@ jobs:
             fi
             sleep 15
           done
+
+      - name: Attest applied migration alerts before Job execution
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra output -json > infra/applied-outputs.json
+          MIGRATION_FAILURE_ALERT_ID=$(jq -er '.migration_failure_alert_id.value' infra/applied-outputs.json)
+          MIGRATION_TIMEOUT_ALERT_ID=$(jq -er '.migration_timeout_alert_id.value' infra/applied-outputs.json)
+          MIGRATION_MISSING_EVIDENCE_ALERT_ID=$(jq -er '.migration_missing_evidence_alert_id.value' infra/applied-outputs.json)
+          CRITICAL_ACTION_GROUP_ID=$(jq -er '.critical_action_group_id.value' infra/applied-outputs.json)
+          mapfile -t APPLIED_ALERT_IDS < <(az resource list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --resource-type Microsoft.Insights/scheduledQueryRules \
+            --query "[].id" -o tsv)
+          : > applied-migration-alerts.ndjson
+          for alert_id in "${APPLIED_ALERT_IDS[@]}"; do
+            az resource show \
+              --ids "$alert_id" \
+              --api-version 2023-12-01 \
+              -o json >> applied-migration-alerts.ndjson
+          done
+          jq -s '.' applied-migration-alerts.ndjson > applied-migration-alerts.json
+          python scripts/verify_migration_alerts.py \
+            --alerts applied-migration-alerts.json \
+            --failure-alert-id "$MIGRATION_FAILURE_ALERT_ID" \
+            --timeout-alert-id "$MIGRATION_TIMEOUT_ALERT_ID" \
+            --missing-evidence-alert-id "$MIGRATION_MISSING_EVIDENCE_ALERT_ID" \
+            --action-group-id "$CRITICAL_ACTION_GROUP_ID" \
+            --output migration-alert-attestation.json
 
       - name: Discover schema with same-identity database preflight
         id: current_schema
@@ -1260,6 +1343,44 @@ jobs:
           fi
           echo "revision=$CURRENT_SCHEMA" >> "$GITHUB_OUTPUT"
 
+      - name: Create branch-specific rollout state
+        id: rollout_state
+        run: |
+          set -euo pipefail
+          CURRENT_SCHEMA_REVISION="${{ steps.current_schema.outputs.revision }}"
+          python scripts/containerapp_rollout.py create-release-state \
+            --current-schema "$CURRENT_SCHEMA_REVISION" \
+            --migration-from 013 \
+            --target-schema "$EXPECTED_ALEMBIC_HEAD" \
+            --original-traffic blue-traffic-original.json \
+            --baseline-traffic blue-traffic-manifest.json \
+            --output rollout-state.json \
+            --pre-green-output pre-green-traffic-manifest.json
+          echo "branch=$(jq -er '.branch' rollout-state.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Make dynamic latest traffic explicit
+        id: explicit_traffic
+        run: |
+          set -euo pipefail
+          python scripts/containerapp_rollout.py mark-stage \
+            --state rollout-state.json \
+            --stage baseline_attempted
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input blue-traffic-manifest.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output blue-traffic-current.json
+
+      - name: Restore original traffic if rollout state creation fails
+        if: always() && steps.production_traffic.outcome == 'success' && steps.rollout_state.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input blue-traffic-original.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output normalization-restored-traffic.json
+
       - name: Resolve verified bridge for discovered schema
         id: bridge_resolved
         env:
@@ -1269,9 +1390,14 @@ jobs:
           CURRENT_SCHEMA_REVISION="${{ steps.current_schema.outputs.revision }}"
           export CURRENT_SCHEMA_REVISION
           if [ "$CURRENT_SCHEMA_REVISION" = "013" ]; then
+            python scripts/containerapp_rollout.py mark-stage \
+              --state rollout-state.json \
+              --stage bridge_prepare_attempted
             "$RUNNER_TEMP/deploy-schema-bridge.sh"
           else
-            "$RUNNER_TEMP/reuse-signed-bridge.sh"
+            echo "Routine schema-${EXPECTED_ALEMBIC_HEAD} release preserves current production traffic; no bridge is resolved or routed."
+            echo "bridge_revision=" >> "$GITHUB_OUTPUT"
+            exit 0
           fi
           BRIDGE_REVISION=$(python scripts/containerapp_rollout.py verify-release-manifest \
             --input bridge-release-manifest.json \
@@ -1281,31 +1407,29 @@ jobs:
             echo "::error::No explicit signed bridge revision was resolved"
             exit 1
           fi
+          python scripts/containerapp_rollout.py set-bridge \
+            --state rollout-state.json \
+            --revision "$BRIDGE_REVISION" \
+            --pre-green-output pre-green-traffic-manifest.json
           echo "BRIDGE_REVISION=$BRIDGE_REVISION" >> "$GITHUB_ENV"
           echo "bridge_revision=$BRIDGE_REVISION" >> "$GITHUB_OUTPUT"
 
       - name: Route production to verified bridge before migration
+        id: route_bridge
         if: steps.current_schema.outputs.revision == '013'
         run: |
           set -euo pipefail
           python scripts/containerapp_rollout.py verify-release-manifest \
             --input bridge-release-manifest.json \
             --required-role bridge >/dev/null
-          az containerapp ingress traffic set \
+          python scripts/containerapp_rollout.py mark-stage \
+            --state rollout-state.json \
+            --stage bridge_route_attempted
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input pre-green-traffic-manifest.json \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --revision-weight "$BRIDGE_REVISION=100"
-          cat > bridge-routed-traffic.json <<EOF
-          [{"revisionName":"${{ steps.bridge_resolved.outputs.bridge_revision }}","weight":100,"label":""}]
-          EOF
-          az containerapp show \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query 'properties.configuration.ingress.traffic' -o json \
-            > bridge-routed-current.json
-          python scripts/containerapp_rollout.py assert-traffic \
-            --expected bridge-routed-traffic.json \
-            --actual bridge-routed-current.json
+            --actual-output bridge-routed-current.json
           curl -fsS --max-time 30 "${API_URL%/api}/readyz" >/dev/null
           curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
             | jq -e '.status == "compatible" and .current_revision == "013" and .release_role == "bridge"' >/dev/null
@@ -1315,9 +1439,13 @@ jobs:
           jq -e '.status == "bridge_read_only" and .retryable == true' routed-bridge-read-only.json >/dev/null
 
       - name: Run exact-head production migration
+        id: migrate_schema
         if: steps.current_schema.outputs.revision == '013'
         run: |
           set -euo pipefail
+          python scripts/containerapp_rollout.py mark-stage \
+            --state rollout-state.json \
+            --stage migration_attempted
           RUNNING_EXECUTIONS=$(az containerapp job execution list \
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -2288,11 +2416,8 @@ jobs:
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --query 'properties.configuration.ingress.traffic' -o json \
             > green-traffic-current.json
-          cat > bridge-only-traffic.json <<EOF
-          [{"revisionName":"${BRIDGE_REVISION}","weight":100,"label":""}]
-          EOF
           python scripts/containerapp_rollout.py assert-traffic \
-            --expected bridge-only-traffic.json \
+            --expected pre-green-traffic-manifest.json \
             --actual green-traffic-current.json
 
       - name: Wait for green revision readiness
@@ -2661,17 +2786,21 @@ jobs:
           echo "Green revision version: $VERSION — all smoke tests passed"
 
       - name: Shift traffic to green (100%)
+        id: shift_green
         run: |
           set -euo pipefail
-          az containerapp show \
+          cp pre-green-traffic-manifest.json pre-shift-traffic-manifest.json
+          cat > green-target-traffic-manifest.json <<EOF
+          [{"revisionName":"${{ steps.green.outputs.green_revision }}","weight":100,"label":""}]
+          EOF
+          python scripts/containerapp_rollout.py mark-stage \
+            --state rollout-state.json \
+            --stage green_shift_attempted
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input green-target-traffic-manifest.json \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query 'properties.configuration.ingress.traffic' -o json \
-            > pre-shift-traffic-manifest.json
-          az containerapp ingress traffic set \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-            --revision-weight "${{ steps.green.outputs.green_revision }}=100"
+            --actual-output green-routed-traffic.json
 
       - name: Verify production deployment
         id: verify_production
@@ -2688,23 +2817,32 @@ jobs:
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --query "[?properties.trafficWeight==\`100\`].name | [0]" -o tsv)
           [ "$ROUTED_REVISION" = "${{ steps.green.outputs.green_revision }}" ]
+          python scripts/containerapp_rollout.py mark-stage \
+            --state rollout-state.json \
+            --stage complete
           echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
 
-      - name: Restore exact prior traffic after routed verification failure
-        if: always() && steps.verify_production.outcome != 'success'
+      - name: Recover exact schema-safe traffic after rollout failure
+        if: always() && steps.rollout_state.outcome == 'success' && steps.verify_production.outcome != 'success'
         run: |
           set -euo pipefail
-          echo "::error::Post-shift verification did not succeed; restoring exact prior traffic manifest"
+          echo "::error::Production rollout failed; selecting exact recovery traffic from durable stage and live schema evidence"
+          OBSERVED_SCHEMA=""
+          if curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
+            -o recovery-schema.json; then
+            OBSERVED_SCHEMA=$(jq -er '.current_revision' recovery-schema.json)
+          fi
           RESTORE_STATUS=0
-          python scripts/containerapp_rollout.py apply-traffic \
-            --input pre-shift-traffic-manifest.json \
+          python scripts/containerapp_rollout.py recover-release \
+            --state rollout-state.json \
+            --observed-schema "$OBSERVED_SCHEMA" \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --actual-output restored-traffic.json || RESTORE_STATUS=$?
+            --evidence-output rollout-recovery-evidence.json || RESTORE_STATUS=$?
           az containerapp revision show \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --revision "${{ steps.green.outputs.green_revision }}" \
+            --revision "${{ steps.green.outputs.green_revision || steps.bridge_resolved.outputs.bridge_revision }}" \
             --query '{name:name,state:properties.runningState,health:properties.healthState,traffic:properties.trafficWeight}' -o json || true
           az containerapp logs show \
             --name "$CONTAINER_APP_NAME" \
@@ -2712,16 +2850,15 @@ jobs:
             --revision "${{ steps.green.outputs.green_revision }}" \
             --tail 100 || true
           if [ "$RESTORE_STATUS" -ne 0 ]; then
-            echo "::error::Exact prior traffic restoration failed; page Platform Engineering"
+            echo "::error::Schema-safe traffic recovery failed or requires manual intervention; see rollout-recovery-evidence"
             exit "$RESTORE_STATUS"
           fi
 
       - name: Deactivate old revisions (keep blue for rollback)
+        if: steps.verify_production.outcome == 'success'
         run: |
-          BRIDGE_REV=$(python scripts/containerapp_rollout.py verify-release-manifest \
-            --input bridge-release-manifest.json \
-            --required-role bridge \
-            --field revision)
+          set -euo pipefail
+          BRIDGE_REV="${{ steps.bridge_resolved.outputs.bridge_revision }}"
           mapfile -t ROLLBACK_REVISIONS < <(jq -r '.[] | .revisionName // empty' pre-shift-traffic-manifest.json)
           OLD_REVS=$(az containerapp revision list \
             --name ${{ env.CONTAINER_APP_NAME }} \
@@ -2736,7 +2873,9 @@ jobs:
             DEACTIVATE+="${rev}"$'\n'
           done
 
-          echo "Keeping signed bridge revision for rollback: $BRIDGE_REV"
+          if [ -n "$BRIDGE_REV" ]; then
+            echo "Keeping signed bridge revision for rollback: $BRIDGE_REV"
+          fi
           printf 'Keeping exact prior traffic revision for restoration: %s\n' "${ROLLBACK_REVISIONS[@]}"
 
           for rev in $DEACTIVATE; do
@@ -2744,17 +2883,200 @@ jobs:
             az containerapp revision deactivate \
               --name ${{ env.CONTAINER_APP_NAME }} \
               --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-              --revision "$rev" || true
+              --revision "$rev"
+            ACTIVE=$(az containerapp revision show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+              --revision "$rev" \
+              --query properties.active -o tsv)
+            if [ "$ACTIVE" != "false" ]; then
+              echo "::error::Old revision ${rev} remained active after cleanup"
+              exit 1
+            fi
           done
 
       - name: Upload backend release and rollback evidence
+        if: always() && steps.rollout_state.outcome == 'success'
         uses: actions/upload-artifact@v7
         with:
           name: backend-release-evidence
           path: |
             bridge-release-manifest.json
+            rollout-state.json
+            pre-green-traffic-manifest.json
+            migration-alert-attestation.json
             blue-traffic-manifest.json
             pre-shift-traffic-manifest.json
+            rollout-recovery-evidence.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Download and verify previous frontend recovery bundle
+        id: frontend_recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! [[ "${SWA_RESTORE_IMAGE:-}" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::SWA_RESTORE_IMAGE must pin the approved Static Web Apps restoration client by digest"
+            exit 1
+          fi
+          PREVIOUS_RUN_ID=$(gh run list \
+            --workflow ci.yml \
+            --branch main \
+            --status success \
+            --limit 20 \
+            --json databaseId,headSha \
+            --jq '.[] | select(.headSha != "${{ github.sha }}") | .databaseId' \
+            | head -1)
+          if [ -z "$PREVIOUS_RUN_ID" ]; then
+            echo "::error::No successful prior frontend artifact exists; stopping before frontend mutation"
+            exit 1
+          fi
+          mkdir -p frontend/rollback-dist
+          if gh run download "$PREVIOUS_RUN_ID" \
+            --name frontend-recovery-bundle \
+            --dir frontend/rollback-dist; then
+            python scripts/frontend_release.py verify \
+              --root frontend/rollback-dist \
+              --manifest frontend/rollback-dist/frontend-rollback-manifest.json \
+              > frontend/rollback-dist/verified-manifest.json
+          else
+            rm -rf frontend/rollback-dist
+            mkdir -p frontend/rollback-dist
+            gh run download "$PREVIOUS_RUN_ID" \
+              --name frontend-dist \
+              --dir frontend/rollback-dist
+            test -f frontend/rollback-dist/dist/index.html
+            test -d frontend/rollback-dist/api
+            echo "::notice::Bootstrapping the first recovery manifest from the prior successful frontend artifact"
+          fi
+
+      - name: Download frontend dist for serialized deployment
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: frontend/current-dist
+
+      - name: Capture current Static Web Apps settings
+        id: capture_swa_settings
+        run: |
+          set -euo pipefail
+          SWA_SETTINGS_URI="https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.Web/staticSites/${STATIC_WEB_APP_NAME}/config/appsettings/list?api-version=2023-12-01"
+          az rest --method post --uri "$SWA_SETTINGS_URI" -o json \
+            > frontend/live-settings-before-mutation.json
+
+      - name: Bootstrap and verify current frontend snapshot when no bundle exists
+        if: hashFiles('frontend/rollback-dist/frontend-rollback-manifest.json') == ''
+        run: |
+          set -euo pipefail
+          test -f frontend/rollback-dist/dist/index.html
+          test -d frontend/rollback-dist/api
+          python scripts/frontend_release.py write \
+            --root frontend/rollback-dist \
+            --restore-image "$SWA_RESTORE_IMAGE" \
+            --output frontend/rollback-dist/frontend-rollback-manifest.json
+          python scripts/frontend_release.py verify \
+            --root frontend/rollback-dist \
+            --manifest frontend/rollback-dist/frontend-rollback-manifest.json \
+            > frontend/rollback-dist/verified-manifest.json
+
+      - name: Require verified frontend recovery before mutation
+        run: |
+          set -euo pipefail
+          test -f frontend/rollback-dist/verified-manifest.json
+          test -f frontend/rollback-dist/dist/index.html
+          test -d frontend/rollback-dist/api
+
+      - name: Configure Static Web Apps API bridge settings
+        id: configure_swa
+        run: |
+          set -euo pipefail
+          : "${ARCHMORPH_API_KEY:?ARCHMORPH_API_KEY is required for the SWA auth bridge}"
+          : "${ARCHMORPH_BACKEND_API_BASE:?API_URL is required for the SWA auth bridge}"
+          touch frontend/swa-mutation-attempted
+          az staticwebapp appsettings set \
+            --name "$STATIC_WEB_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --setting-names \
+              ARCHMORPH_API_KEY="$ARCHMORPH_API_KEY" \
+              ARCHMORPH_BACKEND_API_BASE="$ARCHMORPH_BACKEND_API_BASE" \
+            >/dev/null
+
+      - name: Deploy frontend under production mutation lock
+        id: deploy_frontend_locked
+        env:
+          SWA_DEPLOYMENT_TOKEN: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e INPUT_AZURE_STATIC_WEB_APPS_API_TOKEN="$SWA_DEPLOYMENT_TOKEN" \
+            -e INPUT_ACTION=upload \
+            -e INPUT_APP_LOCATION=/app \
+            -e INPUT_API_LOCATION=/api \
+            -e INPUT_OUTPUT_LOCATION= \
+            -e INPUT_SKIP_APP_BUILD=true \
+            -v "$PWD/frontend/current-dist/dist:/app:ro" \
+            -v "$PWD/frontend/current-dist/api:/api:ro" \
+            "$SWA_RESTORE_IMAGE"
+
+      - name: Verify frontend under production mutation lock
+        id: verify_frontend_locked
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 30 "$FRONTEND_URL/" >/dev/null
+          curl -fsS --max-time 30 "$FRONTEND_URL/#translator" >/dev/null
+
+      - name: Restore frontend settings and artifact after any mutation failure
+        if: always() && steps.capture_swa_settings.outcome == 'success' && hashFiles('frontend/swa-mutation-attempted') != '' && steps.verify_frontend_locked.outcome != 'success'
+        env:
+          SWA_DEPLOYMENT_TOKEN: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
+        run: |
+          set -euo pipefail
+          RESTORE_IMAGE=$(jq -er '.restore_image' frontend/rollback-dist/verified-manifest.json)
+          SWA_SETTINGS_URI="https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.Web/staticSites/${STATIC_WEB_APP_NAME}/config/appsettings?api-version=2023-12-01"
+          jq -e '.properties | type == "object"' frontend/live-settings-before-mutation.json >/dev/null
+          az rest \
+            --method put \
+            --uri "$SWA_SETTINGS_URI" \
+            --body @frontend/live-settings-before-mutation.json \
+            --output none
+          SWA_SETTINGS_LIST_URI="https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.Web/staticSites/${STATIC_WEB_APP_NAME}/config/appsettings/list?api-version=2023-12-01"
+          az rest --method post --uri "$SWA_SETTINGS_LIST_URI" -o json \
+            > frontend/restored-settings.json
+          jq -S '.properties' frontend/live-settings-before-mutation.json \
+            > frontend/expected-settings.json
+          jq -S '.properties' frontend/restored-settings.json \
+            > frontend/actual-settings.json
+          cmp frontend/expected-settings.json frontend/actual-settings.json
+          docker run --rm \
+            -e INPUT_AZURE_STATIC_WEB_APPS_API_TOKEN="$SWA_DEPLOYMENT_TOKEN" \
+            -e INPUT_ACTION=upload \
+            -e INPUT_APP_LOCATION=/app \
+            -e INPUT_API_LOCATION=/api \
+            -e INPUT_OUTPUT_LOCATION= \
+            -e INPUT_SKIP_APP_BUILD=true \
+            -v "$PWD/frontend/rollback-dist/dist:/app:ro" \
+            -v "$PWD/frontend/rollback-dist/api:/api:ro" \
+            "$RESTORE_IMAGE"
+          curl -fsS --max-time 30 "$FRONTEND_URL/" >/dev/null
+
+      - name: Build next verified frontend recovery bundle
+        run: |
+          set -euo pipefail
+          mkdir -p frontend/recovery-bundle
+          cp -R frontend/current-dist/dist frontend/recovery-bundle/dist
+          cp -R frontend/current-dist/api frontend/recovery-bundle/api
+          python scripts/frontend_release.py write \
+            --root frontend/recovery-bundle \
+            --restore-image "$SWA_RESTORE_IMAGE" \
+            --output frontend/recovery-bundle/frontend-rollback-manifest.json
+
+      - name: Upload verified frontend recovery bundle
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-recovery-bundle
+          path: frontend/recovery-bundle
           if-no-files-found: error
           retention-days: 90
 
@@ -2767,115 +3089,9 @@ jobs:
     timeout-minutes: 15
     if: github.ref == 'refs/heads/main'
     environment: production
-    env:
-      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
-      STATIC_WEB_APP_NAME: ${{ vars.STATIC_WEB_APP_NAME || 'archmorph-frontend' }}
-      ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
-      ARCHMORPH_BACKEND_API_BASE: ${{ secrets.API_URL }}
     steps:
-      - uses: actions/checkout@v6
-
-      - name: Download previous frontend rollback artifact
-        if: needs.deploy-backend.outputs.initial_schema != '013'
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          PREVIOUS_RUN_ID=$(gh run list \
-            --workflow ci.yml \
-            --branch main \
-            --status success \
-            --limit 10 \
-            --json databaseId,headSha \
-            --jq '.[] | select(.headSha != "${{ github.sha }}") | .databaseId' \
-            | head -1)
-          if [ -z "$PREVIOUS_RUN_ID" ]; then
-            echo "::error::No successful prior frontend artifact is available for rollback"
-            exit 1
-          fi
-          mkdir -p frontend/rollback-dist
-          gh run download "$PREVIOUS_RUN_ID" \
-            --name frontend-dist \
-            --dir frontend/rollback-dist
-          test -f frontend/rollback-dist/dist/index.html
-          test -d frontend/rollback-dist/api
-
-      - name: Record first-rollout frontend rollback limitation
-        if: needs.deploy-backend.outputs.initial_schema == '013'
-        run: |
-          echo "::notice::First bridge rollout has no prior artifact contract; backend remains compatible with the previous frontend and frontend deploy failure will fail closed without a speculative rollback."
-
-      - name: Azure login
-        uses: azure/login@v3
-        with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Configure Static Web Apps API bridge settings
-        run: |
-          if [ -z "${ARCHMORPH_API_KEY:-}" ]; then
-            echo "::error::ARCHMORPH_API_KEY or API_KEY secret is required for the SWA auth bridge"
-            exit 1
-          fi
-          if [ -z "${ARCHMORPH_BACKEND_API_BASE:-}" ]; then
-            echo "::error::API_URL secret is required for the SWA auth bridge"
-            exit 1
-          fi
-          az staticwebapp appsettings set \
-            --name "$STATIC_WEB_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --setting-names \
-              ARCHMORPH_API_KEY="$ARCHMORPH_API_KEY" \
-              ARCHMORPH_BACKEND_API_BASE="$ARCHMORPH_BACKEND_API_BASE" \
-            >/dev/null
-
-      - name: Download frontend dist
-        uses: actions/download-artifact@v8
-        with:
-          name: frontend-dist
-          path: frontend/dist
-
-      - name: Deploy to Azure Static Web Apps
-        id: deploy_frontend
-        uses: Azure/static-web-apps-deploy@v1
-        with:
-          azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: upload
-          app_location: frontend/dist
-          api_location: frontend/api
-          output_location: ''
-          skip_app_build: true
-
-      - name: Verify frontend and automatically restore previous artifact
-        id: verify_frontend
-        run: |
-          set -euo pipefail
-          curl -fsS --max-time 30 "$FRONTEND_URL/" >/dev/null
-          curl -fsS --max-time 30 "$FRONTEND_URL/#translator" >/dev/null
-
-      - name: Restore prior frontend artifact after deploy or verification failure
-        if: always() && needs.deploy-backend.outputs.initial_schema != '013' && (steps.deploy_frontend.outcome != 'success' || steps.verify_frontend.outcome != 'success')
-        env:
-          SWA_DEPLOYMENT_TOKEN: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
-        run: |
-          set -euo pipefail
-          echo "::error::Frontend deployment or verification failed; restoring prior tested artifact"
-          docker run --rm \
-            -e INPUT_AZURE_STATIC_WEB_APPS_API_TOKEN="$SWA_DEPLOYMENT_TOKEN" \
-            -e INPUT_ACTION=upload \
-            -e INPUT_APP_LOCATION=/app \
-            -e INPUT_API_LOCATION=/api \
-            -e INPUT_OUTPUT_LOCATION= \
-            -e INPUT_SKIP_APP_BUILD=true \
-            -v "$PWD/frontend/rollback-dist/dist:/app:ro" \
-            -v "$PWD/frontend/rollback-dist/api:/api:ro" \
-            mcr.microsoft.com/appsvc/staticappsclient:stable
-          curl -fsS --max-time 30 "$FRONTEND_URL/" >/dev/null
+      - name: Confirm serialized frontend deployment completed
+        run: echo "Frontend settings, artifact deployment, verification, and recovery were serialized in deploy-backend."
 
   # ============================================
   # POST-DEPLOY SMOKE

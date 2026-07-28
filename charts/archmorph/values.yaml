@@ -151,7 +151,12 @@ migrations:
   backoffLimit: 0
   activeDeadlineSeconds: 900
   expectedAlembicHead: "014"
-  expectedCurrentAlembicRevision: "013"
+  # One reviewed release schema contract: first install from 013 and repeated
+  # upgrades already at 014 are both valid. The migration runner validates and
+  # no-ops under its advisory lock when current == expectedAlembicHead.
+  acceptedCurrentAlembicRevisions:
+    - "013"
+    - "014"
   secretPreflightTimeoutSeconds: 120
 
 # Health check configuration (#378)

@@ -51,7 +51,7 @@ configuration.
 When `migrations.enabled=true`, Helm first runs a revisioned
 `migration-secret-preflight` hook. It mounts every required Secret key as an
 environment reference, resolves `DATABASE_URL`, executes `SELECT 1`, and checks
-`migrations.expectedCurrentAlembicRevision` before the migration hook is
+every revision in `migrations.acceptedCurrentAlembicRevisions` before the migration hook is
 created. A missing Secret, inaccessible database, or unexpected schema therefore
 fails before DDL instead of becoming a normal `ExternalSecret` first-install
 race or a partial migration.
@@ -60,7 +60,8 @@ The subsequent revisioned `pre-install,pre-upgrade` migration Job uses the same
 immutable application image and `DATABASE_URL` secret as the Deployment. The Job
 runs `run_migrations.py --expect-head <revision>`, which takes a PostgreSQL
 advisory lock, executes Alembic, verifies the exact declared head, and exits
-non-zero on any failure. Hooks use unique release-revision names and
+non-zero on any failure. If the database is already at that exact head, the
+runner validates readiness and emits evidence without running DDL. Hooks use unique release-revision names and
 `hook-succeeded` cleanup only; they never use `before-hook-creation`, so a second
 release cannot delete an active migration Job.
 
@@ -86,5 +87,14 @@ running `helm install` or `helm upgrade`. Bootstrap it in a separate, serialized
 GitOps/CI phase, wait for the ExternalSecret `Ready=True` condition and target
 Secret keys, then run the chart. The chart intentionally fails first install
 instead of waiting on or racing an external controller.
+
+The owning executable path is `scripts/helm_release.sh`, invoked by the manual
+`Helm Release` workflow. It acquires a namespace Lease, fails clearly when the
+External Secrets CRD/controller is unavailable, applies and waits for the
+ExternalSecret when configured, verifies required Secret keys, then renders the
+chart against that pre-existing Secret and runs `helm upgrade --install
+--atomic --wait` with an immutable image digest. The workflow shares the whole
+production mutation lock with Container Apps, Static Web Apps, Terraform, and
+manual rollback and records source/image/schema evidence.
 
 Application replicas only verify schema state; they never run DDL.

@@ -30,7 +30,10 @@ These secrets are required in `.github/workflows/ci.yml`:
 | `TFSTATE_STORAGE_ACCOUNT` | Private Terraform backend storage account | `yourstateaccount` |
 | `TFSTATE_CONTAINER` | Private Terraform backend container | `state` |
 | `TFSTATE_KEY` | Production Terraform state key | `production.tfstate` |
-| `MIGRATION_TFSTATE_KEY` | Separate migration-bootstrap Terraform state key | `migration-bootstrap.tfstate` |
+| `MIGRATION_TFSTATE_STORAGE_ACCOUNT` | Migration-bootstrap state account; must differ from the primary account or use a separate container | `<migration-state-account>` |
+| `MIGRATION_TFSTATE_CONTAINER` | Migration-bootstrap state container; must differ from the primary container when sharing an account | `<migration-state-container>` |
+| `MIGRATION_TFSTATE_KEY` | Separate migration-bootstrap Terraform state key; must also differ from the primary key | `migration-bootstrap.tfstate` |
+| `SWA_RESTORE_IMAGE` | Approved Static Web Apps deployment client pinned by immutable digest | `mcr.microsoft.com/<approved-image>@sha256:<64-hex-digest>` |
 | `TFSTATE_STAGING_KEY` | Distinct staging Terraform state key | `staging.tfstate` |
 | `TF_RESOURCE_GROUP_ENVIRONMENT` | Existing stack suffix used only during reviewed adoption | `configured-stack-suffix` |
 | `TF_REDIS_NAME_OVERRIDE` | Existing Redis name used only during reviewed adoption | `configured-redis-name` |

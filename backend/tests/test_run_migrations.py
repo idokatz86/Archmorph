@@ -20,6 +20,11 @@ def _engine_and_connection():
 def test_migration_runner_takes_lock_runs_head_and_verifies(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
     engine, connection = _engine_and_connection()
+    connection.execute.side_effect = [
+        MagicMock(),
+        MagicMock(scalars=MagicMock(return_value=("013",))),
+        MagicMock(),
+    ]
     readiness = {
         "postgres_configured": True,
         "connection_ok": True,
@@ -38,10 +43,12 @@ def test_migration_runner_takes_lock_runs_head_and_verifies(monkeypatch):
 
     assert upgrade.call_args.args[1] == "head"
     assert upgrade.call_args.args[0].attributes["connection"] is connection
-    assert connection.execute.call_count == 2
+    assert connection.execute.call_count == 3
     lock_statement = str(connection.execute.call_args_list[0].args[0])
-    unlock_statement = str(connection.execute.call_args_list[1].args[0])
+    revision_statement = str(connection.execute.call_args_list[1].args[0])
+    unlock_statement = str(connection.execute.call_args_list[2].args[0])
     assert "pg_advisory_lock" in lock_statement
+    assert "SELECT version_num" in revision_statement
     assert "pg_advisory_unlock" in unlock_statement
     assert connection.commit.call_count == 2
     engine.dispose.assert_called_once_with()
@@ -100,6 +107,11 @@ def test_migration_preflight_discovers_one_of_reviewed_transition_revisions(monk
 def test_migration_runner_releases_lock_and_propagates_alembic_error(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
     engine, connection = _engine_and_connection()
+    connection.execute.side_effect = [
+        MagicMock(),
+        MagicMock(scalars=MagicMock(return_value=("013",))),
+        MagicMock(),
+    ]
 
     with (
         patch.object(run_migrations, "create_engine", return_value=engine),
@@ -112,8 +124,8 @@ def test_migration_runner_releases_lock_and_propagates_alembic_error(monkeypatch
     ):
         run_migrations.run(expected_head="014")
 
-    assert connection.execute.call_count == 2
-    assert "pg_advisory_unlock" in str(connection.execute.call_args_list[1].args[0])
+    assert connection.execute.call_count == 3
+    assert "pg_advisory_unlock" in str(connection.execute.call_args_list[2].args[0])
     assert connection.commit.call_count == 2
     engine.dispose.assert_called_once_with()
 
@@ -130,6 +142,11 @@ def test_migration_runner_rejects_missing_or_split_expected_head(monkeypatch):
 def test_migration_runner_rejects_head_mismatch_after_upgrade(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
     engine, _connection = _engine_and_connection()
+    _connection.execute.side_effect = [
+        MagicMock(),
+        MagicMock(scalars=MagicMock(return_value=("014",))),
+        MagicMock(),
+    ]
     readiness = {
         "postgres_configured": True,
         "connection_ok": True,
@@ -146,3 +163,32 @@ def test_migration_runner_rejects_head_mismatch_after_upgrade(monkeypatch):
         pytest.raises(RuntimeError, match="exact expected schema contract"),
     ):
         run_migrations.run(expected_head="015")
+
+
+def test_migration_runner_noops_and_validates_when_database_is_already_at_head(monkeypatch):
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
+    engine, connection = _engine_and_connection()
+    connection.execute.side_effect = [
+        MagicMock(),
+        MagicMock(scalars=MagicMock(return_value=("014",))),
+        MagicMock(),
+    ]
+    readiness = {
+        "postgres_configured": True,
+        "connection_ok": True,
+        "schema_at_head": True,
+        "required_schema_present": True,
+        "current_revision": "014",
+        "expected_revision": "014",
+    }
+
+    with (
+        patch.object(run_migrations, "create_engine", return_value=engine),
+        patch.object(run_migrations.command, "upgrade") as upgrade,
+        patch("database.database_readiness", return_value=readiness),
+    ):
+        evidence = run_migrations.run(expected_head="014")
+
+    upgrade.assert_not_called()
+    assert evidence["status"] == "already_at_head"
+    assert "pg_advisory_unlock" in str(connection.execute.call_args_list[2].args[0])

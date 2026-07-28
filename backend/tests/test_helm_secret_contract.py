@@ -112,7 +112,13 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     )
     preflight_container = preflight["spec"]["template"]["spec"]["containers"][0]
     assert preflight_container["command"] == ["python", "run_migrations.py"]
-    assert preflight_container["args"] == ["--preflight-only", "--expect-current", "013"]
+    assert preflight_container["args"] == [
+        "--preflight-only",
+        "--accept-current",
+        "013",
+        "--accept-current",
+        "014",
+    ]
     assert preflight_container["env"][0]["valueFrom"]["secretKeyRef"] == {
         "name": "contract-archmorph-secrets",
         "key": "DATABASE_URL",
@@ -267,8 +273,10 @@ def test_first_install_external_secret_requires_pre_materialized_runtime_secret(
     assert migration["metadata"]["annotations"]["helm.sh/hook-weight"] == "-10"
     assert preflight["spec"]["template"]["spec"]["containers"][0]["args"] == [
         "--preflight-only",
-        "--expect-current",
+        "--accept-current",
         "013",
+        "--accept-current",
+        "014",
     ]
 
 
@@ -286,10 +294,34 @@ def test_revisioned_hooks_do_not_delete_an_active_prior_migration():
     }
 
 
+def test_render_rejects_schema_contract_that_omits_head_or_has_duplicates():
+    missing_head = _render(
+        "-f",
+        str(CHART / "values-production.yaml"),
+        "--set-string",
+        f"image.digest={IMMUTABLE_DIGEST}",
+        "--set-json",
+        'migrations.acceptedCurrentAlembicRevisions=["013"]',
+        expect_success=False,
+    )
+    assert "must include expectedAlembicHead" in missing_head.stderr
+
+    duplicate = _render(
+        "-f",
+        str(CHART / "values-production.yaml"),
+        "--set-string",
+        f"image.digest={IMMUTABLE_DIGEST}",
+        "--set-json",
+        'migrations.acceptedCurrentAlembicRevisions=["014","014"]',
+        expect_success=False,
+    )
+    assert "must be unique" in duplicate.stderr
+
+
 def test_chart_documents_external_secret_controller_bootstrap_limitation():
     readme = (CHART / "README.md").read_text(encoding="utf-8")
     assert "executes `SELECT 1`" in readme
-    assert "expectedCurrentAlembicRevision" in readme
+    assert "acceptedCurrentAlembicRevisions" in readme
     assert "External Secrets controller integration limitation" in readme
     assert "materialized before" in readme
     assert "running `helm install` or `helm upgrade`" in readme

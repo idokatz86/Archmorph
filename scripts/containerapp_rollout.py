@@ -12,11 +12,21 @@ import re
 import shlex
 import subprocess
 from pathlib import Path
+from typing import Any
 
 
 _DIGEST_RE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
 _REVISION_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,99}$")
 _SCHEMA_RE = re.compile(r"^[A-Za-z0-9_-]+$")
+_RELEASE_STAGES = (
+    "captured",
+    "baseline_attempted",
+    "bridge_prepare_attempted",
+    "bridge_route_attempted",
+    "migration_attempted",
+    "green_shift_attempted",
+    "complete",
+)
 
 
 def canonical_traffic(items: list[dict]) -> list[dict[str, object]]:
@@ -43,8 +53,9 @@ def canonical_traffic(items: list[dict]) -> list[dict[str, object]]:
             str(item.get("label") or ""),
         )
     )
-    if sum(int(item["weight"]) for item in normalized) != 100:
-        raise ValueError("traffic weights must sum to 100")
+    total_weight = sum(int(item["weight"]) for item in normalized)
+    if total_weight not in {0, 100}:
+        raise ValueError("traffic weights must sum to 0 or 100")
     targets = [
         (
             str(item.get("revisionName") or "latest"),
@@ -62,7 +73,7 @@ def explicit_traffic(items: list[dict], *, latest_revision: str) -> list[dict[st
     """Resolve latestRevision traffic to an immutable blue revision."""
     if not _REVISION_RE.fullmatch(latest_revision):
         raise ValueError("latest_revision must be an explicit Container Apps revision")
-    resolved = []
+    resolved: list[dict[str, object]] = []
     for item in canonical_traffic(items):
         if item.get("latestRevision"):
             item = {
@@ -70,8 +81,193 @@ def explicit_traffic(items: list[dict], *, latest_revision: str) -> list[dict[st
                 "weight": item["weight"],
                 "label": item["label"],
             }
-        resolved.append(item)
+        existing = next(
+            (
+                candidate
+                for candidate in resolved
+                if candidate.get("revisionName") == item.get("revisionName")
+                and candidate.get("label") == item.get("label")
+            ),
+            None,
+        )
+        if existing is None:
+            resolved.append(item)
+        else:
+            existing["weight"] = int(existing["weight"]) + int(item["weight"])
     return canonical_traffic(resolved)
+
+
+def authoritative_latest_revision(container_app: dict[str, Any]) -> str:
+    """Resolve dynamic latest traffic from authoritative management-plane state."""
+    properties = container_app.get("properties")
+    if not isinstance(properties, dict):
+        raise ValueError("Container App management response is missing properties")
+    revision = str(
+        properties.get("latestReadyRevisionName")
+        or properties.get("latestRevisionName")
+        or ""
+    )
+    if not _REVISION_RE.fullmatch(revision):
+        raise ValueError(
+            "Container App management response has no authoritative latest-ready revision"
+        )
+    return revision
+
+
+def create_release_state(
+    *,
+    current_schema: str,
+    migration_from: str,
+    target_schema: str,
+    original_traffic: list[dict],
+    baseline_traffic: list[dict],
+    bridge_revision: str = "",
+) -> dict[str, Any]:
+    """Build the explicit branch contract used by rollout and cleanup steps."""
+    for revision in (current_schema, migration_from, target_schema):
+        if not _SCHEMA_RE.fullmatch(revision):
+            raise ValueError("release state requires explicit schema revisions")
+    original = canonical_traffic(original_traffic)
+    baseline = canonical_traffic(baseline_traffic)
+    if current_schema == migration_from and migration_from != target_schema:
+        branch = "migration"
+        if bridge_revision:
+            if not _REVISION_RE.fullmatch(bridge_revision):
+                raise ValueError("migration branch bridge revision is invalid")
+            pre_green = canonical_traffic(
+                [{"revisionName": bridge_revision, "weight": 100, "label": ""}]
+            )
+        else:
+            pre_green = []
+    elif current_schema == target_schema:
+        if bridge_revision:
+            raise ValueError("routine branch must not resolve or route a schema bridge")
+        branch = "routine"
+        pre_green = baseline
+    else:
+        raise ValueError("current schema is outside the reviewed rollout state machine")
+    return {
+        "schema_version": 1,
+        "branch": branch,
+        "initial_schema": current_schema,
+        "migration_from": migration_from,
+        "target_schema": target_schema,
+        "bridge_revision": bridge_revision,
+        "stage": "captured",
+        "original_traffic": original,
+        "baseline_traffic": baseline,
+        "pre_green_traffic": pre_green,
+    }
+
+
+def set_release_bridge(state: dict[str, Any], revision: str) -> dict[str, Any]:
+    """Bind the verified immutable bridge to a captured migration branch."""
+    if state.get("branch") != "migration":
+        raise ValueError("only a migration release can bind a bridge")
+    if not _REVISION_RE.fullmatch(revision):
+        raise ValueError("bridge revision must be an explicit Container Apps revision")
+    updated = dict(state)
+    updated["bridge_revision"] = revision
+    updated["pre_green_traffic"] = canonical_traffic(
+        [{"revisionName": revision, "weight": 100, "label": ""}]
+    )
+    return updated
+
+
+def mark_release_stage(state: dict[str, Any], stage: str) -> dict[str, Any]:
+    """Advance a rollout state atomically; stage regressions are rejected."""
+    if stage not in _RELEASE_STAGES:
+        raise ValueError(f"unknown release stage: {stage}")
+    current = str(state.get("stage") or "")
+    if current not in _RELEASE_STAGES:
+        raise ValueError("release state contains an invalid stage")
+    if _RELEASE_STAGES.index(stage) < _RELEASE_STAGES.index(current):
+        raise ValueError("release stage cannot move backwards")
+    updated = dict(state)
+    updated["stage"] = stage
+    return updated
+
+
+def recovery_decision(state: dict[str, Any], *, observed_schema: str) -> tuple[str, list[dict]]:
+    """Choose the only schema-safe traffic action after an interrupted release."""
+    stage = str(state.get("stage") or "")
+    branch = str(state.get("branch") or "")
+    if stage not in _RELEASE_STAGES or branch not in {"migration", "routine"}:
+        raise ValueError("invalid release recovery state")
+    if stage in {"captured", "complete"}:
+        return "none", []
+    original = canonical_traffic(state.get("original_traffic", []))
+    if branch == "routine":
+        if observed_schema and observed_schema != state.get("target_schema"):
+            raise RuntimeError("routine release schema changed unexpectedly; retaining current traffic")
+        return "restore_original", original
+    if _RELEASE_STAGES.index(stage) < _RELEASE_STAGES.index("migration_attempted"):
+        return "restore_original", original
+    if observed_schema == state.get("migration_from"):
+        return "restore_original", original
+    if observed_schema == state.get("target_schema"):
+        return "retain_bridge", canonical_traffic(state.get("pre_green_traffic", []))
+    raise RuntimeError("migration outcome schema is unknown; retaining current traffic")
+
+
+def recover_release(
+    state: dict[str, Any],
+    *,
+    observed_schema: str,
+    name: str,
+    resource_group: str,
+    evidence_output: Path,
+) -> dict[str, Any]:
+    """Apply and verify the schema-safe recovery target and record incident evidence."""
+    try:
+        action, target = recovery_decision(state, observed_schema=observed_schema)
+    except Exception as error:
+        evidence = {
+            "schema_version": 1,
+            "status": "manual_intervention_required",
+            "action": "retain_current",
+            "branch": state.get("branch"),
+            "stage": state.get("stage"),
+            "observed_schema": observed_schema or "unknown",
+            "reason": str(error),
+        }
+        evidence_output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+        raise
+    if target:
+        try:
+            apply_traffic(target, name=name, resource_group=resource_group)
+        except Exception as error:
+            evidence = {
+                "schema_version": 1,
+                "status": "recovery_failed",
+                "action": action,
+                "branch": state["branch"],
+                "stage": state["stage"],
+                "observed_schema": observed_schema,
+                "intended_traffic": target,
+                "reason": str(error),
+            }
+            evidence_output.write_text(
+                json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
+            )
+            raise
+    evidence = {
+        "schema_version": 1,
+        "status": "recovered" if action == "restore_original" else "bridge_retained",
+        "action": action,
+        "branch": state["branch"],
+        "stage": state["stage"],
+        "observed_schema": observed_schema,
+        "verified_traffic": target,
+    }
+    evidence_output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
+    return evidence
+
+
+def _write_json_atomic(path: Path, payload: object) -> None:
+    temporary = path.with_suffix(path.suffix + ".tmp")
+    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    temporary.replace(path)
 
 
 def traffic_command(items: list[dict]) -> str:
@@ -105,6 +301,25 @@ def apply_traffic(
 ) -> None:
     """Apply and verify an exact traffic manifest using argument-safe commands."""
     expected = canonical_traffic(items)
+    current_result = subprocess.run(
+        [
+            "az",
+            "containerapp",
+            "show",
+            "--name",
+            name,
+            "--resource-group",
+            resource_group,
+            "--query",
+            "properties.configuration.ingress.traffic",
+            "-o",
+            "json",
+        ],
+        check=True,
+        capture_output=True,
+        text=True,
+    )
+    current = canonical_traffic(json.loads(current_result.stdout))
     command = [
         "az",
         "containerapp",
@@ -118,11 +333,24 @@ def apply_traffic(
     ]
     revisions: list[str] = []
     labels: list[str] = []
-    for item in expected:
-        target = "latest" if item.get("latestRevision") else str(item["revisionName"])
-        weight = str(item["weight"])
-        if item.get("label"):
-            labels.append(f"{item['label']}={weight}")
+    expected_targets = {
+        (
+            "latest" if item.get("latestRevision") else str(item["revisionName"]),
+            str(item.get("label") or ""),
+        ): int(item["weight"])
+        for item in expected
+    }
+    current_targets = {
+        (
+            "latest" if item.get("latestRevision") else str(item["revisionName"]),
+            str(item.get("label") or ""),
+        )
+        for item in current
+    }
+    for target, label in sorted(current_targets | set(expected_targets)):
+        weight = str(expected_targets.get((target, label), 0))
+        if label:
+            labels.append(f"{label}={weight}")
         else:
             revisions.append(f"{target}={weight}")
     if revisions:
@@ -227,7 +455,9 @@ def main() -> int:
 
     explicit = subparsers.add_parser("explicit-traffic")
     explicit.add_argument("--input", required=True, type=Path)
-    explicit.add_argument("--latest-revision", required=True)
+    latest_source = explicit.add_mutually_exclusive_group(required=True)
+    latest_source.add_argument("--latest-revision")
+    latest_source.add_argument("--container-app", type=Path)
     explicit.add_argument("--output", required=True, type=Path)
 
     command = subparsers.add_parser("traffic-command")
@@ -256,9 +486,38 @@ def main() -> int:
     verify.add_argument("--required-role", required=True)
     verify.add_argument("--field", choices=("revision", "image", "source_sha"))
 
+    state = subparsers.add_parser("create-release-state")
+    state.add_argument("--current-schema", required=True)
+    state.add_argument("--migration-from", required=True)
+    state.add_argument("--target-schema", required=True)
+    state.add_argument("--original-traffic", required=True, type=Path)
+    state.add_argument("--baseline-traffic", required=True, type=Path)
+    state.add_argument("--bridge-revision", default="")
+    state.add_argument("--output", required=True, type=Path)
+    state.add_argument("--pre-green-output", required=True, type=Path)
+
+    mark = subparsers.add_parser("mark-stage")
+    mark.add_argument("--state", required=True, type=Path)
+    mark.add_argument("--stage", required=True, choices=_RELEASE_STAGES)
+
+    bridge = subparsers.add_parser("set-bridge")
+    bridge.add_argument("--state", required=True, type=Path)
+    bridge.add_argument("--revision", required=True)
+    bridge.add_argument("--pre-green-output", required=True, type=Path)
+
+    recover = subparsers.add_parser("recover-release")
+    recover.add_argument("--state", required=True, type=Path)
+    recover.add_argument("--observed-schema", default="")
+    recover.add_argument("--name", required=True)
+    recover.add_argument("--resource-group", required=True)
+    recover.add_argument("--evidence-output", required=True, type=Path)
+
     args = parser.parse_args()
     if args.command == "explicit-traffic":
-        result = explicit_traffic(_json(args.input), latest_revision=args.latest_revision)
+        latest_revision = args.latest_revision
+        if args.container_app is not None:
+            latest_revision = authoritative_latest_revision(_json(args.container_app))
+        result = explicit_traffic(_json(args.input), latest_revision=latest_revision)
         args.output.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
     elif args.command == "traffic-command":
         print(traffic_command(_json(args.input)))
@@ -280,6 +539,31 @@ def main() -> int:
             image=args.image,
             source_sha=args.source_sha,
             accepted_revisions=args.accepted_revision,
+        )
+    elif args.command == "create-release-state":
+        payload = create_release_state(
+            current_schema=args.current_schema,
+            migration_from=args.migration_from,
+            target_schema=args.target_schema,
+            original_traffic=_json(args.original_traffic),
+            baseline_traffic=_json(args.baseline_traffic),
+            bridge_revision=args.bridge_revision,
+        )
+        _write_json_atomic(args.output, payload)
+        _write_json_atomic(args.pre_green_output, payload["pre_green_traffic"])
+    elif args.command == "mark-stage":
+        _write_json_atomic(args.state, mark_release_stage(_json(args.state), args.stage))
+    elif args.command == "set-bridge":
+        payload = set_release_bridge(_json(args.state), args.revision)
+        _write_json_atomic(args.state, payload)
+        _write_json_atomic(args.pre_green_output, payload["pre_green_traffic"])
+    elif args.command == "recover-release":
+        recover_release(
+            _json(args.state),
+            observed_schema=args.observed_schema,
+            name=args.name,
+            resource_group=args.resource_group,
+            evidence_output=args.evidence_output,
         )
     else:
         payload = verify_manifest(args.input, required_role=args.required_role)

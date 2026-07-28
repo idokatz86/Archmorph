@@ -9,6 +9,8 @@ ROLLBACK_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "rollback.yml"
 MONITORING_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "monitoring.yml"
 MIGRATION_BOOTSTRAP = REPO_ROOT / "infra" / "migration-bootstrap" / "main.tf"
 MAIN_TERRAFORM = REPO_ROOT / "infra" / "main.tf"
+HELM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "helm-release.yml"
+TERRAFORM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "terraform-prod.yml"
 
 
 def _load(path: Path) -> dict:
@@ -88,8 +90,12 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert "Legacy application state still owns the migration Job" in plan
     assert "reviewed non-destructive removed block" in plan
     assert '-backend-config="key=${MIGRATION_TFSTATE_KEY}"' in plan
+    assert '-backend-config="storage_account_name=${MIGRATION_TFSTATE_STORAGE_ACCOUNT}"' in plan
+    assert '-backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}"' in plan
     assert "terraform -chdir=infra/migration-bootstrap validate -no-color" in plan
     assert "terraform -chdir=infra/migration-bootstrap plan" in plan
+    assert "terraform -chdir=infra/migration-bootstrap show -json" in plan
+    assert "verify_migration_bootstrap.py plan" in plan
     assert "-out=migration-bootstrap.tfplan" in plan
     assert "-target" not in plan
     assert "state list" in plan
@@ -233,6 +239,87 @@ def test_phase_a_workflow_rejects_concurrency_and_uses_only_job_control_plane():
     assert "az containerapp ingress traffic" not in phase_a
 
 
+def test_phase_a_enforces_backend_tuple_plan_allowlist_and_integrity_before_apply():
+    workflow = _load(CI_WORKFLOW)
+    steps = workflow["jobs"]["deploy-backend"]["steps"]
+    plan = _step_by_name(steps, "Plan migration bootstrap (Phase A)")["run"]
+    apply = _step_by_name(steps, "Apply migration bootstrap (Phase A)")["run"]
+    assert "verify_migration_bootstrap.py backend" in plan
+    assert "MIGRATION_TFSTATE_STORAGE_ACCOUNT" in plan
+    assert "MIGRATION_TFSTATE_CONTAINER" in plan
+    assert "terraform -chdir=infra/migration-bootstrap show -json" in plan
+    assert "verify_migration_bootstrap.py plan" in plan
+    assert "write-metadata" in plan
+    assert "primary-state-before-bootstrap.json" in plan
+    assert "state-before-apply.json" in plan
+    assert "verify-metadata" in apply
+    assert apply.index("verify-metadata") < apply.index("terraform -chdir=infra/migration-bootstrap apply")
+
+
+def test_alert_attestation_precedes_every_migration_job_start():
+    workflow = _load(CI_WORKFLOW)
+    steps = workflow["jobs"]["deploy-backend"]["steps"]
+    names = [step.get("name") for step in steps]
+    attest = _step_by_name(steps, "Attest applied migration alerts before Job execution")["run"]
+    assert "terraform -chdir=infra output -json" in attest
+    assert "verify_migration_alerts.py" in attest
+    assert "migration_failure_alert_id" in attest
+    assert "migration_timeout_alert_id" in attest
+    assert "migration_missing_evidence_alert_id" in attest
+    assert "critical_action_group_id" in attest
+    assert names.index("Attest applied migration alerts before Job execution") < names.index(
+        "Discover schema with same-identity database preflight"
+    )
+    assert names.index("Attest applied migration alerts before Job execution") < names.index(
+        "Run exact-head production migration"
+    )
+
+
+def test_cleanup_is_manifest_and_stage_gated_without_obscuring_original_failure():
+    workflow = _load(CI_WORKFLOW)
+    steps = workflow["jobs"]["deploy-backend"]["steps"]
+    recovery = _step_by_name(steps, "Recover exact schema-safe traffic after rollout failure")
+    assert "steps.rollout_state.outcome == 'success'" in recovery["if"]
+    assert "recover-release" in recovery["run"]
+    assert "|| RESTORE_STATUS=$?" in recovery["run"]
+    assert "rollout-recovery-evidence.json" in recovery["run"]
+    assert "|| true" in recovery["run"]
+    deactivate = _step_by_name(steps, "Deactivate old revisions (keep blue for rollback)")
+    assert deactivate["if"] == "steps.verify_production.outcome == 'success'"
+    assert "properties.active" in deactivate["run"]
+    assert "remained active after cleanup" in deactivate["run"]
+    upload = _step_by_name(steps, "Upload backend release and rollback evidence")
+    assert upload["if"] == "always() && steps.rollout_state.outcome == 'success'"
+
+
+def test_all_production_mutation_workflows_share_one_lock_and_frontend_is_in_owner_job():
+    ci = _load(CI_WORKFLOW)
+    rollback = _load(ROLLBACK_WORKFLOW)
+    terraform = _load(TERRAFORM_WORKFLOW)
+    helm = _load(HELM_WORKFLOW)
+    expected = "production-backend-rollout"
+    assert ci["jobs"]["deploy-backend"]["concurrency"]["group"] == expected
+    assert rollback["jobs"]["rollback"]["concurrency"]["group"] == expected
+    assert terraform["concurrency"]["group"] == expected
+    assert helm["concurrency"]["group"] == expected
+    backend_names = [step.get("name") for step in ci["jobs"]["deploy-backend"]["steps"]]
+    assert "Configure Static Web Apps API bridge settings" in backend_names
+    assert "Deploy frontend under production mutation lock" in backend_names
+    assert "Verify frontend under production mutation lock" in backend_names
+    assert backend_names.index("Verify production deployment") < backend_names.index(
+        "Download and verify previous frontend recovery bundle"
+    )
+    assert backend_names.index("Download and verify previous frontend recovery bundle") < backend_names.index(
+        "Configure Static Web Apps API bridge settings"
+    )
+    assert backend_names.index("Configure Static Web Apps API bridge settings") < backend_names.index(
+        "Deploy frontend under production mutation lock"
+    )
+    assert backend_names.index("Deploy frontend under production mutation lock") < backend_names.index(
+        "Verify frontend under production mutation lock"
+    )
+
+
 def test_backend_image_and_schema_contract_are_immutable_and_fail_closed():
     workflow = _load(CI_WORKFLOW)
     deploy = workflow["jobs"]["deploy-backend"]
@@ -296,7 +383,9 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     workflow = _load(CI_WORKFLOW)
     steps = workflow["jobs"]["deploy-backend"]["steps"]
     names = [step.get("name") for step in steps]
-    capture = _step_by_name(steps, "Capture blue traffic and make latest routing explicit")["run"]
+    capture = _step_by_name(steps, "Capture exact original production traffic")["run"]
+    state = _step_by_name(steps, "Create branch-specific rollout state")["run"]
+    explicit = _step_by_name(steps, "Make dynamic latest traffic explicit")["run"]
     bridge = _step_by_name(steps, "Stage schema bridge rollout script")["run"]
     green = _step_by_name(steps, "Deploy green revision")["run"]
     shift = _step_by_name(steps, "Shift traffic to green (100%)")["run"]
@@ -304,20 +393,22 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     verify = verify_step["run"]
     restore_step = _step_by_name(
         steps,
-        "Restore exact prior traffic after routed verification failure",
+        "Recover exact schema-safe traffic after rollout failure",
     )
     restore = restore_step["run"]
     retain = _step_by_name(steps, "Deactivate old revisions (keep blue for rollback)")["run"]
 
     assert "blue-traffic-original.json" in capture
     assert "explicit-traffic" in capture
-    assert "apply-traffic" in capture
-    assert "properties.trafficWeight >" in capture
-    assert "No explicit routed revision" in capture
+    assert "--container-app containerapp-before-rollout.json" in capture
     assert "eval " not in capture
-    assert names.index("Capture blue traffic and make latest routing explicit") < names.index(
-        "Stage schema bridge rollout script"
+    assert names.index("Capture exact original production traffic") < names.index(
+        "Plan migration bootstrap (Phase A)"
     )
+    assert "create-release-state" in state
+    assert "--original-traffic blue-traffic-original.json" in state
+    assert "--baseline-traffic blue-traffic-manifest.json" in state
+    assert "apply-traffic" in explicit
     assert "BRIDGE_WEIGHT" in bridge and '!= "0"' in bridge
     assert "BRIDGE_ROLE" in bridge
     assert "missing explicit release-role metadata" in bridge
@@ -331,22 +422,25 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert "write-release-manifest" in bridge
     assert "--required-role bridge" in bridge
     assert "GREEN_WEIGHT" in green and '!= "0"' in green
-    assert "bridge-only-traffic.json" in green
+    assert "pre-green-traffic-manifest.json" in green
     smoke = _step_by_name(steps, "Smoke test green revision")["run"]
     assert "does not identify as the final release role" in smoke
     assert ".minimum_revision == $minimum" in smoke
     assert ".migration_target_revision == $target" in smoke
     assert "pre-shift-traffic-manifest.json" in shift
+    assert "green-target-traffic-manifest.json" in shift
+    assert "apply-traffic" in shift
     assert verify_step["id"] == "verify_production"
     assert "health_gate.sh" in verify
-    assert restore_step["if"] == "always() && steps.verify_production.outcome != 'success'"
-    assert "apply-traffic" in restore
-    assert "restored-traffic.json" in restore
+    assert "always()" in restore_step["if"]
+    assert "steps.rollout_state.outcome == 'success'" in restore_step["if"]
+    assert "steps.verify_production.outcome != 'success'" in restore_step["if"]
+    assert "recover-release" in restore
+    assert "rollout-recovery-evidence.json" in restore
     assert "RESTORE_STATUS" in restore
-    assert restore.index("apply-traffic") < restore.index("az containerapp revision show")
+    assert restore.index("recover-release") < restore.index("az containerapp revision show")
     assert "eval " not in restore
-    assert "bridge-release-manifest.json" in retain
-    assert "Keeping signed bridge revision" in retain
+    assert 'BRIDGE_REV="${{ steps.bridge_resolved.outputs.bridge_revision }}"' in retain
     assert "ROLLBACK_REVISIONS" in retain
     assert "Keeping exact prior traffic revision" in retain
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
@@ -368,48 +462,56 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert 'BRIDGE_ROLE" = "bridge"' in rerun
     assert "rerun-bridge-read-only.json" in rerun
     assert "BRIDGE_REVISION=" in resolve
-    assert 'CURRENT_SCHEMA_REVISION" = "013"' in resolve
+    assert '[ "$CURRENT_SCHEMA_REVISION" = "013" ]' in resolve
     assert "export CURRENT_SCHEMA_REVISION" in resolve
-    assert "bridge-routed-traffic.json" in route_bridge
-    assert "assert-traffic" in route_bridge
+    assert "pre-green-traffic-manifest.json" in route_bridge
+    assert "apply-traffic" in route_bridge
     assert '.release_role == "bridge"' in route_bridge
     assert "routed-bridge-read-only.json" in route_bridge
+    assert 'Routine schema-${EXPECTED_ALEMBIC_HEAD} release preserves current production traffic' in resolve
+    assert "set-bridge" in resolve
 
 
 def test_frontend_waits_for_backend_and_has_previous_artifact_rollback():
     workflow = _load(CI_WORKFLOW)
-    frontend = workflow["jobs"]["deploy-frontend"]
-    assert frontend["needs"] == ["deploy-backend", "frontend-build"]
-    steps = frontend["steps"]
-    download = _step_by_name(steps, "Download previous frontend rollback artifact")["run"]
-    deploy = _step_by_name(steps, "Deploy to Azure Static Web Apps")
-    verify = _step_by_name(steps, "Verify frontend and automatically restore previous artifact")
+    backend = workflow["jobs"]["deploy-backend"]
+    steps = backend["steps"]
+    download = _step_by_name(steps, "Download and verify previous frontend recovery bundle")["run"]
+    require = _step_by_name(steps, "Require verified frontend recovery before mutation")["run"]
+    deploy = _step_by_name(steps, "Deploy frontend under production mutation lock")
+    verify = _step_by_name(steps, "Verify frontend under production mutation lock")
     restore = _step_by_name(
         steps,
-        "Restore prior frontend artifact after deploy or verification failure",
+        "Restore frontend settings and artifact after any mutation failure",
     )
     assert "gh run download" in download
+    assert "frontend-recovery-bundle" in download
     assert "frontend-dist" in download
-    assert "rollback-dist" in download
-    assert "rollback-dist/dist/index.html" in download
-    assert "rollback-dist/api" in download
-    assert deploy["id"] == "deploy_frontend"
-    assert verify["id"] == "verify_frontend"
+    assert "frontend_release.py verify" in download
+    assert "No successful prior frontend artifact exists" in download
+    assert "verified-manifest.json" in require
+    assert deploy["id"] == "deploy_frontend_locked"
+    assert verify["id"] == "verify_frontend_locked"
     assert "curl -fsS" in verify["run"]
-    assert restore["if"] == (
-        "always() && needs.deploy-backend.outputs.initial_schema != '013' && "
-        "(steps.deploy_frontend.outcome != 'success' || "
-        "steps.verify_frontend.outcome != 'success')"
-    )
-    assert "staticappsclient:stable" in restore["run"]
+    assert "always()" in restore["if"]
+    assert "capture_swa_settings" in restore["if"]
+    assert "swa-mutation-attempted" in restore["if"]
+    assert "--method put" in restore["run"]
+    assert "@frontend/live-settings-before-mutation.json" in restore["run"]
+    assert "restored-settings.json" in restore["run"]
+    assert "cmp frontend/expected-settings.json frontend/actual-settings.json" in restore["run"]
+    assert "RESTORE_IMAGE" in restore["run"]
     assert "INPUT_API_LOCATION=/api" in restore["run"]
     assert "rollback-dist/dist:/app:ro" in restore["run"]
     assert "rollback-dist/api:/api:ro" in restore["run"]
+    assert backend["concurrency"]["group"] == "production-backend-rollout"
 
 
 def test_migration_alerts_use_action_group_and_explicit_platform_owner():
     terraform = MAIN_TERRAFORM.read_text(encoding="utf-8")
+    outputs = (REPO_ROOT / "infra" / "outputs.tf").read_text(encoding="utf-8")
     assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure"' in terraform
+    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_timeout"' in terraform
     assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_missing_evidence"' in terraform
     migration_alerts = terraform.split(
         'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure"',
@@ -423,6 +525,13 @@ def test_migration_alerts_use_action_group_and_explicit_platform_owner():
     assert "migration_timed_out" in terraform
     assert "azurerm_monitor_action_group.critical.id" in terraform
     assert 'owner = "platform-engineering"' in terraform
+    for name in (
+        "migration_failure_alert_id",
+        "migration_timeout_alert_id",
+        "migration_missing_evidence_alert_id",
+        "critical_action_group_id",
+    ):
+        assert f'output "{name}"' in outputs
 
 
 def test_rollback_health_verification_uses_authenticated_api_health():
@@ -472,11 +581,14 @@ def test_rollback_health_verification_uses_authenticated_api_health():
     assert '[ "$HTTP_CODE" = "503" ]' in run_script
     assert 'bridge_read_only' in run_script
     shift = _step_by_name(steps, "Shift traffic to rollback revision")["run"]
-    assert '--revision-weight "$ROLLBACK_TARGET=100"' in shift
-    assert "restore_status" in run_script
-    assert "az containerapp logs show" in run_script
-    assert "original_exit=$?" in run_script
-    assert 'exit "$original_exit"' in run_script
+    assert "rollback-target-traffic-manifest.json" in shift
+    assert "apply-traffic" in shift
+    restore = _step_by_name(steps, "Restore exact prior traffic after rollback failure")
+    assert "always()" in restore["if"]
+    assert "rollback-shift-attempted" in restore["if"]
+    assert "verify_rollback.outcome != 'success'" in restore["if"]
+    assert "apply-traffic" in restore["run"]
+    assert "RESTORE_STATUS" in restore["run"]
 
 
 def test_monitoring_health_check_uses_authenticated_health_endpoint():

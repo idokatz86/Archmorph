@@ -75,6 +75,7 @@ jobs:
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
 
       - name: Verify target schema compatibility before activation
+        id: compatibility
         env:
           ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
         run: |
@@ -95,12 +96,27 @@ jobs:
           fi
 
           TARGET_ACTIVE=$(echo "$REVISION_JSON" | jq -r '.properties.active // false')
+          TARGET_WEIGHT=$(echo "$REVISION_JSON" | jq -r '.properties.trafficWeight // 0')
+          if [ "$TARGET_WEIGHT" != "0" ]; then
+            echo "::error::Rollback target must start at zero traffic before direct compatibility smoke"
+            exit 1
+          fi
           if [ "$TARGET_ACTIVE" != "true" ]; then
             echo "Rollback target is inactive; activating it at zero traffic for schema preflight"
             az containerapp revision activate \
               --name "$CONTAINER_APP_NAME" \
               --resource-group "$AZURE_RESOURCE_GROUP" \
               --revision "$ROLLBACK_TARGET"
+          fi
+
+          POST_ACTIVATION_WEIGHT=$(az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "$ROLLBACK_TARGET" \
+            --query properties.trafficWeight -o tsv)
+          if [ "${POST_ACTIVATION_WEIGHT:-0}" != "0" ]; then
+            echo "::error::Rollback target activation unexpectedly received traffic"
+            exit 1
           fi
 
           COMPATIBILITY_CODE="000"
@@ -153,7 +169,8 @@ jobs:
             --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
             --revision ${{ steps.revision.outputs.target }}
 
-      - name: Shift traffic to rollback revision
+      - name: Capture exact prior traffic and rollback target
+        id: rollback_state
         env:
           ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
         run: |
@@ -163,35 +180,28 @@ jobs:
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --query 'properties.configuration.ingress.traffic' -o json \
             > pre-rollback-traffic-manifest.json
-          az containerapp ingress traffic set \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --revision-weight "$ROLLBACK_TARGET=100"
+          cat > rollback-target-traffic-manifest.json <<EOF
+          [{"revisionName":"${ROLLBACK_TARGET}","weight":100,"label":""}]
+          EOF
+
+      - name: Shift traffic to rollback revision
+        id: shift_rollback
+        env:
+          ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
+        run: |
+          set -euo pipefail
+          touch rollback-shift-attempted
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input rollback-target-traffic-manifest.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output rollback-routed-traffic.json
           echo "Shifted 100% traffic to $ROLLBACK_TARGET"
 
       - name: Verify rollback health
+        id: verify_rollback
         run: |
           set -euo pipefail
-          restore_exact_traffic() {
-            local restore_status=0
-            python scripts/containerapp_rollout.py apply-traffic \
-              --input pre-rollback-traffic-manifest.json \
-              --name "$CONTAINER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --actual-output restored-traffic.json || restore_status=$?
-            az containerapp revision show \
-              --name "$CONTAINER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --revision "${{ steps.revision.outputs.target }}" \
-              --query '{name:name,state:properties.runningState,health:properties.healthState,traffic:properties.trafficWeight}' -o json || true
-            az containerapp logs show \
-              --name "$CONTAINER_APP_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --revision "${{ steps.revision.outputs.target }}" \
-              --tail 100 || true
-            return "$restore_status"
-          }
-          trap 'original_exit=$?; if [ "$original_exit" -ne 0 ]; then restore_exact_traffic || echo "::error::Exact traffic restoration failed"; fi; exit "$original_exit"' EXIT
           echo "Waiting 30s for revision to stabilize..."
           sleep 30
           BASE="${API_URL%/}"
@@ -214,5 +224,29 @@ jobs:
           fi
           [ "$HTTP_CODE" = "503" ]
           jq -e '.status == "bridge_read_only" and .retryable == true' bridge-read-only.json >/dev/null
-          trap - EXIT
           echo "Rollback successful — signed bridge is ready, schema-compatible, and read-only"
+
+      - name: Restore exact prior traffic after rollback failure
+        if: always() && steps.rollback_state.outcome == 'success' && hashFiles('rollback-shift-attempted') != '' && steps.verify_rollback.outcome != 'success'
+        run: |
+          set -euo pipefail
+          RESTORE_STATUS=0
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input pre-rollback-traffic-manifest.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output restored-traffic.json || RESTORE_STATUS=$?
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "${{ steps.revision.outputs.target }}" \
+            --query '{name:name,state:properties.runningState,health:properties.healthState,traffic:properties.trafficWeight}' -o json || true
+          az containerapp logs show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "${{ steps.revision.outputs.target }}" \
+            --tail 100 || true
+          if [ "$RESTORE_STATUS" -ne 0 ]; then
+            echo "::error::Exact prior traffic restoration failed"
+            exit "$RESTORE_STATUS"
+          fi
