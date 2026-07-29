@@ -54,6 +54,11 @@ output "storage_account_name" {
   value       = azurerm_storage_account.main.name
 }
 
+output "rollout_coordination_container_name" {
+  description = "Private Blob container used for renewable rollout leases and rollback intents."
+  value       = azurerm_storage_container.rollout_coordination.name
+}
+
 output "key_vault_name" {
   description = "Key Vault name"
   value       = azurerm_key_vault.main.name
@@ -125,6 +130,11 @@ output "migration_timeout_alert_id" {
 output "migration_missing_evidence_alert_id" {
   description = "Applied migration missing-evidence alert resource ID."
   value       = azurerm_monitor_scheduled_query_rules_alert_v2.migration_missing_evidence.id
+}
+
+output "bridge_customer_degraded_alert_id" {
+  description = "Applied customer-degraded migration bridge alert resource ID."
+  value       = azurerm_monitor_scheduled_query_rules_alert_v2.bridge_customer_degraded.id
 }
 
 output "critical_action_group_id" {

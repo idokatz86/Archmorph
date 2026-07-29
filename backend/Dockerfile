@@ -7,6 +7,14 @@
 
 # ── Stage 1: Builder ─────────────────────────────────────────
 ARG PYTHON_BASE_IMAGE=python:3.12.12-slim-bookworm@sha256:593bd06efe90efa80dc4eee3948be7c0fde4134606dd40d8dd8dbcade98e669c
+ARG ARCHMORPH_SOURCE_SHA
+ARG ARCHMORPH_SOURCE_REPOSITORY
+ARG ARCHMORPH_BUILD_WORKFLOW
+ARG ARCHMORPH_BUILD_RUN_ID
+ARG ARCHMORPH_BUILD_RUN_ATTEMPT
+ARG ARCHMORPH_IMAGE_PLATFORM
+ARG ARCHMORPH_SCHEMA_ACCEPTED_REVISIONS
+ARG ARCHMORPH_SCHEMA_CONTRACT_DIGEST
 FROM ${PYTHON_BASE_IMAGE} AS builder
 
 RUN apt-get update && \
@@ -28,6 +36,25 @@ RUN pip install --no-cache-dir --upgrade "pip>=26.0" "setuptools>=78.1.1" wheel 
 
 # ── Stage 2: Runtime ─────────────────────────────────────────
 FROM ${PYTHON_BASE_IMAGE}
+
+ARG ARCHMORPH_SOURCE_SHA
+ARG ARCHMORPH_SOURCE_REPOSITORY
+ARG ARCHMORPH_BUILD_WORKFLOW
+ARG ARCHMORPH_BUILD_RUN_ID
+ARG ARCHMORPH_BUILD_RUN_ATTEMPT
+ARG ARCHMORPH_IMAGE_PLATFORM
+ARG ARCHMORPH_SCHEMA_ACCEPTED_REVISIONS
+ARG ARCHMORPH_SCHEMA_CONTRACT_DIGEST
+
+LABEL org.opencontainers.image.revision="${ARCHMORPH_SOURCE_SHA}" \
+    org.opencontainers.image.source="https://github.com/${ARCHMORPH_SOURCE_REPOSITORY}" \
+    io.archmorph.build.workflow="${ARCHMORPH_BUILD_WORKFLOW}" \
+    io.archmorph.build.run-id="${ARCHMORPH_BUILD_RUN_ID}" \
+    io.archmorph.build.run-attempt="${ARCHMORPH_BUILD_RUN_ATTEMPT}" \
+    io.archmorph.image.platform="${ARCHMORPH_IMAGE_PLATFORM}" \
+    io.archmorph.release-role="final" \
+    io.archmorph.schema-accepted-revisions="${ARCHMORPH_SCHEMA_ACCEPTED_REVISIONS}" \
+    io.archmorph.schema-contract-digest="${ARCHMORPH_SCHEMA_CONTRACT_DIGEST}"
 
 # Runtime dependencies come from /opt/venv; package managers are not needed here.
 RUN if python -c "import pip" >/dev/null 2>&1; then \
@@ -57,6 +84,7 @@ ENV PATH="/opt/venv/bin:$PATH" \
 
 # Copy application code (.dockerignore excludes tests, docs, .git)
 COPY --chown=appuser:appgroup . .
+COPY --chown=appuser:appgroup schema-contract.json /app/release/schema-contract.json
 
 RUN mkdir -p /app/data && chown -R appuser:appgroup /app/data
 

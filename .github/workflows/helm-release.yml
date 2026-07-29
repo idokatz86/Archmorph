@@ -8,35 +8,31 @@ on:
         required: true
         type: choice
         options: [staging, production]
-      image_repository:
-        description: Container repository without tag or digest
+      build_run_id:
+        description: Exact successful CI/CD run containing immutable build evidence
         required: true
         type: string
-      image_digest:
-        description: Immutable sha256 image digest
+      build_run_attempt:
+        description: Exact CI/CD run attempt containing immutable build evidence
         required: true
-        type: string
-      bridge_image_repository:
-        description: Immutable schema-bridge repository (required only when prior image excludes target schema)
-        required: false
-        type: string
-      bridge_image_digest:
-        description: Schema-bridge sha256 digest (required only when prior image excludes target schema)
-        required: false
         type: string
 
 permissions:
+  actions: read
+  attestations: read
   id-token: write
   contents: read
 
-concurrency:
-  group: production-backend-rollout
-  cancel-in-progress: false
-
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}
     environment: ${{ inputs.environment }}
+    env:
+      ACR_NAME: ${{ secrets.ACR_NAME }}
+      ROLLOUT_COORDINATION_STORAGE_ACCOUNT: ${{ secrets.ROLLOUT_COORDINATION_STORAGE_ACCOUNT }}
+      ROLLOUT_COORDINATION_CONTAINER: ${{ vars.ROLLOUT_COORDINATION_CONTAINER || 'rollout-coordination' }}
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+      RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
     steps:
       - uses: actions/checkout@v6
 
@@ -55,11 +51,119 @@ jobs:
       - name: Install release contract dependency
         run: python -m pip install pyyaml
 
+      - name: Resolve and verify immutable CI build evidence
+        id: build_evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+          BUILD_RUN_ATTEMPT: ${{ inputs.build_run_attempt }}
+        run: |
+          set -euo pipefail
+          SIGNER_HOST="${GITHUB_SERVER_URL#https://}"
+          if ! [[ "$BUILD_RUN_ID" =~ ^[1-9][0-9]*$ ]] || \
+            ! [[ "$BUILD_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::build_run_id and build_run_attempt must be positive integers"
+            exit 1
+          fi
+          mkdir -p selected-build-evidence
+          gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${BUILD_RUN_ID}/attempts/${BUILD_RUN_ATTEMPT}" \
+            > selected-build-evidence/selected-run.json
+          jq -e --argjson attempt "$BUILD_RUN_ATTEMPT" '
+            .name == "CI/CD"
+            and .run_attempt == $attempt
+            and .conclusion == "success"
+            and .head_branch == "main"
+            and (.head_sha | type == "string" and test("^[0-9a-f]{40}$"))
+          ' selected-build-evidence/selected-run.json >/dev/null
+          ARTIFACT="backend-build-evidence-${BUILD_RUN_ID}-${BUILD_RUN_ATTEMPT}"
+          gh run download "$BUILD_RUN_ID" --name "$ARTIFACT" --dir selected-build-evidence
+          for evidence in \
+            final-build-provenance.json bridge-build-provenance.json \
+            final-attestation.json bridge-attestation.json \
+            final-image-inspection.json bridge-image-inspection.json \
+            final-embedded-schema-contract.json bridge-embedded-schema-contract.json; do
+            test -s "selected-build-evidence/${evidence}"
+          done
+          SOURCE_SHA=$(jq -er '.head_sha' selected-build-evidence/selected-run.json)
+          FINAL_IMAGE=$(python scripts/release_provenance.py verify-build-provenance \
+            --input selected-build-evidence/final-build-provenance.json \
+            --expected-role final \
+            --expected-source-sha "$SOURCE_SHA" \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow CI/CD \
+            --expected-workflow-path .github/workflows/ci.yml \
+            --expected-run-id "$BUILD_RUN_ID" \
+            --expected-run-attempt "$BUILD_RUN_ATTEMPT" \
+            --expected-platform linux/amd64 \
+            --expected-contract backend/schema-contract.json \
+            --field image)
+          BRIDGE_IMAGE=$(python scripts/release_provenance.py verify-build-provenance \
+            --input selected-build-evidence/bridge-build-provenance.json \
+            --expected-role bridge \
+            --expected-source-sha "$SOURCE_SHA" \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow CI/CD \
+            --expected-workflow-path .github/workflows/ci.yml \
+            --expected-run-id "$BUILD_RUN_ID" \
+            --expected-run-attempt "$BUILD_RUN_ATTEMPT" \
+            --expected-platform linux/amd64 \
+            --expected-contract backend/bridge-schema-contract.json \
+            --field image)
+          az acr login --name "$ACR_NAME"
+          for role in final bridge; do
+            if [ "$role" = "final" ]; then
+              IMAGE="$FINAL_IMAGE"
+            else
+              IMAGE="$BRIDGE_IMAGE"
+            fi
+            gh attestation verify "oci://${IMAGE}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --signer-workflow "${SIGNER_HOST}/${GITHUB_REPOSITORY}/.github/workflows/ci.yml" \
+              --source-digest "$SOURCE_SHA" \
+              --source-ref refs/heads/main \
+              --deny-self-hosted-runners \
+              --format json > "selected-build-evidence/${role}-attestation-current.json"
+            python scripts/release_provenance.py verify-attestation \
+              --input "selected-build-evidence/${role}-attestation-current.json" \
+              --provenance "selected-build-evidence/${role}-build-provenance.json"
+            docker pull "$IMAGE"
+            docker image inspect "$IMAGE" > "selected-build-evidence/${role}-image-current.json"
+            docker run --rm --entrypoint cat "$IMAGE" /app/release/schema-contract.json \
+              > "selected-build-evidence/${role}-embedded-contract-current.json"
+            python scripts/release_provenance.py verify-image \
+              --inspection "selected-build-evidence/${role}-image-current.json" \
+              --embedded-contract "selected-build-evidence/${role}-embedded-contract-current.json" \
+              --provenance "selected-build-evidence/${role}-build-provenance.json"
+          done
+          {
+            echo "source_sha=$SOURCE_SHA"
+            echo "final_repository=${FINAL_IMAGE%@*}"
+            echo "final_digest=${FINAL_IMAGE#*@}"
+            echo "bridge_repository=${BRIDGE_IMAGE%@*}"
+            echo "bridge_digest=${BRIDGE_IMAGE#*@}"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Acquire cluster credentials
         run: az aks get-credentials --resource-group "$AKS_RESOURCE_GROUP" --name "$AKS_CLUSTER_NAME" --overwrite-existing
         env:
           AKS_RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }}
           AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}
+
+      - name: Acquire durable production rollout ownership
+        run: |
+          set -euo pipefail
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            acquire --mode deploy --wait-seconds 900 --retry-seconds 5 \
+            --lease-id-output "$RUNNER_TEMP/rollout-lease-id"
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            heartbeat --mode deploy \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+            --interval-seconds 15 --max-failures 3 &
+          echo "$!" > "$RUNNER_TEMP/rollout-lease-heartbeat-pid"
 
       - name: Run serialized schema-bound Helm release
         run: bash scripts/helm_release.sh
@@ -67,11 +171,16 @@ jobs:
           HELM_RELEASE_NAME: archmorph
           HELM_NAMESPACE: ${{ vars.HELM_NAMESPACE || 'archmorph' }}
           HELM_VALUES_FILE: charts/archmorph/values-${{ inputs.environment }}.yaml
-          HELM_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
-          HELM_IMAGE_DIGEST: ${{ inputs.image_digest }}
-          HELM_BRIDGE_IMAGE_REPOSITORY: ${{ inputs.bridge_image_repository }}
-          HELM_BRIDGE_IMAGE_DIGEST: ${{ inputs.bridge_image_digest }}
-          HELM_SOURCE_SHA: ${{ github.sha }}
+          HELM_IMAGE_REPOSITORY: ${{ steps.build_evidence.outputs.final_repository }}
+          HELM_IMAGE_DIGEST: ${{ steps.build_evidence.outputs.final_digest }}
+          HELM_BRIDGE_IMAGE_REPOSITORY: ${{ steps.build_evidence.outputs.bridge_repository }}
+          HELM_BRIDGE_IMAGE_DIGEST: ${{ steps.build_evidence.outputs.bridge_digest }}
+          HELM_SOURCE_SHA: ${{ steps.build_evidence.outputs.source_sha }}
+          HELM_BUILD_PROVENANCE_FILE: selected-build-evidence/final-build-provenance.json
+          HELM_BRIDGE_BUILD_PROVENANCE_FILE: selected-build-evidence/bridge-build-provenance.json
+          AZURE_ROLLOUT_LEASE_ID_FILE: ${{ runner.temp }}/rollout-lease-id
+          ROLLOUT_COORDINATION_STORAGE_ACCOUNT: ${{ env.ROLLOUT_COORDINATION_STORAGE_ACCOUNT }}
+          ROLLOUT_COORDINATION_CONTAINER: ${{ env.ROLLOUT_COORDINATION_CONTAINER }}
           HELM_EVIDENCE_FILE: helm-release-evidence.json
           HELM_FINAL_MANIFEST_FILE: helm-final-release-manifest.json
           RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
@@ -101,6 +210,9 @@ jobs:
           else
             jq -e '.failure_action != "none"' helm-release-evidence.json >/dev/null
           fi
+          if [ -s helm-rollout-telemetry.ndjson ]; then
+            cp helm-rollout-telemetry.ndjson helm-release-evidence/
+          fi
 
       - name: Upload Helm release evidence
         if: always() && hashFiles('helm-release-evidence/helm-release-evidence.json') != ''
@@ -110,3 +222,18 @@ jobs:
           path: helm-release-evidence
           if-no-files-found: error
           retention-days: 90
+
+      - name: Release durable production rollout ownership
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -s "$RUNNER_TEMP/rollout-lease-heartbeat-pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/rollout-lease-heartbeat-pid")" >/dev/null 2>&1 || true
+          fi
+          if [ -s "$RUNNER_TEMP/rollout-lease-id" ]; then
+            python scripts/azure_rollout_lease.py \
+              --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+              --container "$ROLLOUT_COORDINATION_CONTAINER" \
+              finish --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+              || echo "::warning::Rollout lease cleanup was not confirmed; finite lease expiry remains authoritative"
+          fi

@@ -18,10 +18,6 @@ permissions:
   id-token: write
   contents: read
 
-concurrency:
-  group: production-backend-rollout
-  cancel-in-progress: false
-
 env:
   ARM_USE_OIDC: true
   ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
@@ -29,6 +25,8 @@ env:
   ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
   TF_WORKING_DIR: infra
   TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+  TF_VAR_release_automation_principal_id: ${{ secrets.RELEASE_AUTOMATION_PRINCIPAL_ID }}
+  TF_VAR_rollout_priority_principal_id: ${{ secrets.ROLLOUT_PRIORITY_PRINCIPAL_ID }}
   TF_VAR_environment: prod
   TFSTATE_RESOURCE_GROUP: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
   TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
@@ -53,6 +51,8 @@ env:
   TF_VAR_manage_archmorph_api_key_rotated: true
   TF_VAR_archmorph_api_key_principal_id: ${{ vars.ARCHMORPH_API_KEY_PRINCIPAL_ID }}
   TF_VAR_archmorph_api_key_allow_legacy_overlap: ${{ vars.ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP || 'false' }}
+  ROLLOUT_COORDINATION_STORAGE_ACCOUNT: ${{ secrets.ROLLOUT_COORDINATION_STORAGE_ACCOUNT }}
+  ROLLOUT_COORDINATION_CONTAINER: ${{ vars.ROLLOUT_COORDINATION_CONTAINER || 'rollout-coordination' }}
 
 jobs:
   prod-plan:
@@ -515,7 +515,7 @@ jobs:
 
   prod-apply:
     name: prod-apply
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}
     needs: [prod-plan]
     if: github.event_name == 'workflow_dispatch' && github.event.inputs.apply == 'true'
     environment: production
@@ -568,6 +568,23 @@ jobs:
           client-id: ${{ secrets.AZURE_CLIENT_ID }}
           tenant-id: ${{ secrets.AZURE_TENANT_ID }}
           subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Acquire durable production rollout ownership
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            acquire --mode deploy --wait-seconds 900 --retry-seconds 5 \
+            --lease-id-output "$RUNNER_TEMP/rollout-lease-id"
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            heartbeat --mode deploy \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+            --interval-seconds 15 --max-failures 3 &
+          echo "$!" > "$RUNNER_TEMP/rollout-lease-heartbeat-pid"
 
       - name: Terraform Init
         run: |
@@ -672,5 +689,30 @@ jobs:
           path: infra/reviewed-plan/approval-metadata.json
           retention-days: 14
 
+      - name: Yield to emergency rollback before Terraform mutation
+        working-directory: ${{ github.workspace }}
+        run: |
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode deploy \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id"
+
       - name: Terraform Apply (reviewed plan artifact)
         run: terraform apply -input=false reviewed-plan/tfplan
+
+      - name: Release durable production rollout ownership
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          if [ -s "$RUNNER_TEMP/rollout-lease-heartbeat-pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/rollout-lease-heartbeat-pid")" >/dev/null 2>&1 || true
+          fi
+          if [ -s "$RUNNER_TEMP/rollout-lease-id" ]; then
+            python scripts/azure_rollout_lease.py \
+              --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+              --container "$ROLLOUT_COORDINATION_CONTAINER" \
+              finish --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+              || echo "::warning::Rollout lease cleanup was not confirmed; finite lease expiry remains authoritative"
+          fi

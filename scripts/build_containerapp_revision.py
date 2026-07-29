@@ -11,6 +11,8 @@ from pathlib import Path
 
 
 _DIGEST_RE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
+_CONTAINER_APP_RE = re.compile(r"^[a-z][a-z0-9-]{0,30}[a-z0-9]$")
+_REVISION_SUFFIX_RE = re.compile(r"^[a-z][a-z0-9-]{0,61}[a-z0-9]$")
 
 
 def _env_index(container: dict) -> dict[str, dict]:
@@ -30,8 +32,15 @@ def build_revision_document(
     """Clone live configuration and change only one new revision template."""
     if not _DIGEST_RE.fullmatch(image):
         raise ValueError("image must be an immutable sha256 digest reference")
-    if not revision_suffix or not re.fullmatch(r"[a-z0-9-]+", revision_suffix):
-        raise ValueError("revision suffix must use lowercase letters, digits, and hyphens")
+    app_name = source.get("name")
+    if not isinstance(app_name, str) or not _CONTAINER_APP_RE.fullmatch(app_name):
+        raise ValueError("source must contain a valid Container App name")
+    if "--" in app_name:
+        raise ValueError("Container App name must not contain consecutive hyphens")
+    if not _REVISION_SUFFIX_RE.fullmatch(revision_suffix) or "--" in revision_suffix:
+        raise ValueError("revision suffix violates Container Apps naming constraints")
+    if len(f"{app_name}--{revision_suffix}") > 63:
+        raise ValueError("full Container Apps revision name exceeds 63 characters")
     if not readiness_path.startswith("/"):
         raise ValueError("readiness path must be absolute")
     if release_role not in {"bridge", "final"}:

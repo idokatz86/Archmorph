@@ -79,7 +79,7 @@ The `CI/CD` workflow must pass before release:
 - `alembic-migration-smoke`: PostgreSQL plus pgvector structural migration checks covering heads, offline upgrade SQL generation, and an **empty-schema-only** `014 -> 013 -> 014` compatibility cycle. This is not evidence that production data can be downgraded; populated revision `014` is protected by refusal tests and uses fix-forward/bridge recovery.
 - `frontend-build`: ESLint, Vitest, Vite build, frontend SBOM, Grype.
 - `upload-sarif`: SARIF upload attempted for available scans.
-- `deploy-backend`: Terraform validation/policy dependencies; exact traffic capture; schema `013`/`014` bridge and signed immutable manifest; authorization-mode-aware Key Vault grant; same-identity secret/`SELECT 1`/schema preflight; exact-head migration; zero-traffic final smoke; exact restoration trap; production health verify.
+- `deploy-backend`: Terraform validation/policy dependencies; renewable private Azure Blob rollout ownership; rollback-priority checks at schema-safe boundaries; exact traffic capture; GitHub build attestation plus OCI-label/embedded-contract verification; schema `013`/`014` bridge and signed immutable manifest; authorization-mode-aware Key Vault grant; same-identity secret/`SELECT 1`/schema preflight; exact-head migration; zero-traffic final smoke; exact restoration trap; production health verify.
 - `deploy-frontend`: runs only after backend success, deploys the tested artifact, verifies routed pages, and restores the prior successful artifact on failure.
 	On the first bridge rollout only, no previous complete artifact contract may
 	exist; failure remains release-blocking and the bridge keeps the API compatible
@@ -109,8 +109,15 @@ After deployment, verify:
 	migration. Its signed manifest must name an explicit revision, immutable image,
 	source SHA, and accepted schemas `013`/`014`. For the first rollout, confirm
 	the bridge base is the exact current immutable release image. The overlay
-	adapts readiness for 013/014, exposes only liveness/readiness/schema metadata,
-	and returns retryable 503 for feature/data requests.
+	adapts readiness for 013/014 and exposes liveness/readiness/schema metadata.
+	It also serves only the reviewed authenticated workspace/analysis/version/
+	artifact/decision reads through transaction-read-only, tenant-scoped SQL.
+	Writes, effectful or unclassified GETs, and unsupported parameters return a
+	retryable maintenance response; every bridge response is `no-store`.
+- Confirm `PRODUCTION_RUNNER_LABELS` selects a reviewed GitHub-hosted runner with
+  private DNS/network reachability to rollout-coordination and application
+  storage private endpoints. Missing runner/network configuration blocks release;
+  public Blob access is never enabled as a deployment fallback.
 - Confirm the same-identity migration preflight succeeded with
 	`--preflight-only --expect-current 013` before Alembic ran.
 - Confirm final green stayed at exactly zero traffic until direct smoke passed
@@ -152,6 +159,11 @@ Before enabling any scaffolded feature, confirm:
 	after artifact expiry. The workflow refuses arbitrary revisions and historical
 	fallback, verifies image/source/schema contract at zero traffic, shifts, and
 	proves normal authenticated health.
+- The rollback dispatch is not placed in the shared GitHub concurrency queue.
+	A separate least-privilege OIDC job publishes and maintains Azure Blob priority
+	before production approval. The approved job claims it, waits boundedly for any
+	migration execution, wins deterministic rollback ordering, acquires exclusive
+	rollout ownership, and rechecks quiescence before activation or traffic.
 - Use bridge manifests only for supervised migration recovery; never select one
 	as a routine manual rollback target.
 - Never select the first active or previous-created revision after migration `014`.
@@ -168,8 +180,12 @@ Before enabling any scaffolded feature, confirm:
 - Enabled feature flags and tenant scope.
 - Signed final manifest for every successful routine or migration release,
   including exact revision, immutable image digest, source SHA, observed schema,
-  schema-contract digest, and run identity. Retain migration bridge evidence only
-  with its migration recovery record.
+	schema-contract digest, platform, canonical build-provenance digest, and both
+	build and release run identities. Retain the verified GitHub attestation,
+	exact OCI inspection, and embedded schema contract. Retain migration bridge
+	evidence only with its migration recovery record.
+- For manual Helm, retain the exact successful CI/CD build run and attempt used
+	by `Helm Release`; direct repository/digest/source inputs are not accepted.
 - Migration preflight/migration execution names, immutable image, schema
 	current/target values, statuses, and success evidence markers.
 - Any known optional dependency warnings accepted for release, including the Redis `disabled_optional` mode when `checks.redis_readiness.require_redis=false` and `checks.redis_readiness.scale_blocked=false`. Required `degraded`, `unhealthy`, `missing_required`, or `scale_blocked=true` production health is release-blocking.

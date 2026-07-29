@@ -212,14 +212,31 @@ def test_prod_workflow_uses_private_prod_stack_inventory():
     assert env["TF_VAR_key_vault_rbac_authorization_enabled"] == (
         "${{ vars.TF_KEY_VAULT_RBAC_AUTHORIZATION_ENABLED || 'false' }}"
     )
+    assert env["TF_VAR_release_automation_principal_id"] == (
+        "${{ secrets.RELEASE_AUTOMATION_PRINCIPAL_ID }}"
+    )
+    assert env["TF_VAR_rollout_priority_principal_id"] == (
+        "${{ secrets.ROLLOUT_PRIORITY_PRINCIPAL_ID }}"
+    )
+    assert env["ROLLOUT_COORDINATION_STORAGE_ACCOUNT"] == (
+        "${{ secrets.ROLLOUT_COORDINATION_STORAGE_ACCOUNT }}"
+    )
 
 
-def test_prod_plan_and_apply_share_rollout_concurrency():
+def test_prod_apply_uses_durable_rollout_ownership_without_queueing_plan():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    expected = {"group": "production-backend-rollout", "cancel-in-progress": False}
-    assert workflow["concurrency"] == expected
+    assert "concurrency" not in workflow
     assert "concurrency" not in workflow["jobs"]["prod-plan"]
     assert "concurrency" not in workflow["jobs"]["prod-apply"]
+    plan_names = [step.get("name") for step in workflow["jobs"]["prod-plan"]["steps"]]
+    apply_steps = workflow["jobs"]["prod-apply"]["steps"]
+    apply_names = [step.get("name") for step in apply_steps]
+    assert "Acquire durable production rollout ownership" not in plan_names
+    assert "Acquire durable production rollout ownership" in apply_names
+    assert apply_names.index("Yield to emergency rollback before Terraform mutation") < apply_names.index(
+        "Terraform Apply (reviewed plan artifact)"
+    )
+    assert "azure_rollout_lease.py" in WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_prod_apply_downloads_and_applies_reviewed_plan_only():

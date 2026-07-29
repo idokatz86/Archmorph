@@ -37,6 +37,24 @@ def test_migration_telemetry_is_secret_free_and_owned(monkeypatch):
     assert "DATABASE" not in str(envelope)
 
 
+def test_bridge_customer_degraded_page_is_secret_free_and_owned(monkeypatch):
+    monkeypatch.setenv(
+        "APPLICATIONINSIGHTS_CONNECTION_STRING",
+        "InstrumentationKey=placeholder;IngestionEndpoint=https://example.applicationinsights.azure.com",
+    )
+    envelope = telemetry.build_envelope(
+        event="bridge_customer_degraded",
+        run_id="123",
+        execution="migration-run",
+        image_digest="sha256:" + "a" * 64,
+    )
+    properties = envelope["data"]["baseData"]["properties"]
+    assert properties["owner"] == "platform-engineering"
+    assert properties["application"] == "archmorph"
+    assert "url" not in str(envelope).lower()
+    assert "secret" not in str(envelope).lower()
+
+
 def test_migration_telemetry_rejects_unknown_or_mutable_evidence(monkeypatch):
     monkeypatch.setenv(
         "APPLICATIONINSIGHTS_CONNECTION_STRING",

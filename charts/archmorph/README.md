@@ -75,7 +75,11 @@ false for all existing environments. A database with non-Alembic tables, or a
 credential/SQL failure, is never treated as empty and fails closed.
 
 Production and staging require `image.digest=sha256:<digest>`. Tags, including
-`latest`, are rejected. The controller verifies the currently serving image's
+`latest`, are rejected. The manual workflow does not accept a digest or source
+SHA directly: it selects one exact successful CI/CD run and attempt, downloads
+immutable build evidence, verifies the GitHub SLSA attestation against this
+repository and build workflow, then inspects the exact OCI digest, labels,
+platform, and embedded schema contract before cluster mutation. The controller verifies the currently serving image's
 schema contract before migration. If it excludes the target schema, a reviewed
 immutable bridge that accepts both revisions is brought up and selected by the
 Service before DDL. After migration, the bridge (or a verified compatible prior
@@ -105,17 +109,20 @@ Secret keys, then run the chart. The chart intentionally fails first install
 instead of waiting on or racing an external controller.
 
 The owning executable path is `scripts/helm_release.sh`, invoked by the manual
-`Helm Release` workflow. It acquires a namespace Lease with holder identity,
+`Helm Release` workflow. Before the namespace Lease, the workflow acquires the
+same private Azure Blob rollout lease used by Container Apps, Terraform apply,
+and rollback. Every schema-safe checkpoint observes durable rollback priority;
+GitHub's one-pending-run slot is not the lock. It then acquires a namespace Lease with holder identity,
 acquire/renew timestamps, duration, periodic heartbeat, bounded wait, and
 resourceVersion compare-and-swap. Normal exit releases only the currently owned
 record; a runner lost without cleanup expires, and a live holder cannot be
 stolen. It fails clearly when the
 External Secrets CRD/controller is unavailable, applies and waits for the
 ExternalSecret when configured, verifies required Secret keys, then renders the
-chart against that pre-existing Secret. The workflow shares the whole production
-mutation lock with Container Apps, Static Web Apps, Terraform, and manual rollback
-and records previous/target image contracts, schema phases, failure action, and a
-signed final release manifest. The workload carries explicit final role, source
+chart against that pre-existing Secret. The workflow records previous/target
+image contracts, build-provenance digest, schema phases, customer-degraded state,
+failure action, and a signed final release manifest. A retained bridge emits the
+severity-1 Platform Engineering page. The workload carries explicit final role, source
 SHA, and canonical schema-contract digest environment metadata, all checked
 against the deployed Deployment before the manifest is signed.
 

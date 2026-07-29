@@ -664,6 +664,67 @@ def get_user_from_session(token: str) -> Optional[User]:
         return None
 
 
+def get_user_from_session_read_only(token: str) -> Optional[User]:
+    """Validate an access token without reading or mutating user/session caches.
+
+    Migration compatibility reads use this path so an HTTP GET cannot update
+    process-local state. The JWT signature, expiry, provider subject, tenant
+    normalization, tier, and roles use the same canonical token contract as the
+    normal application path.
+    """
+    try:
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        if payload.get("type") != "access":
+            return None
+        user_id = payload.get("sub")
+        if not isinstance(user_id, str) or not user_id:
+            return None
+        provider = AuthProvider(str(payload.get("provider") or ""))
+        if provider is AuthProvider.ANONYMOUS:
+            return None
+        provider_subject = payload.get("provider_subject")
+        if provider_subject is not None and not isinstance(provider_subject, str):
+            return None
+        if provider is AuthProvider.AZURE_AD_B2C and not provider_subject:
+            provider_subject = _provider_subject_from_user_id(provider, user_id)
+        roles = payload.get("roles", ["user"])
+        if not isinstance(roles, list) or any(not isinstance(role, str) for role in roles):
+            return None
+        tenant_claim = payload.get("tenant_id")
+        if tenant_claim is not None and not isinstance(tenant_claim, str):
+            return None
+        return User(
+            id=user_id,
+            email=payload.get("email") if isinstance(payload.get("email"), str) else None,
+            name=payload.get("name") if isinstance(payload.get("name"), str) else None,
+            avatar_url=(
+                payload.get("avatar_url")
+                if isinstance(payload.get("avatar_url"), str)
+                else None
+            ),
+            provider=provider,
+            provider_subject=provider_subject,
+            tier=UserTier(str(payload.get("tier") or "free")),
+            tenant_id=_normalize_token_tenant(
+                tenant_id=tenant_claim,
+                provider=provider,
+                subject=user_id,
+                provider_subject=provider_subject,
+            ),
+            roles=list(roles),
+        )
+    except (JWTError, ValueError):
+        return None
+
+
+def get_user_from_bearer_headers_read_only(headers: Mapping[str, str]) -> Optional[User]:
+    """Return a canonical bearer identity without trusting SWA/browser state."""
+    authorization = headers.get("authorization", "")
+    if not authorization.startswith("Bearer "):
+        return None
+    return get_user_from_session_read_only(authorization[7:])
+
+
 def refresh_session(refresh_token: str) -> Optional[Dict[str, str]]:
     """Validate a refresh token and issue new access + refresh tokens."""
     try:

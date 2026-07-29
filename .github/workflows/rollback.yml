@@ -36,15 +36,43 @@ env:
   ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
   RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
   RELEASE_WORKFLOW_NAME: CI/CD
+  ROLLOUT_COORDINATION_CLIENT_ID: ${{ secrets.ROLLOUT_COORDINATION_CLIENT_ID }}
+  ROLLOUT_COORDINATION_STORAGE_ACCOUNT: ${{ secrets.ROLLOUT_COORDINATION_STORAGE_ACCOUNT }}
+  ROLLOUT_COORDINATION_CONTAINER: ${{ vars.ROLLOUT_COORDINATION_CONTAINER || 'rollout-coordination' }}
 
 jobs:
+  publish-priority:
+    runs-on: ${{ fromJSON(vars.ROLLBACK_PRIORITY_RUNNER_LABELS) }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Azure Login for rollout coordination (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ env.ROLLOUT_COORDINATION_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Publish and maintain emergency rollback priority
+        run: |
+          set -euo pipefail
+          : "${ROLLOUT_COORDINATION_CLIENT_ID:?ROLLOUT_COORDINATION_CLIENT_ID is required}"
+          : "${ROLLOUT_COORDINATION_STORAGE_ACCOUNT:?ROLLOUT_COORDINATION_STORAGE_ACCOUNT is required}"
+          : "${ROLLOUT_COORDINATION_CONTAINER:?ROLLOUT_COORDINATION_CONTAINER is required}"
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            maintain-priority \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --max-seconds 3300 \
+            --interval-seconds 15
+
   rollback:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
+    runs-on: ${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}
+    timeout-minutes: 45
     environment: production
-    concurrency:
-      group: production-backend-rollout
-      cancel-in-progress: false
     steps:
       - uses: actions/checkout@v6
 
@@ -55,7 +83,33 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Require migration quiescence before manual traffic rollback
+      - name: Claim independently published emergency rollback priority
+        id: rollback_priority
+        run: |
+          set -euo pipefail
+          : "${ROLLOUT_COORDINATION_STORAGE_ACCOUNT:?ROLLOUT_COORDINATION_STORAGE_ACCOUNT is required}"
+          : "${ROLLOUT_COORDINATION_CONTAINER:?ROLLOUT_COORDINATION_CONTAINER is required}"
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            claim-intent \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --wait-seconds 900 \
+            --retry-seconds 5 \
+            --intent-output "$RUNNER_TEMP/rollback-intent-name" \
+            --lease-id-output "$RUNNER_TEMP/rollback-intent-lease-id"
+          ROLLBACK_INTENT=$(cat "$RUNNER_TEMP/rollback-intent-name")
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            heartbeat --mode rollback \
+            --intent "$ROLLBACK_INTENT" \
+            --intent-lease-id-file "$RUNNER_TEMP/rollback-intent-lease-id" \
+            --interval-seconds 15 --max-failures 3 &
+          echo "$!" > "$RUNNER_TEMP/rollback-intent-heartbeat-pid"
+
+      - name: Wait boundedly for migration execution quiescence
         run: |
           set -euo pipefail
           : "${MIGRATION_JOB_NAME:?MIGRATION_JOB_NAME is required for rollback quiescence checks}"
@@ -64,11 +118,12 @@ jobs:
             --output json > rollback-containerapp-jobs.json
           JOB_COUNT=$(jq --arg name "$MIGRATION_JOB_NAME" \
             '[.[] | select(.name == $name)] | length' rollback-containerapp-jobs.json)
-          if [ "$JOB_COUNT" -gt 1 ]; then
-            echo "::error::Migration Job identity is ambiguous; traffic remains unchanged"
+          if [ "$JOB_COUNT" -ne 1 ]; then
+            echo "::error::Migration Job identity is absent or ambiguous; traffic remains unchanged"
             exit 1
           fi
-          if [ "$JOB_COUNT" -eq 1 ]; then
+          QUIESCENT=false
+          for attempt in $(seq 1 60); do
             az containerapp job execution list \
               --name "$MIGRATION_JOB_NAME" \
               --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -79,10 +134,63 @@ jobs:
                  $status != "Stopped" and $status != "Cancelled" and
                  $status != "Canceled")
             )] | length' rollback-migration-executions.json)
-            if [ "$NONTERMINAL_COUNT" -ne 0 ]; then
-              echo "::error::Manual rollback cannot prove migration quiescence; rerun the signed rollout recovery that owns the exact execution"
-              exit 1
+            if [ "$NONTERMINAL_COUNT" -eq 0 ]; then
+              QUIESCENT=true
+              break
             fi
+            if [ "$attempt" -lt 60 ]; then
+              sleep 5
+            fi
+          done
+          if [ "$QUIESCENT" != "true" ]; then
+            echo "::error::Manual rollback could not prove migration quiescence within five minutes; traffic remains unchanged"
+            exit 1
+          fi
+
+      - name: Acquire exclusive emergency rollout ownership
+        run: |
+          set -euo pipefail
+          ROLLBACK_INTENT=$(cat "$RUNNER_TEMP/rollback-intent-name")
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            wait-turn --intent "$ROLLBACK_INTENT" \
+            --wait-seconds 900 --retry-seconds 5
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            acquire --mode rollback --intent "$ROLLBACK_INTENT" \
+            --wait-seconds 900 --retry-seconds 5 \
+            --lease-id-output "$RUNNER_TEMP/rollout-lease-id"
+          if [ -s "$RUNNER_TEMP/rollback-intent-heartbeat-pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/rollback-intent-heartbeat-pid")" >/dev/null 2>&1 || true
+          fi
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            heartbeat --mode rollback \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+            --intent "$ROLLBACK_INTENT" \
+            --intent-lease-id-file "$RUNNER_TEMP/rollback-intent-lease-id" \
+            --interval-seconds 15 --max-failures 3 &
+          echo "$!" > "$RUNNER_TEMP/rollback-intent-heartbeat-pid"
+
+      - name: Reconfirm migration quiescence under exclusive ownership
+        run: |
+          set -euo pipefail
+          az containerapp job execution list \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --output json > rollback-migration-executions-owned.json
+          NONTERMINAL_COUNT=$(jq '[.[] | select(
+            (.properties.status // "Unknown") as $status
+            | ($status != "Succeeded" and $status != "Failed" and
+               $status != "Stopped" and $status != "Cancelled" and
+               $status != "Canceled")
+          )] | length' rollback-migration-executions-owned.json)
+          if [ "$NONTERMINAL_COUNT" -ne 0 ]; then
+            echo "::error::Migration execution appeared after exclusive ownership; traffic remains unchanged"
+            exit 1
           fi
 
       - name: Resolve explicit signed final rollback target
@@ -209,6 +317,17 @@ jobs:
           [{"revisionName":"${ROLLBACK_TARGET}","weight":100,"label":""}]
           EOF
 
+      - name: Assert emergency ownership before target activation
+        run: |
+          ROLLBACK_INTENT=$(cat "$RUNNER_TEMP/rollback-intent-name")
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode rollback \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+            --intent "$ROLLBACK_INTENT" \
+            --intent-lease-id-file "$RUNNER_TEMP/rollback-intent-lease-id"
+
       - name: Verify target schema compatibility before activation
         id: compatibility
         env:
@@ -281,6 +400,17 @@ jobs:
           cp schema-compatibility.json rollback-preflight-schema-compatibility.json
           trap - ERR
           echo "Rollback target supports current schema ${CURRENT_SCHEMA}; activation may proceed"
+
+      - name: Assert emergency ownership before rollback traffic mutation
+        run: |
+          ROLLBACK_INTENT=$(cat "$RUNNER_TEMP/rollback-intent-name")
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode rollback \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+            --intent "$ROLLBACK_INTENT" \
+            --intent-lease-id-file "$RUNNER_TEMP/rollback-intent-lease-id"
 
       - name: Shift traffic to rollback revision
         id: shift_rollback
@@ -358,4 +488,33 @@ jobs:
           if [ "$RESTORE_STATUS" -ne 0 ]; then
             echo "::error::Exact prior traffic restoration failed"
             exit "$RESTORE_STATUS"
+          fi
+
+      - name: Release emergency ownership and clear successful priority
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -s "$RUNNER_TEMP/rollback-intent-heartbeat-pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/rollback-intent-heartbeat-pid")" >/dev/null 2>&1 || true
+          fi
+          FINISH_ARGS=()
+          if [ -s "$RUNNER_TEMP/rollout-lease-id" ]; then
+            FINISH_ARGS+=(--rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id")
+          fi
+          if [ -s "$RUNNER_TEMP/rollback-intent-name" ] && \
+             [ -s "$RUNNER_TEMP/rollback-intent-lease-id" ]; then
+            FINISH_ARGS+=(
+              --intent "$(cat "$RUNNER_TEMP/rollback-intent-name")"
+              --intent-lease-id-file "$RUNNER_TEMP/rollback-intent-lease-id"
+            )
+            if [ "${{ steps.verify_rollback.outcome }}" = "success" ]; then
+              FINISH_ARGS+=(--clear-intent)
+            fi
+          fi
+          if [ "${#FINISH_ARGS[@]}" -gt 0 ]; then
+            python scripts/azure_rollout_lease.py \
+              --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+              --container "$ROLLOUT_COORDINATION_CONTAINER" \
+              finish "${FINISH_ARGS[@]}" \
+              || echo "::warning::Emergency lease cleanup was not confirmed; finite lease expiry remains authoritative"
           fi

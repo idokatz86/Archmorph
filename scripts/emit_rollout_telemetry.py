@@ -25,6 +25,7 @@ _ALLOWED_EVENTS = {
     "migration_quiescence_started",
     "migration_quiesced",
     "migration_recovery_required",
+    "bridge_customer_degraded",
 }
 _MAX_ATTEMPTS = 3
 _REQUEST_TIMEOUT_SECONDS = 5

@@ -69,6 +69,29 @@
       "action_group_refs": [
         "critical"
       ]
+    },
+    "customer_degraded": {
+      "scope_refs": [
+        "application_insights"
+      ],
+      "severity": 1,
+      "enabled": true,
+      "evaluation_frequency": "PT1M",
+      "window_duration": "PT5M",
+      "query": "AppEvents\n| where Name == 'bridge_customer_degraded'\n| where tostring(Properties['application']) == 'archmorph'\n| where tostring(Properties['owner']) == 'platform-engineering'\n| summarize DegradedEvents = count()",
+      "criteria": {
+        "time_aggregation_method": "Maximum",
+        "operator": "GreaterThan",
+        "threshold": 0,
+        "metric_measure_column": "DegradedEvents",
+        "failing_periods": {
+          "minimum_failing_periods_to_trigger_alert": 1,
+          "number_of_evaluation_periods": 1
+        }
+      },
+      "action_group_refs": [
+        "critical"
+      ]
     }
   }
 }

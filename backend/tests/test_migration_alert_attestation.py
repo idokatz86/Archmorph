@@ -22,7 +22,7 @@ ACTION_GROUP = "/subscriptions/example/resourceGroups/example/providers/Microsof
 APP_INSIGHTS = "/subscriptions/example/resourceGroups/example/providers/Microsoft.Insights/components/archmorph"
 IDS = {
     role: f"/subscriptions/example/resourceGroups/example/providers/Microsoft.Insights/scheduledQueryRules/{role}"
-    for role in ("failure", "timeout", "missing_evidence")
+    for role in ("failure", "timeout", "missing_evidence", "customer_degraded")
 }
 
 
@@ -101,7 +101,7 @@ def test_applied_alert_attestation_passes_exact_state_and_whitespace_only_kql_ch
 
 def test_applied_alert_attestation_rejects_missing_alert():
     with pytest.raises(ValueError, match="timeout.*absent"):
-        _attest(_inventory()[:1] + _inventory()[2:])
+        _attest([item for item in _inventory() if item["id"] != IDS["timeout"]])
 
 
 @pytest.mark.parametrize(
@@ -123,6 +123,7 @@ def test_applied_alert_attestation_rejects_top_level_drift(field, value, drift):
     inventory[0]["properties"][field] = value
     with pytest.raises(ValueError, match=drift):
         _attest(inventory)
+
 
 
 @pytest.mark.parametrize(

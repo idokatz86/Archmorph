@@ -11,7 +11,12 @@ set -euo pipefail
 : "${HELM_EVIDENCE_FILE:?HELM_EVIDENCE_FILE is required}"
 : "${HELM_FINAL_MANIFEST_FILE:?HELM_FINAL_MANIFEST_FILE is required}"
 : "${HELM_SOURCE_SHA:?HELM_SOURCE_SHA is required}"
+: "${HELM_BUILD_PROVENANCE_FILE:?HELM_BUILD_PROVENANCE_FILE is required}"
+: "${HELM_BRIDGE_BUILD_PROVENANCE_FILE:?HELM_BRIDGE_BUILD_PROVENANCE_FILE is required}"
 : "${RELEASE_MANIFEST_HMAC_KEY:?RELEASE_MANIFEST_HMAC_KEY is required}"
+: "${ROLLOUT_COORDINATION_STORAGE_ACCOUNT:?ROLLOUT_COORDINATION_STORAGE_ACCOUNT is required}"
+: "${ROLLOUT_COORDINATION_CONTAINER:?ROLLOUT_COORDINATION_CONTAINER is required}"
+: "${AZURE_ROLLOUT_LEASE_ID_FILE:?AZURE_ROLLOUT_LEASE_ID_FILE is required}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required for release identity}"
 : "${GITHUB_WORKFLOW:?GITHUB_WORKFLOW is required for release identity}"
 : "${GITHUB_RUN_ID:?GITHUB_RUN_ID is required for release identity}"
@@ -57,6 +62,19 @@ if [[ ${#RELEASE_MANIFEST_HMAC_KEY} -lt 32 ]]; then
   exit 1
 fi
 
+python scripts/release_provenance.py verify-build-provenance \
+  --input "$HELM_BUILD_PROVENANCE_FILE" \
+  --expected-role final \
+  --expected-image "$EXPECTED_IMAGE" \
+  --expected-source-sha "$HELM_SOURCE_SHA" \
+  --expected-repository "$GITHUB_REPOSITORY" \
+  --expected-workflow CI/CD \
+  --expected-workflow-path .github/workflows/ci.yml \
+  --expected-platform linux/amd64 \
+  --expected-contract "$TARGET_SCHEMA_CONTRACT" >/dev/null
+TARGET_BUILD_PROVENANCE_DIGEST=$(python scripts/release_provenance.py provenance-digest \
+  --input "$HELM_BUILD_PROVENANCE_FILE")
+
 python scripts/frontend_release.py chart-schema \
   --values "$CHART_PATH/values.yaml" \
   --values "$HELM_VALUES_FILE" \
@@ -90,15 +108,19 @@ write_evidence() {
     --arg observedSchema "$observed_schema" \
     --arg targetSchema "$EXPECTED_HEAD" \
     --arg targetContractDigest "$TARGET_CONTRACT_DIGEST" \
+    --arg buildProvenanceDigest "$TARGET_BUILD_PROVENANCE_DIGEST" \
     --arg failureAction "$failure_action" \
     --argjson schemaCommitted "$committed_json" \
     --argjson migrationAttempted "$attempted_json" \
     --argjson bridgeRouted "$bridge_json" \
     --argjson plan "$plan_json" \
-    '{schema_version:2,status:$status,release:$release,namespace:$namespace,
+    '{schema_version:3,status:$status,release:$release,namespace:$namespace,
       lease_holder:$holder,target_image:$image,previous_image:$previousImage,
       source_sha:$sourceSha,observed_schema:$observedSchema,target_schema:$targetSchema,
-      target_contract_digest:$targetContractDigest,migration_attempted:$migrationAttempted,
+      target_contract_digest:$targetContractDigest,build_provenance_digest:$buildProvenanceDigest,
+      customer_mode:(if $bridgeRouted then "degraded_read_only" else "normal" end),
+      page_owner:(if $bridgeRouted then "platform-engineering" else null end),
+      migration_attempted:$migrationAttempted,
       schema_committed:$schemaCommitted,
       bridge_routed:$bridgeRouted,failure_action:$failureAction,plan:$plan}' \
     > "${HELM_EVIDENCE_FILE}.tmp"
@@ -140,6 +162,12 @@ cleanup() {
   if [[ "$release_completed" -ne 1 ]]; then
     if [[ "$migration_attempted" -eq 1 && "$schema_committed" -eq 0 && "$bridge_routed" -eq 1 ]]; then
       failure_action="retain_bridge_migration_outcome_requires_recovery"
+      python scripts/emit_rollout_telemetry.py \
+        --event bridge_customer_degraded \
+        --run-id "$GITHUB_RUN_ID" \
+        --execution "$EXECUTION_ID" \
+        --image-digest "$HELM_IMAGE_DIGEST" \
+        --evidence-output helm-rollout-telemetry.ndjson || true
     elif [[ "$schema_committed" -eq 0 && "$bridge_routed" -eq 1 ]]; then
       restore_original_service || failure_action="retain_bridge_manual_recovery"
     fi
@@ -176,7 +204,14 @@ assert_lease() {
     exit 1
   fi
   python scripts/kubernetes_lease.py "${lease_args[@]}" renew --max-conflicts 3 >/dev/null
+  python scripts/azure_rollout_lease.py \
+    --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+    --container "$ROLLOUT_COORDINATION_CONTAINER" \
+    checkpoint --mode deploy \
+    --rollout-lease-id-file "$AZURE_ROLLOUT_LEASE_ID_FILE" >/dev/null
 }
+
+assert_lease
 
 USE_EXTERNAL_SECRETS="${HELM_EXTERNAL_SECRETS_ENABLED:-false}"
 if [[ "$USE_EXTERNAL_SECRETS" == "true" ]]; then
@@ -303,6 +338,16 @@ if [[ "$PREVIOUS_ROLE" != "bridge" && "$PREVIOUS_ACCEPTS_TARGET" != "true" ]]; t
     exit 1
   fi
   BRIDGE_IMAGE="${HELM_BRIDGE_IMAGE_REPOSITORY}@${HELM_BRIDGE_IMAGE_DIGEST}"
+  python scripts/release_provenance.py verify-build-provenance \
+    --input "$HELM_BRIDGE_BUILD_PROVENANCE_FILE" \
+    --expected-role bridge \
+    --expected-image "$BRIDGE_IMAGE" \
+    --expected-source-sha "$HELM_SOURCE_SHA" \
+    --expected-repository "$GITHUB_REPOSITORY" \
+    --expected-workflow CI/CD \
+    --expected-workflow-path .github/workflows/ci.yml \
+    --expected-platform linux/amd64 \
+    --expected-contract "$BRIDGE_SCHEMA_CONTRACT" >/dev/null
   bridge_deployment="${HELM_RELEASE_NAME}-schema-bridge-${EXECUTION_ID}"
   bridge_deployment="${bridge_deployment:0:63}"
   jq --arg name "$bridge_deployment" --arg namespace "$HELM_NAMESPACE" \
@@ -341,6 +386,11 @@ if [[ "$PREVIOUS_ROLE" != "bridge" && "$PREVIOUS_ACCEPTS_TARGET" != "true" ]]; t
     --bridge-contract "$BRIDGE_SCHEMA_CONTRACT" \
     --output "$PLAN_FILE" >/dev/null
   original_selector_b64=$(jq -c '.spec.selector' <<<"$SERVICE_JSON" | base64 | tr -d '\n')
+  if [[ -z "$original_selector_b64" ]]; then
+    echo "Original workload Service selector could not be captured" >&2
+    exit 1
+  fi
+  assert_lease
   kubectl -n "$HELM_NAMESPACE" annotate service "$service_name" \
     "archmorph.io/original-selector-b64=${original_selector_b64}" \
     "archmorph.io/schema-bridge-id=${EXECUTION_ID}" --overwrite >/dev/null
@@ -459,6 +509,7 @@ python scripts/helm_release_contract.py verify-target \
   --expected-schema "$EXPECTED_HEAD" >/dev/null
 
 if [[ "$bridge_routed" -eq 1 ]]; then
+  assert_lease
   restore_original_service
   wait_for_service_endpoint "$service_name"
   kubectl -n "$HELM_NAMESPACE" rollout status "deployment/${DEPLOYMENT_NAME}" \
@@ -479,7 +530,8 @@ python scripts/containerapp_rollout.py write-release-manifest \
   --repository "$GITHUB_REPOSITORY" \
   --workflow "$GITHUB_WORKFLOW" \
   --run-id "$GITHUB_RUN_ID" \
-  --run-attempt "$GITHUB_RUN_ATTEMPT"
+  --run-attempt "$GITHUB_RUN_ATTEMPT" \
+  --build-provenance "$HELM_BUILD_PROVENANCE_FILE"
 python scripts/containerapp_rollout.py verify-release-manifest \
   --input "$HELM_FINAL_MANIFEST_FILE" \
   --required-role final \

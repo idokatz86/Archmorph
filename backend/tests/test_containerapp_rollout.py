@@ -18,6 +18,7 @@ SPEC.loader.exec_module(rollout)
 apply_traffic = rollout.apply_traffic
 authoritative_latest_revision = rollout.authoritative_latest_revision
 canonical_traffic = rollout.canonical_traffic
+containerapp_revision_name = rollout.containerapp_revision_name
 create_release_state = rollout.create_release_state
 effective_traffic = rollout.effective_traffic
 explicit_traffic = rollout.explicit_traffic
@@ -27,6 +28,7 @@ mark_release_stage = rollout.mark_release_stage
 quiesce_migration_execution = rollout.quiesce_migration_execution
 recovery_decision = rollout.recovery_decision
 recover_release = rollout.recover_release
+resolve_exact_revision = rollout.resolve_exact_revision
 set_migration_execution = rollout.set_migration_execution
 set_release_bridge = rollout.set_release_bridge
 supervise_migration_execution = rollout.supervise_migration_execution
@@ -54,6 +56,21 @@ def _write_release_manifest(path: Path, *, role: str = "final") -> None:
         if role == "final"
         else _schema_contract("013", "014")
     )
+    build_provenance = path.with_name(f"{role}-build-provenance.json")
+    rollout._release_provenance_module().write_build_provenance(
+        build_provenance,
+        role=role,
+        image="registry.example/archmorph-api@sha256:" + "a" * 64,
+        source_sha="b" * 40,
+        source_repository="example/archmorph",
+        source_ref="refs/heads/main",
+        workflow="CI/CD",
+        workflow_path=".github/workflows/ci.yml",
+        run_id="12345",
+        run_attempt=2,
+        platform="linux/amd64",
+        schema_contract=contract,
+    )
     write_manifest(
         path,
         role=role,
@@ -66,6 +83,7 @@ def _write_release_manifest(path: Path, *, role: str = "final") -> None:
         workflow="CI/CD",
         run_id="12345",
         run_attempt=2,
+        build_provenance=build_provenance,
     )
 
 
@@ -145,7 +163,17 @@ def test_authoritative_latest_preserves_labels_and_multiple_revisions_exactly():
         source,
         latest_revision=authoritative_latest_revision(
             {"properties": {"latestReadyRevisionName": "api-d"}},
-            [{"name": "api-d", "properties": {"active": True}}],
+            [
+                {
+                    "name": "api-d",
+                    "properties": {
+                        "active": True,
+                        "provisioningState": "Succeeded",
+                        "runningState": "Running",
+                        "healthState": "Healthy",
+                    },
+                }
+            ],
         ),
     )
     assert result == canonical_traffic(
@@ -189,9 +217,33 @@ def test_authoritative_latest_requires_latest_ready_not_merely_latest_revision()
     ("properties", "message"),
     [
         ({"active": False, "healthState": "Healthy"}, "not active"),
-        ({"active": True, "healthState": "Unhealthy"}, "unready healthState"),
-        ({"active": True, "runningState": "Stopped"}, "unready runningState"),
-        ({"active": True, "provisioningState": "Failed"}, "unready provisioningState"),
+        (
+            {
+                "active": True,
+                "provisioningState": "Succeeded",
+                "runningState": "Running",
+                "healthState": "Unhealthy",
+            },
+            "unready healthState",
+        ),
+        (
+            {
+                "active": True,
+                "provisioningState": "Succeeded",
+                "runningState": "Stopped",
+                "healthState": "Healthy",
+            },
+            "unready runningState",
+        ),
+        (
+            {
+                "active": True,
+                "provisioningState": "Failed",
+                "runningState": "Running",
+                "healthState": "Healthy",
+            },
+            "unready provisioningState",
+        ),
     ],
 )
 def test_authoritative_latest_rejects_inactive_or_unready_revision(properties, message):
@@ -208,6 +260,46 @@ def test_authoritative_latest_rejects_latest_ready_absent_from_revision_state():
             {"properties": {"latestReadyRevisionName": "api-blue"}},
             [{"name": "api-other", "properties": {"active": True}}],
         )
+
+
+@pytest.mark.parametrize("missing", ["provisioningState", "runningState", "healthState"])
+def test_authoritative_latest_fails_closed_when_readiness_evidence_is_missing(missing):
+    properties = {
+        "active": True,
+        "provisioningState": "Succeeded",
+        "runningState": "Running",
+        "healthState": "Healthy",
+    }
+    properties.pop(missing)
+    with pytest.raises(ValueError, match=f"missing required {missing}"):
+        authoritative_latest_revision(
+            {"properties": {"latestReadyRevisionName": "api-blue"}},
+            [{"name": "api-blue", "properties": properties}],
+        )
+
+
+def test_containerapp_revision_name_binds_exact_app_prefix_and_full_length():
+    suffix = "sha-12345678-run-1"
+    assert containerapp_revision_name("archmorph-api", suffix) == (
+        "archmorph-api--sha-12345678-run-1"
+    )
+    with pytest.raises(ValueError, match="63-character"):
+        containerapp_revision_name("a" * 32, "b" * 30)
+    with pytest.raises(ValueError, match="suffix"):
+        containerapp_revision_name("archmorph-api", "bad--suffix")
+    with pytest.raises(ValueError, match="App name"):
+        containerapp_revision_name("other_app", suffix)
+
+
+def test_exact_revision_discovery_rejects_substring_first_match_and_duplicates():
+    expected = "archmorph-api--sha-12345678-run-1"
+    exact = {"name": expected, "properties": {"active": True}}
+    substring = {"name": expected + "-attacker", "properties": {"active": True}}
+    assert resolve_exact_revision(expected, [substring, exact]) == exact
+    with pytest.raises(ValueError, match="absent or duplicated"):
+        resolve_exact_revision(expected, [substring])
+    with pytest.raises(ValueError, match="absent or duplicated"):
+        resolve_exact_revision(expected, [exact, dict(exact)])
 
 
 def test_authoritative_latest_merges_existing_unlabeled_route_without_weight_loss():
@@ -315,7 +407,24 @@ def test_recover_release_records_incident_when_schema_advanced_and_verifies_brid
         resource_group="example-rg",
     )
     assert result["status"] == "bridge_retained"
+    assert result["customer_mode"] == "degraded_read_only"
+    assert result["page_owner"] == "platform-engineering"
     assert json.loads(evidence.read_text())["action"] == "retain_bridge"
+
+
+def test_recovered_baseline_returns_to_normal_customer_mode(tmp_path):
+    state = mark_release_stage(_release_state(schema="013"), "bridge_route_attempted")
+    with patch.object(rollout, "apply_traffic"):
+        result = recover_release(
+            state,
+            observed_schema="013",
+            name="api",
+            resource_group="example-rg",
+            evidence_output=tmp_path / "recovered.json",
+        )
+    assert result["status"] == "recovered"
+    assert result["customer_mode"] == "normal"
+    assert result["page_owner"] is None
 
 
 def test_recover_release_preserves_primary_error_when_cleanup_fails(tmp_path):
@@ -1128,12 +1237,15 @@ def test_signed_bridge_manifest_is_immutable_and_role_bound(tmp_path, monkeypatc
         expected_run_id="12345",
         expected_run_attempt=2,
     )
-    assert payload["schema_version"] == 2
+    assert payload["schema_version"] == 3
     assert payload["schema_contract"]["accepted_revisions"] == ["013", "014"]
     assert payload["image_digest"] == "sha256:" + "a" * 64
     assert payload["observed_schema"] == "013"
+    assert payload["platform"] == "linux/amd64"
+    assert payload["build_provenance"]["source_sha"] == "b" * 40
     with pytest.raises(ValueError, match="role"):
         verify_manifest(path, required_role="final")
+
     with pytest.raises(ValueError, match="run attempt"):
         verify_manifest(
             path,
@@ -1254,7 +1366,7 @@ def test_signed_final_binds_revision_image_source_contract_and_zero_traffic(
 def test_release_manifest_rejects_duplicate_json_keys(tmp_path, monkeypatch):
     monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
     path = tmp_path / "duplicate.json"
-    path.write_text('{"schema_version":2,"schema_version":2,"signature":"invalid"}')
+    path.write_text('{"schema_version":3,"schema_version":3,"signature":"invalid"}')
     with pytest.raises(ValueError, match="duplicate key"):
         verify_manifest(path, required_role="final")
 

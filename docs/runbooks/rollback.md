@@ -46,8 +46,8 @@ Prefer the `Manual Rollback` workflow in `.github/workflows/rollback.yml`.
    retained HMAC-signed final manifest as base64 instead. Supply exactly one
    source; the workflow never searches for a latest or historical fallback.
 3. The workflow verifies `role=final` and binds source SHA, immutable image
-   digest, observed schema, canonical contract digest, and run identity. Partial
-   rollback is not supported.
+  digest, observed schema, canonical contract digest, build provenance,
+  repository/workflow, platform, and run identity. Partial rollback is not supported.
 4. Run the workflow. The `rollback` job is bound to the GitHub `production`
    Environment, so required reviewers approve Azure login and traffic movement.
 5. For emergency rollback, page the designated production environment approver.
@@ -64,6 +64,21 @@ Prefer the `Manual Rollback` workflow in `.github/workflows/rollback.yml`.
    and verified before the workflow fails.
 9. Capture the workflow URL, target revision, image/source/contract digests,
    current schema, approval evidence, and health output.
+
+On dispatch, a separate no-approval job uses the dedicated least-privilege
+`ROLLOUT_COORDINATION_CLIENT_ID` OIDC identity to publish and refresh the priority
+Blob on the separately capacity-reserved `ROLLBACK_PRIORITY_RUNNER_LABELS` pool
+before the production approval job can start. This occurs outside the
+replaceable GitHub concurrency queue. The publisher maintains priority for a
+bounded 55-minute approval/handoff window; the approved job claims the finite
+lease, and the publisher exits. The workflow then waits up to five minutes for all migration executions to
+be terminal, waits for deterministic priority among multiple rollback dispatches,
+acquires the exclusive rollout Blob lease, and repeats the migration check. A new
+deploy, Helm release, or Terraform apply must stop at its next schema-safe checkpoint
+while that intent is live. A cancelled or lost runner stops renewing; the finite
+lease expires and the next owner garbage-collects the stale intent. Successful
+rollback releases and deletes its own intent. No account key, SAS, resource ID,
+URL, or secret is written to coordination evidence.
 
 The workflow normalizes `API_URL`, calls `/api/health`, sends `X-API-Key` from `ARCHMORPH_API_KEY` with `ADMIN_KEY` fallback when present, and uses the production Environment OIDC subject so Azure trust is scoped to approved production runs instead of branch name alone.
 
@@ -219,10 +234,15 @@ back only to a preflight-compatible revision, or fix forward with a compatible
 image/new migration. If no retained revision accepts the current schema, do not
 change traffic; deploy a forward-fix revision that declares and proves support.
 
-The manual rollback workflow and both Terraform production plan/apply jobs share
-`production-backend-rollout` concurrency with backend deploys. They cannot race
-bootstrap, migration, green smoke, or traffic movement. A preflight failure exits
-before traffic mutation; a post-shift failure restores the exact prior manifest.
+GitHub concurrency is only an optimization for ordinary CI runs; it is not the
+production lock. Container Apps deployment, manual rollback, Helm release, and
+Terraform apply use the same renewable Azure Blob lease through managed identity.
+Rollback priority is a separately leased durable intent, so a newer deploy cannot
+replace a pending emergency rollback. Active deploys check priority before bootstrap,
+bridge traffic, migration start, final traffic, and frontend mutation; after DDL
+starts they retain ownership until the exact execution is terminal and the bridge
+is schema-safe. A preflight failure exits before traffic mutation; a post-shift
+failure restores the exact prior manifest while ownership is still proven.
 
 ### Interrupted migration supervision
 
@@ -273,8 +293,11 @@ to the private incident record.
 
 ## Migration alert ownership
 
-Platform Engineering owns `archmorph-migration-job-failure` and
-`archmorph-migration-missing-evidence`. Both notify the critical action group.
+Platform Engineering owns `archmorph-migration-job-failure`,
+`archmorph-migration-missing-evidence`, and the customer-degraded bridge alert.
+All notify the critical action group. A retained bridge explicitly reports
+`customer_mode=degraded_read_only`, pages Platform Engineering, keeps reviewed
+authenticated core reads available, and requires fix-forward recovery.
 Failure, timeout, cancellation, or absence of
 `ARCHMORPH_MIGRATION_EVIDENCE=` blocks rollout. Fix forward; never auto-downgrade.
 The alert queries use secret-free Application Insights lifecycle events rather

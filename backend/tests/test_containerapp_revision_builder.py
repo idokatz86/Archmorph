@@ -108,3 +108,28 @@ def test_builder_marks_bridge_role_explicitly():
         for item in document["properties"]["template"]["containers"][0]["env"]
     }
     assert env["ARCHMORPH_RELEASE_ROLE"]["value"] == "bridge"
+
+
+def test_builder_enforces_full_aca_revision_identity():
+    source = _source()
+    source["name"] = "a" * 32
+    with pytest.raises(ValueError, match="exceeds 63"):
+        builder.build_revision_document(
+            source,
+            image=DIGEST,
+            revision_suffix="b" * 30,
+            readiness_path="/readyz",
+            env_values={},
+            env_secret_refs={},
+        )
+
+    source["name"] = "archmorph-api"
+    with pytest.raises(ValueError, match="naming constraints"):
+        builder.build_revision_document(
+            source,
+            image=DIGEST,
+            revision_suffix="bad--suffix",
+            readiness_path="/readyz",
+            env_values={},
+            env_secret_refs={},
+        )

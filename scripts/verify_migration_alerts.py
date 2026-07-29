@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 
-_REQUIRED_ROLES = ("failure", "timeout", "missing_evidence")
+_REQUIRED_ROLES = ("failure", "timeout", "missing_evidence", "customer_degraded")
 _REF_RE = re.compile(r"^[a-z][a-z0-9_]{0,63}$")
 
 
@@ -258,6 +258,7 @@ def main() -> int:
     parser.add_argument("--failure-alert-id", required=True)
     parser.add_argument("--timeout-alert-id", required=True)
     parser.add_argument("--missing-evidence-alert-id", required=True)
+    parser.add_argument("--customer-degraded-alert-id", required=True)
     parser.add_argument("--application-insights-id", required=True)
     parser.add_argument("--action-group-id", required=True)
     parser.add_argument("--output", required=True, type=Path)
@@ -271,6 +272,7 @@ def main() -> int:
             "failure": args.failure_alert_id,
             "timeout": args.timeout_alert_id,
             "missing_evidence": args.missing_evidence_alert_id,
+            "customer_degraded": args.customer_degraded_alert_id,
         },
         expected_scope_ids={"application_insights": args.application_insights_id},
         expected_action_group_ids={"critical": args.action_group_id},

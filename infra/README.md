@@ -9,6 +9,7 @@ This directory contains the checked-in Terraform configuration for the Azure-hos
 | Resource group, Container Apps, Container Registry, PostgreSQL, Redis, monitoring, and primary Blob Storage | `infra/main.tf` | Region, names, and overrides come from reviewed variables and private deployment settings |
 | Azure OpenAI account and model deployments | `infra/main.tf` | Region/model changes require a reviewed import, quota check, and rollback plan |
 | Metrics storage container | `infra/main.tf` | Uses the Terraform-managed primary storage account and managed-identity RBAC |
+| Rollout coordination container | `infra/main.tf` | Private Blob container; finite leases and rollback intents use the reviewed release workload identity only |
 | Terraform remote state | Partial `azurerm` backend blocks | Resource group, account, container, and key come from private CI/operator configuration |
 | Migration Job bootstrap | `infra/migration-bootstrap` | Separate state owns only the dedicated identity, secret-scoped/AcrPull RBAC, propagation wait, and manual Job |
 
@@ -25,9 +26,10 @@ Production rollout is split across two Terraform states and an explicit bridge:
   capability from one digest lineage; CI never advertises the arbitrary old
   production revision as rollback-safe.
   Verify direct readiness/schema metadata on `013`, route to it, and retain its
-  HMAC-signed revision/image/schema manifest. The bridge serves only liveness,
-  readiness, and schema metadata; all feature/data requests return retryable 503
-  during the short migration window, preventing hidden writes on schema `013`.
+  HMAC-signed revision/image/schema/build-provenance manifest. The bridge serves
+  reviewed authenticated core workspace/analysis/version/artifact/decision reads
+  with canonical tenant isolation and PostgreSQL read-only transactions across
+  both schemas. Writes, effectful GETs, and unproven routes return retryable 503.
 3. **Phase A — migration bootstrap:** `infra/migration-bootstrap` reads existing
   Container Apps environment, ACR, Key Vault, and versionless database-secret
   metadata. It creates a dedicated user-assigned identity, `AcrPull`, Key Vault
@@ -48,8 +50,8 @@ Production rollout is split across two Terraform states and an explicit bridge:
   shifts. The signed bridge—not an arbitrary active revision—is retained.
 
 Never use `terraform -target` for Phase A. CI performs `init`, `validate`, a full
-saved `plan`, then applies that exact plan under the shared production rollout
-concurrency group. A pre-existing migration Job is explicitly adopted into the
+saved `plan`, then applies that exact plan under a renewable Azure Blob rollout
+lease. A pre-existing migration Job is explicitly adopted into the
 separate state before plan; repeated deployments then converge idempotently.
 Concurrent Job executions are rejected before bootstrap and again before start.
 CI also reads the primary state and refuses bootstrap when that state still owns
@@ -59,9 +61,28 @@ first; a resource must never be managed by both states.
 Private deployment configuration must supply a distinct
 `MIGRATION_TFSTATE_KEY`, migration Job/identity names, Key Vault name, database
 Secret name, and existing prerequisite names. Do not publish their concrete
-values. Before traffic shift, failures leave the routed bridge unchanged. After
+values. It must also supply the rollout coordination account/container,
+release-automation and priority-only principal object IDs, and
+`PRODUCTION_RUNNER_LABELS` for a
+reviewed GitHub-hosted runner with private endpoint reachability. Public storage
+network access has no CI cutover override and fails closed. Before traffic shift, failures leave the routed bridge unchanged. After
 shift, any routed verification failure restores and verifies the exact prior
 manifest, captures diagnostics, and fails. No live apply is required locally.
+
+For the first apply that creates the dedicated coordination container, point the
+private coordination settings at the existing private Terraform backend
+account/container and its reserved `.archmorph-rollout/` prefix. The release
+identity already needs Blob data-plane access there. After the reviewed apply
+creates the dedicated private container and scoped role, update the private
+settings to the `rollout_coordination_container_name` output. Do not bootstrap by
+opening either storage account to public traffic or by using an account key/SAS.
+Configure `ROLLOUT_COORDINATION_CLIENT_ID` as a distinct GitHub OIDC application
+with only the scoped coordination-container role and a trust condition limited to
+the rollback workflow's approved default-branch subject. It publishes priority
+before the separate production Environment approval; it has no Container Apps,
+AKS, Terraform state, Key Vault, or traffic permission.
+`ROLLBACK_PRIORITY_RUNNER_LABELS` must select a separately capacity-reserved
+private runner pool; do not share its sole runner with normal deploy/apply jobs.
 
 Production hardening requires `key_vault_rbac_authorization_enabled=true`. Apply
 that mode only after every workload identity has equivalent reviewed RBAC; the

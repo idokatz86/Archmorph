@@ -6,18 +6,22 @@ from __future__ import annotations
 import argparse
 import hashlib
 import hmac
+import importlib.util
 import json
 import os
 import re
 import shlex
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any
 
 
 _DIGEST_RE = re.compile(r"^[^\s@]+@sha256:[0-9a-f]{64}$")
-_REVISION_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,99}$")
+_CONTAINER_APP_RE = re.compile(r"^[a-z][a-z0-9-]{0,30}[a-z0-9]$")
+_REVISION_SUFFIX_RE = re.compile(r"^[a-z][a-z0-9-]{0,61}[a-z0-9]$")
+_REVISION_RE = re.compile(r"^[a-z][a-z0-9-]{0,61}[a-z0-9]$")
 _SCHEMA_RE = re.compile(r"^[A-Za-z0-9_-]+$")
 _CONTROL_PLANE_NAME_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._()/-]{0,259}$")
 _EXECUTION_NAME_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,199}$")
@@ -31,7 +35,7 @@ _TERMINAL_EXECUTION_STATUSES = {
     "cancelled": "Cancelled",
     "canceled": "Cancelled",
 }
-_RELEASE_MANIFEST_SCHEMA_VERSION = 2
+_RELEASE_MANIFEST_SCHEMA_VERSION = 3
 _SCHEMA_CONTRACT_FIELDS = (
     "contract_version",
     "migration_target_revision",
@@ -50,6 +54,9 @@ _RELEASE_MANIFEST_FIELDS = {
     "observed_schema",
     "schema_contract",
     "schema_contract_digest",
+    "build_provenance",
+    "build_provenance_digest",
+    "platform",
     "release_identity",
 }
 _RELEASE_STAGES = (
@@ -61,6 +68,21 @@ _RELEASE_STAGES = (
     "green_shift_attempted",
     "complete",
 )
+
+
+def _release_provenance_module():
+    """Load the sibling verifier when this file is imported by path in tests."""
+    name = "archmorph_release_provenance"
+    if name in sys.modules:
+        return sys.modules[name]
+    path = Path(__file__).with_name("release_provenance.py")
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("release provenance verifier is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def canonical_traffic(items: list[dict]) -> list[dict[str, object]]:
@@ -117,6 +139,32 @@ def canonical_traffic(items: list[dict]) -> list[dict[str, object]]:
     if len(targets) != len(set(targets)) or len(labels) != len(set(labels)):
         raise ValueError("traffic revisions and labels must be unique")
     return normalized
+
+
+def containerapp_revision_name(app_name: str, revision_suffix: str) -> str:
+    """Return the exact ACA revision identity or reject an unrepresentable suffix."""
+    if not _CONTAINER_APP_RE.fullmatch(app_name) or "--" in app_name:
+        raise ValueError("Container App name is invalid")
+    if not _REVISION_SUFFIX_RE.fullmatch(revision_suffix) or "--" in revision_suffix:
+        raise ValueError("Container Apps revision suffix is invalid")
+    revision = f"{app_name}--{revision_suffix}"
+    if len(revision) > 63 or not _REVISION_RE.fullmatch(revision):
+        raise ValueError("Container Apps full revision name exceeds the 63-character contract")
+    return revision
+
+
+def resolve_exact_revision(expected: str, revision_states: object) -> dict[str, Any]:
+    """Resolve one exact revision; substring and arbitrary-first discovery are forbidden."""
+    if not _REVISION_RE.fullmatch(expected) or not isinstance(revision_states, list):
+        raise ValueError("exact revision discovery input is invalid")
+    matches = [
+        state
+        for state in revision_states
+        if isinstance(state, dict) and state.get("name") == expected
+    ]
+    if len(matches) != 1:
+        raise ValueError("exact Container Apps revision is absent or duplicated")
+    return matches[0]
 
 
 def effective_traffic(items: list[dict]) -> list[dict[str, object]]:
@@ -182,21 +230,15 @@ def authoritative_latest_revision(
         )
     if not isinstance(revision_states, list):
         raise ValueError("Container App revision state must be a JSON list")
-    matches: list[tuple[dict[str, Any], dict[str, Any]]] = []
-    for state in revision_states:
-        if not isinstance(state, dict):
-            continue
-        state_properties = state.get("properties")
-        if not isinstance(state_properties, dict):
-            state_properties = {}
-        state_name = str(state.get("name") or state_properties.get("name") or "")
-        if state_name == revision:
-            matches.append((state, state_properties))
-    if len(matches) != 1:
+    try:
+        state = resolve_exact_revision(revision, revision_states)
+    except ValueError as error:
         raise ValueError(
             "authoritative latest-ready revision is absent or duplicated in revision state"
-        )
-    state, state_properties = matches[0]
+        ) from error
+    state_properties = state.get("properties")
+    if not isinstance(state_properties, dict):
+        raise ValueError("authoritative latest-ready revision state is missing properties")
     active = state_properties.get("active", state.get("active"))
     if active is not True:
         raise ValueError("authoritative latest-ready revision is not active")
@@ -207,7 +249,11 @@ def authoritative_latest_revision(
     }
     for field, accepted in readiness_contract.items():
         value = state_properties.get(field, state.get(field))
-        if value not in (None, "") and str(value).strip().lower() not in accepted:
+        if value in (None, ""):
+            raise ValueError(
+                f"authoritative latest-ready revision is missing required {field} evidence"
+            )
+        if str(value).strip().lower() not in accepted:
             raise ValueError(
                 f"authoritative latest-ready revision has unready {field}={value}"
             )
@@ -699,14 +745,25 @@ def recover_release(
                 json.dumps(evidence, indent=2) + "\n", encoding="utf-8"
             )
             raise
+    status = {
+        "restore_original": "recovered",
+        "retain_bridge": "bridge_retained",
+        "none": "no_action",
+    }.get(action)
+    if status is None:
+        raise RuntimeError("release recovery selected an unsupported action")
     evidence = {
         "schema_version": 1,
-        "status": "recovered" if action == "restore_original" else "bridge_retained",
+        "status": status,
         "action": action,
         "branch": state["branch"],
         "stage": state["stage"],
         "observed_schema": observed_schema,
         "verified_traffic": target,
+        "customer_mode": (
+            "degraded_read_only" if action == "retain_bridge" else "normal"
+        ),
+        "page_owner": "platform-engineering" if action == "retain_bridge" else None,
     }
     evidence_output.write_text(json.dumps(evidence, indent=2) + "\n", encoding="utf-8")
     return evidence
@@ -1371,6 +1428,7 @@ def write_manifest(
     workflow: str,
     run_id: str,
     run_attempt: int,
+    build_provenance: Path,
 ) -> None:
     if role not in {"bridge", "final"}:
         raise ValueError("release role must be bridge or final")
@@ -1392,6 +1450,17 @@ def write_manifest(
         run_id=run_id,
         run_attempt=run_attempt,
     )
+    provenance_module = _release_provenance_module()
+    build = provenance_module.verify_build_provenance(
+        build_provenance,
+        expected_role=role,
+        expected_image=image,
+        expected_source_sha=source_sha,
+        expected_repository=repository,
+        expected_workflow="CI/CD",
+        expected_workflow_path=".github/workflows/ci.yml",
+        expected_contract=contract,
+    )
     payload = {
         "schema_version": _RELEASE_MANIFEST_SCHEMA_VERSION,
         "role": role,
@@ -1402,6 +1471,9 @@ def write_manifest(
         "observed_schema": observed_schema,
         "schema_contract": contract,
         "schema_contract_digest": schema_contract_digest(contract),
+        "build_provenance": build,
+        "build_provenance_digest": provenance_module.provenance_digest(build),
+        "platform": build["platform"],
         "release_identity": identity,
     }
     canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
@@ -1454,6 +1526,24 @@ def verify_manifest(
         raise ValueError("release manifest schema contract is not canonical")
     if payload.get("schema_contract_digest") != schema_contract_digest(contract):
         raise ValueError("release manifest schema contract digest is invalid")
+    provenance_module = _release_provenance_module()
+    build = provenance_module.validate_unsigned_build_provenance(
+        payload.get("build_provenance")
+    )
+    if payload.get("build_provenance_digest") != provenance_module.provenance_digest(
+        build
+    ):
+        raise ValueError("release manifest build provenance digest is invalid")
+    if payload.get("platform") != build["platform"]:
+        raise ValueError("release manifest platform does not match build provenance")
+    if build["role"] != required_role:
+        raise ValueError("release manifest build role does not match release role")
+    if build["image"] != payload["image"]:
+        raise ValueError("release manifest image does not match build provenance")
+    if build["source_sha"] != payload["source_sha"]:
+        raise ValueError("release manifest source SHA does not match build provenance")
+    if build["schema_contract"] != contract:
+        raise ValueError("release manifest schema contract does not match build provenance")
     observed = str(payload.get("observed_schema") or "")
     if observed not in contract["accepted_revisions"]:
         raise ValueError("release manifest observed schema is incompatible")
@@ -1470,6 +1560,10 @@ def verify_manifest(
     )
     if identity_payload != identity:
         raise ValueError("release manifest identity is not canonical")
+    if build["source_repository"] != identity["repository"]:
+        raise ValueError("release repository does not match build provenance")
+    if build["workflow"] != "CI/CD" or build["workflow_path"] != ".github/workflows/ci.yml":
+        raise ValueError("release build provenance workflow is not trusted")
     if expected_repository is not None and identity["repository"] != expected_repository:
         raise ValueError("release manifest repository does not match the selected source")
     if expected_workflow is not None and identity["workflow"] != expected_workflow:
@@ -1612,6 +1706,7 @@ def main() -> int:
     manifest.add_argument("--workflow", required=True)
     manifest.add_argument("--run-id", required=True)
     manifest.add_argument("--run-attempt", required=True, type=int)
+    manifest.add_argument("--build-provenance", required=True, type=Path)
 
     verify = subparsers.add_parser("verify-release-manifest")
     verify.add_argument("--input", required=True, type=Path)
@@ -1634,6 +1729,14 @@ def main() -> int:
 
     contract_digest = subparsers.add_parser("schema-contract-digest")
     contract_digest.add_argument("--input", required=True, type=Path)
+
+    revision_name = subparsers.add_parser("revision-name")
+    revision_name.add_argument("--app-name", required=True)
+    revision_name.add_argument("--suffix", required=True)
+
+    exact_revision = subparsers.add_parser("resolve-exact-revision")
+    exact_revision.add_argument("--expected", required=True)
+    exact_revision.add_argument("--revisions", required=True, type=Path)
 
     runtime = subparsers.add_parser("verify-runtime-compatibility")
     runtime.add_argument("--manifest", required=True, type=Path)
@@ -1758,9 +1861,14 @@ def main() -> int:
             workflow=args.workflow,
             run_id=args.run_id,
             run_attempt=args.run_attempt,
+            build_provenance=args.build_provenance,
         )
     elif args.command == "schema-contract-digest":
         print(schema_contract_digest(_json(args.input)))
+    elif args.command == "revision-name":
+        print(containerapp_revision_name(args.app_name, args.suffix))
+    elif args.command == "resolve-exact-revision":
+        print(json.dumps(resolve_exact_revision(args.expected, _json(args.revisions))))
     elif args.command == "verify-runtime-compatibility":
         signed = verify_manifest(args.manifest, required_role=args.required_role)
         print(verify_runtime_compatibility(signed, _json(args.runtime)))

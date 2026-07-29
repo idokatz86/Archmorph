@@ -3,6 +3,28 @@ variable "subscription_id" {
   type        = string
 }
 
+variable "release_automation_principal_id" {
+  description = "Object ID of the reviewed workload identity allowed to coordinate production rollout Blob leases. Supply only through private configuration."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.release_automation_principal_id))
+    error_message = "release_automation_principal_id must be a UUID-shaped Microsoft Entra object ID."
+  }
+}
+
+variable "rollout_priority_principal_id" {
+  description = "Object ID of the priority-only GitHub OIDC identity. It receives only coordination-container data-plane access."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.rollout_priority_principal_id))
+    error_message = "rollout_priority_principal_id must be a UUID-shaped Microsoft Entra object ID."
+  }
+}
+
 variable "location" {
   description = "Azure region for resources"
   type        = string

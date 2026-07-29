@@ -12,14 +12,23 @@ SCRIPT = ROOT / "scripts" / "helm_release.sh"
 
 def test_helm_release_owner_serializes_and_records_evidence():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
-    assert workflow["concurrency"] == {
-        "group": "production-backend-rollout",
-        "cancel-in-progress": False,
-    }
+    assert "concurrency" not in workflow
+    inputs = workflow[True]["workflow_dispatch"]["inputs"]
+    assert set(inputs) == {"environment", "build_run_id", "build_run_attempt"}
+    assert workflow["permissions"]["actions"] == "read"
+    assert workflow["permissions"]["attestations"] == "read"
     release = workflow["jobs"]["release"]
     names = [step.get("name") for step in release["steps"]]
-    assert names.index("Azure Login (OIDC)") < names.index("Acquire cluster credentials")
+    assert names.index("Azure Login (OIDC)") < names.index(
+        "Resolve and verify immutable CI build evidence"
+    )
+    assert names.index("Resolve and verify immutable CI build evidence") < names.index(
+        "Acquire cluster credentials"
+    )
     assert names.index("Acquire cluster credentials") < names.index(
+        "Acquire durable production rollout ownership"
+    )
+    assert names.index("Acquire durable production rollout ownership") < names.index(
         "Run serialized schema-bound Helm release"
     )
     assert names.index("Run serialized schema-bound Helm release") < names.index(
@@ -37,6 +46,21 @@ def test_helm_release_owner_serializes_and_records_evidence():
     )
     assert "github.run_id" in upload["with"]["name"]
     assert "github.run_attempt" in upload["with"]["name"]
+    evidence = next(
+        step
+        for step in release["steps"]
+        if step.get("name") == "Resolve and verify immutable CI build evidence"
+    )["run"]
+    assert '.name == "CI/CD"' in evidence
+    assert '.conclusion == "success"' in evidence
+    assert "backend-build-evidence-${BUILD_RUN_ID}-${BUILD_RUN_ATTEMPT}" in evidence
+    assert "verify-build-provenance" in evidence
+    assert "gh attestation verify" in evidence
+    assert "--deny-self-hosted-runners" in evidence
+    assert "verify-image" in evidence
+    assert "/app/release/schema-contract.json" in evidence
+    assert "inputs.image_digest" not in WORKFLOW.read_text(encoding="utf-8")
+    assert "HELM_SOURCE_SHA: ${{ github.sha }}" not in WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_helm_release_script_is_two_phase_secret_aware_and_digest_pinned():
@@ -84,3 +108,12 @@ def test_helm_release_script_is_two_phase_secret_aware_and_digest_pinned():
     assert "HELM_EVIDENCE_FILE" in script
     assert "HELM_FINAL_MANIFEST_FILE" in script
     assert "write-release-manifest" in script
+    assert "HELM_BUILD_PROVENANCE_FILE" in script
+    assert "HELM_BRIDGE_BUILD_PROVENANCE_FILE" in script
+    assert "verify-build-provenance" in script
+    assert '--build-provenance "$HELM_BUILD_PROVENANCE_FILE"' in script
+    assert "azure_rollout_lease.py" in script
+    assert "checkpoint --mode deploy" in script
+    assert "bridge_customer_degraded" in script
+    assert 'customer_mode:(if $bridgeRouted then "degraded_read_only"' in script
+    assert 'page_owner:(if $bridgeRouted then "platform-engineering"' in script

@@ -350,6 +350,15 @@ resource "azurerm_storage_container" "metrics" {
   container_access_type = "private"
 }
 
+# Durable production rollout ownership and emergency rollback priority.
+# Blob leases are accessed only with Microsoft Entra managed identity; the
+# container is private and contains no resource IDs, URLs, or credentials.
+resource "azurerm_storage_container" "rollout_coordination" {
+  name                  = "rollout-coordination"
+  storage_account_id    = azurerm_storage_account.main.id
+  container_access_type = "private"
+}
+
 # ─────────────────────────────────────────────────────────────
 # Azure Container Registry
 # ─────────────────────────────────────────────────────────────
@@ -1004,6 +1013,20 @@ resource "azurerm_role_assignment" "container_app_storage" {
   principal_id         = azurerm_user_assigned_identity.container_app.principal_id
 }
 
+resource "azurerm_role_assignment" "rollout_coordination_release" {
+  scope                = azurerm_storage_container.rollout_coordination.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.release_automation_principal_id
+  principal_type       = "ServicePrincipal"
+}
+
+resource "azurerm_role_assignment" "rollout_coordination_priority" {
+  scope                = azurerm_storage_container.rollout_coordination.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.rollout_priority_principal_id
+  principal_type       = "ServicePrincipal"
+}
+
 # Grant Container App identity access to ACR (AcrPull)
 resource "azurerm_role_assignment" "container_app_acr" {
   scope                = azurerm_container_registry.main.id
@@ -1521,6 +1544,45 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_missing_evi
     operator                = "GreaterThan"
     threshold               = 0
     metric_measure_column   = "MissingEvidence"
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.critical.id]
+  }
+
+  auto_mitigation_enabled = true
+  tags = merge(local.tags, {
+    owner = "platform-engineering"
+  })
+}
+
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "bridge_customer_degraded" {
+  name                 = "archmorph-bridge-customer-degraded"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Platform Engineering: schema recovery retained authenticated read-only customer service; fix-forward is required"
+  severity             = 1
+  enabled              = true
+  scopes               = [azurerm_application_insights.main.id]
+  evaluation_frequency = "PT1M"
+  window_duration      = "PT5M"
+
+  criteria {
+    query                   = <<-KQL
+      AppEvents
+      | where Name == 'bridge_customer_degraded'
+      | where tostring(Properties['application']) == 'archmorph'
+      | where tostring(Properties['owner']) == 'platform-engineering'
+      | summarize DegradedEvents = count()
+    KQL
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = 0
+    metric_measure_column   = "DegradedEvents"
     failing_periods {
       minimum_failing_periods_to_trigger_alert = 1
       number_of_evaluation_periods             = 1

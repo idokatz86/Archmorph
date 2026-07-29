@@ -73,6 +73,10 @@ def test_ci_includes_pgvector_empty_schema_structural_migration_cycle():
     assert "backend/tests/test_run_migrations.py" in rollout_contracts
     assert "backend/tests/test_helm_release_contract.py" in rollout_contracts
     assert "backend/tests/test_kubernetes_lease.py" in rollout_contracts
+    assert "backend/tests/test_azure_rollout_lease.py" in rollout_contracts
+    assert "backend/tests/test_release_provenance.py" in rollout_contracts
+    assert "backend/tests/test_containerapp_revision_builder.py" in rollout_contracts
+    assert "backend/tests/test_bridge_overlay.py" in rollout_contracts
 
     run_script = _step_by_name(
         job["steps"],
@@ -310,6 +314,37 @@ def test_phase_a_bootstrap_is_separate_state_and_cannot_mutate_live_app():
     assert 'count = var.key_vault_rbac_authorization_enabled ? 1 : 0' in main_terraform
 
 
+def test_rollout_coordination_storage_is_private_and_managed_identity_only():
+    terraform = MAIN_TERRAFORM.read_text(encoding="utf-8")
+    variables = (REPO_ROOT / "infra" / "variables.tf").read_text(encoding="utf-8")
+    assert 'resource "azurerm_storage_container" "rollout_coordination"' in terraform
+    coordination = terraform.split(
+        'resource "azurerm_storage_container" "rollout_coordination"',
+        1,
+    )[1].split("# ─", 1)[0]
+    assert 'container_access_type = "private"' in coordination
+    release_role = terraform.split(
+        'resource "azurerm_role_assignment" "rollout_coordination_release"',
+        1,
+    )[1].split(
+        'resource "azurerm_role_assignment" "rollout_coordination_priority"', 1
+    )[0]
+    priority_role = terraform.split(
+        'resource "azurerm_role_assignment" "rollout_coordination_priority"',
+        1,
+    )[1].split("# Grant Container App identity access to ACR", 1)[0]
+    for role in (release_role, priority_role):
+        assert "azurerm_storage_container.rollout_coordination.id" in role
+        assert 'role_definition_name = "Storage Blob Data Contributor"' in role
+    assert "var.release_automation_principal_id" in release_role
+    assert "var.rollout_priority_principal_id" in priority_role
+    assert 'variable "release_automation_principal_id"' in variables
+    assert 'variable "rollout_priority_principal_id"' in variables
+    assert "sensitive   = true" in variables
+    assert "account_key" not in coordination.lower()
+    assert "sas" not in coordination.lower()
+
+
 def test_phase_a_workflow_rejects_concurrency_and_uses_only_job_control_plane():
     workflow = _load(CI_WORKFLOW)
     steps = workflow["jobs"]["deploy-backend"]["steps"]
@@ -358,10 +393,12 @@ def test_alert_attestation_precedes_every_migration_job_start():
     assert "migration_failure_alert_id" in attest
     assert "migration_timeout_alert_id" in attest
     assert "migration_missing_evidence_alert_id" in attest
+    assert "bridge_customer_degraded_alert_id" in attest
     assert "application_insights_resource_id" in attest
     assert "critical_action_group_id" in attest
     assert "--spec infra/monitoring/migration-alert-specs.json" in attest
     assert "--application-insights-id" in attest
+    assert "--customer-degraded-alert-id" in attest
     assert names.index("Attest applied migration alerts before Job execution") < names.index(
         "Discover schema with same-identity database preflight"
     )
@@ -498,17 +535,92 @@ def test_exact_execution_helper_uses_official_show_stop_forms_without_unrelated_
     assert "job stop --name" not in helper
 
 
-def test_all_production_mutation_workflows_share_one_lock_and_frontend_is_in_owner_job():
+def test_all_production_mutations_use_durable_external_ownership_and_rollback_is_independent():
     ci = _load(CI_WORKFLOW)
     rollback = _load(ROLLBACK_WORKFLOW)
     terraform = _load(TERRAFORM_WORKFLOW)
     helm = _load(HELM_WORKFLOW)
-    expected = "production-backend-rollout"
-    assert ci["jobs"]["deploy-backend"]["concurrency"]["group"] == expected
-    assert rollback["jobs"]["rollback"]["concurrency"]["group"] == expected
-    assert terraform["concurrency"]["group"] == expected
-    assert helm["concurrency"]["group"] == expected
+    assert ci["jobs"]["deploy-backend"]["concurrency"]["cancel-in-progress"] is False
+    assert "concurrency" not in rollback["jobs"]["rollback"]
+    assert "concurrency" not in terraform
+    assert "concurrency" not in helm
+    for workflow in (CI_WORKFLOW, ROLLBACK_WORKFLOW, TERRAFORM_WORKFLOW, HELM_WORKFLOW):
+        text = workflow.read_text(encoding="utf-8")
+        assert "azure_rollout_lease.py" in text
+        assert "ROLLOUT_COORDINATION_STORAGE_ACCOUNT" in text
+        assert "ROLLOUT_COORDINATION_CONTAINER" in text
+    assert ci["jobs"]["deploy-backend"]["runs-on"] == (
+        "${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}"
+    )
+    assert rollback["jobs"]["rollback"]["runs-on"] == (
+        "${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}"
+    )
+    priority_job = rollback["jobs"]["publish-priority"]
+    assert priority_job["runs-on"] == (
+        "${{ fromJSON(vars.ROLLBACK_PRIORITY_RUNNER_LABELS) }}"
+    )
+    assert "environment" not in priority_job
+    assert "needs" not in priority_job
+    priority_names = [step.get("name") for step in priority_job["steps"]]
+    assert priority_names == [
+        None,
+        "Azure Login for rollout coordination (OIDC)",
+        "Publish and maintain emergency rollback priority",
+    ]
+    priority_script = _step_by_name(
+        priority_job["steps"],
+        "Publish and maintain emergency rollback priority",
+    )["run"]
+    assert "maintain-priority" in priority_script
+    assert "--max-seconds 3300" in priority_script
+    priority_login = _step_by_name(
+        priority_job["steps"],
+        "Azure Login for rollout coordination (OIDC)",
+    )
+    assert priority_login["with"]["client-id"] == (
+        "${{ env.ROLLOUT_COORDINATION_CLIENT_ID }}"
+    )
+    assert rollback["env"]["ROLLOUT_COORDINATION_CLIENT_ID"] == (
+        "${{ secrets.ROLLOUT_COORDINATION_CLIENT_ID }}"
+    )
+    assert helm["jobs"]["release"]["runs-on"] == (
+        "${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}"
+    )
+    assert terraform["jobs"]["prod-apply"]["runs-on"] == (
+        "${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}"
+    )
+    rollback_names = [step.get("name") for step in rollback["jobs"]["rollback"]["steps"]]
+    assert rollback_names.index("Claim independently published emergency rollback priority") < rollback_names.index(
+        "Wait boundedly for migration execution quiescence"
+    ) < rollback_names.index("Acquire exclusive emergency rollout ownership")
+    assert rollback_names.index("Acquire exclusive emergency rollout ownership") < rollback_names.index(
+        "Reconfirm migration quiescence under exclusive ownership"
+    ) < rollback_names.index("Shift traffic to rollback revision")
     backend_names = [step.get("name") for step in ci["jobs"]["deploy-backend"]["steps"]]
+    assert backend_names.index("Validate rollout coordination inputs") < backend_names.index(
+        "Azure Login (OIDC)"
+    ) < backend_names.index("Acquire durable production rollout ownership")
+    for checkpoint in (
+        "Yield to emergency rollback after safe build checkpoint",
+        "Yield to emergency rollback before bootstrap mutation",
+        "Yield to emergency rollback before bridge traffic mutation",
+        "Yield to emergency rollback before migration start boundary",
+        "Yield to emergency rollback after migration quiescence",
+        "Yield to emergency rollback before final traffic mutation",
+        "Yield to emergency rollback before frontend mutation",
+    ):
+        assert checkpoint in backend_names
+    migration_start = backend_names.index("Start exact-head production migration")
+    migration_terminal = backend_names.index("Persist terminal migration execution state")
+    assert migration_start < backend_names.index("Supervise exact-head production migration")
+    assert backend_names.index("Supervise exact-head production migration") < migration_terminal
+    assert not any(
+        name and name.startswith("Yield to emergency rollback")
+        for name in backend_names[migration_start + 1 : migration_terminal]
+    )
+    assert migration_terminal < backend_names.index(
+        "Yield to emergency rollback after migration quiescence"
+    )
     assert "Configure Static Web Apps API bridge settings" in backend_names
     assert "Deploy frontend under production mutation lock" in backend_names
     assert "Verify frontend under production mutation lock" in backend_names
@@ -531,6 +643,10 @@ def test_backend_image_and_schema_contract_are_immutable_and_fail_closed():
     deploy = workflow["jobs"]["deploy-backend"]
     capture = _step_by_name(deploy["steps"], "Capture immutable image and schema contract")["run"]
     green = _step_by_name(deploy["steps"], "Deploy green revision")["run"]
+    provenance = _step_by_name(
+        deploy["steps"],
+        "Verify built image provenance labels and embedded schema contracts",
+    )["run"]
 
     assert "@${{ steps.build_backend.outputs.digest }}" in capture
     assert "^.+@sha256:[0-9a-f]{64}$" in capture
@@ -547,6 +663,19 @@ def test_backend_image_and_schema_contract_are_immutable_and_fail_closed():
     assert "az containerapp update" in green
     assert "--yaml green-revision.json" in green
     assert ":latest" not in capture
+    assert "gh attestation verify" in provenance
+    assert "--signer-workflow" in provenance
+    assert "--source-digest" in provenance
+    assert "--deny-self-hosted-runners" in provenance
+    assert "verify-attestation" in provenance
+    assert "docker image inspect" in provenance
+    assert "/app/release/schema-contract.json" in provenance
+    assert "verify-image" in provenance
+    workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
+    assert "actions/attest-build-provenance@v3" in workflow_text
+    assert "attestations: write" in workflow_text
+    assert "--build-provenance final-build-provenance.json" in workflow_text
+    assert "--build-provenance bridge-build-provenance.json" in workflow_text
 
 
 def test_migration_and_bootstrap_failures_stop_before_live_revision_or_traffic_changes():
@@ -635,9 +764,12 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert "required_secret in db-connection redis-url" in bridge
     assert "--secret-env DATABASE_URL=db-connection" in bridge
     assert "--secret-env REDIS_URL=redis-url" in bridge
+    assert "--secret-env JWT_SECRET=jwt-secret" in bridge
     assert '.current_revision == $current' in bridge
     assert 'bridge_read_only' in bridge
-    assert '"https://${BRIDGE_FQDN}/api/health"' in bridge
+    assert '"https://${BRIDGE_FQDN}/api/workspaces"' in bridge
+    assert "-X POST" in bridge
+    assert "retry-after: 30" in bridge
     assert "write-release-manifest" in bridge
     assert "--required-role bridge" in bridge
     assert "GREEN_WEIGHT" in green and '!= "0"' in green
@@ -665,7 +797,7 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
     assert "BRIDGE_BASE_IMAGE=${{ env.ACR_LOGIN_SERVER }}/archmorph-api@${{ steps.build_backend.outputs.digest }}" in workflow_text
     assert "backend/bridge_overlay/Dockerfile" in workflow_text
-    assert "context: ./backend/bridge_overlay" in workflow_text
+    assert "context: ./backend" in workflow_text
     assert "archmorph-api-bridge@${{ steps.build_bridge.outputs.digest }}" in workflow_text
     detect = _step_by_name(steps, "Discover schema with same-identity database preflight")["run"]
     resolve = _step_by_name(steps, "Resolve verified bridge for discovered schema")["run"]
@@ -683,7 +815,9 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert "pre-green-traffic-manifest.json" in route_bridge
     assert "apply-traffic" in route_bridge
     assert '.release_role == "bridge"' in route_bridge
-    assert "routed-bridge-read-only.json" in route_bridge
+    assert "routed-bridge-health.json" in route_bridge
+    assert "routed-bridge-write-denial.json" in route_bridge
+    assert '.status == "healthy"' in route_bridge
     assert 'Routine schema-${EXPECTED_ALEMBIC_HEAD} release preserves current production traffic' in resolve
     assert "set-bridge" in resolve
     final = _step_by_name(steps, "Create signed immutable final release evidence")["run"]
@@ -743,6 +877,7 @@ def test_migration_alerts_use_action_group_and_explicit_platform_owner():
     assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure"' in terraform
     assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_timeout"' in terraform
     assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_missing_evidence"' in terraform
+    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "bridge_customer_degraded"' in terraform
     migration_alerts = terraform.split(
         'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure"',
         1,
@@ -753,6 +888,7 @@ def test_migration_alerts_use_action_group_and_explicit_platform_owner():
     assert "migration_succeeded" in terraform
     assert "migration_failed" in terraform
     assert "migration_timed_out" in terraform
+    assert "bridge_customer_degraded" in terraform
     assert "azurerm_monitor_action_group.critical.id" in terraform
     assert 'owner = "platform-engineering"' in terraform
     for name in (
@@ -760,6 +896,7 @@ def test_migration_alerts_use_action_group_and_explicit_platform_owner():
         "migration_failure_alert_id",
         "migration_timeout_alert_id",
         "migration_missing_evidence_alert_id",
+        "bridge_customer_degraded_alert_id",
         "critical_action_group_id",
     ):
         assert f'output "{name}"' in outputs
@@ -774,6 +911,7 @@ def test_reviewed_migration_alert_specs_match_terraform_exactly():
         "failure": "migration_job_failure",
         "timeout": "migration_job_timeout",
         "missing_evidence": "migration_missing_evidence",
+        "customer_degraded": "bridge_customer_degraded",
     }
 
     for role, resource_name in resources.items():
@@ -835,26 +973,38 @@ def test_rollback_health_verification_uses_authenticated_api_health():
     assert workflow["jobs"]["rollback"]["environment"] == "production"
 
     steps = workflow["jobs"]["rollback"]["steps"]
-    assert workflow["jobs"]["rollback"]["concurrency"] == {
-        "group": "production-backend-rollout",
-        "cancel-in-progress": False,
-    }
+    assert "concurrency" not in workflow["jobs"]["rollback"]
     compatibility_step = _step_by_name(steps, "Verify target schema compatibility before activation")
     compatibility_script = compatibility_step["run"]
     step_names = [step.get("name") for step in steps]
     quiescence = _step_by_name(
         steps,
-        "Require migration quiescence before manual traffic rollback",
+        "Wait boundedly for migration execution quiescence",
     )["run"]
     assert "MIGRATION_JOB_NAME is required" in quiescence
     assert "az containerapp job list" in quiescence
-    assert "identity is ambiguous" in quiescence
+    assert "identity is absent or ambiguous" in quiescence
     assert "az containerapp job execution list" in quiescence
     assert "Unknown" in quiescence
-    assert "rerun the signed rollout recovery" in quiescence
+    assert "within five minutes" in quiescence
+    priority = _step_by_name(
+        steps,
+        "Claim independently published emergency rollback priority",
+    )["run"]
+    ownership = _step_by_name(steps, "Acquire exclusive emergency rollout ownership")["run"]
+    assert "claim-intent" in priority
+    assert "heartbeat --mode rollback" in priority
+    assert "wait-turn" in ownership
+    assert "acquire --mode rollback" in ownership
     assert step_names.index(
-        "Require migration quiescence before manual traffic rollback"
-    ) < step_names.index("Verify target schema compatibility before activation")
+        "Claim independently published emergency rollback priority"
+    ) < step_names.index("Wait boundedly for migration execution quiescence")
+    assert step_names.index(
+        "Wait boundedly for migration execution quiescence"
+    ) < step_names.index("Acquire exclusive emergency rollout ownership")
+    assert step_names.index("Reconfirm migration quiescence under exclusive ownership") < step_names.index(
+        "Verify target schema compatibility before activation"
+    )
     assert "verify-revision-target" in compatibility_script
     assert "--require-zero-traffic" in compatibility_script
     assert "verify-runtime-compatibility" in compatibility_script
