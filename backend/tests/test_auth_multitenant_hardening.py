@@ -2,9 +2,12 @@ import base64
 from urllib.parse import urlencode
 
 from auth import AuthProvider, User, UserTier, generate_session_token
+from database import SessionLocal
 from job_queue import job_manager
+from models.workspace import Workspace
 from routers.shared import MAX_UPLOAD_SIZE
 from routers.shared import SESSION_STORE
+from routers.tf_backend import _state_scope_key
 
 
 def _auth_headers(user_id: str, tenant_id: str) -> dict:
@@ -28,6 +31,33 @@ def _session_token(user_id: str, tenant_id: str) -> str:
         tenant_id=tenant_id,
     )
     return generate_session_token(user)
+
+
+def _create_project(project_id: str, owner_user_id: str, tenant_id: str) -> None:
+    db = SessionLocal()
+    try:
+        db.add(
+            Workspace(
+                id=project_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                name="Terraform state test project",
+                status="active",
+                is_default=False,
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+
+def _delete_project(project_id: str) -> None:
+    db = SessionLocal()
+    try:
+        db.query(Workspace).filter(Workspace.id == project_id).delete()
+        db.commit()
+    finally:
+        db.close()
 
 
 def test_restore_session_rejects_oversized_analysis(test_client):
@@ -65,28 +95,56 @@ def test_tf_state_owner_tenant_enforced_and_unlock_supported(test_client):
     owner_headers = _auth_headers("tf-owner", "tenant-tf-a")
     other_headers = _auth_headers("tf-other", "tenant-tf-b")
     state_url = "/api/terraform/state/proj-sec/dev"
+    _create_project("proj-sec", "tf-owner", "tenant-tf-a")
+    try:
+        assert (
+            test_client.post(
+                state_url, headers=owner_headers, json={"version": 4}
+            ).status_code
+            == 200
+        )
+        assert (
+            test_client.request(
+                "LOCK", state_url, headers=owner_headers, content='{"ID":"lock-1"}'
+            ).status_code
+            == 200
+        )
+        assert (
+            test_client.request(
+                "UNLOCK", state_url, headers=owner_headers, content='{"ID":"lock-1"}'
+            ).status_code
+            == 200
+        )
 
-    assert test_client.post(state_url, headers=owner_headers, json={"version": 4}).status_code == 200
-    assert test_client.request("LOCK", state_url, headers=owner_headers, content='{"ID":"lock-1"}').status_code == 200
-    assert test_client.request("UNLOCK", state_url, headers=owner_headers, content='{"ID":"lock-1"}').status_code == 200
+        assert test_client.get(state_url, headers=other_headers).status_code == 404
+        assert (
+            test_client.post(
+                state_url, headers=other_headers, json={"version": 5}
+            ).status_code
+            == 404
+        )
+        assert (
+            test_client.request(
+                "LOCK", state_url, headers=other_headers, content='{"ID":"lock-2"}'
+            ).status_code
+            == 404
+        )
+        assert (
+            test_client.request(
+                "UNLOCK", state_url, headers=other_headers, content='{"ID":"lock-2"}'
+            ).status_code
+            == 404
+        )
+        assert (
+            test_client.post(f"{state_url}/rollback", headers=other_headers).status_code
+            == 404
+        )
+    finally:
+        _delete_project("proj-sec")
 
-    assert test_client.get(state_url, headers=other_headers).status_code == 404
-    assert test_client.post(state_url, headers=other_headers, json={"version": 5}).status_code == 404
-    assert test_client.request("LOCK", state_url, headers=other_headers, content='{"ID":"lock-2"}').status_code == 404
-    assert test_client.request("UNLOCK", state_url, headers=other_headers, content='{"ID":"lock-2"}').status_code == 404
-    assert test_client.post(f"{state_url}/rollback", headers=other_headers).status_code == 404
 
-
-def test_tf_state_lock_keys_do_not_collide_on_underscores(test_client):
-    headers = _auth_headers("tf-key-owner", "tenant-tf-key")
-    first_url = "/api/terraform/state/a_b/c"
-    second_url = "/api/terraform/state/a/b_c"
-
-    assert test_client.request("LOCK", first_url, headers=headers, content='{"ID":"lock-first"}').status_code == 200
-    assert test_client.request("LOCK", second_url, headers=headers, content='{"ID":"lock-second"}').status_code == 200
-
-    assert test_client.post(first_url, headers=headers, json={"version": 1}, params={"ID": "lock-first"}).status_code == 200
-    assert test_client.post(second_url, headers=headers, json={"version": 2}, params={"ID": "lock-second"}).status_code == 200
+def test_tf_state_lock_keys_do_not_collide_on_underscores():
+    assert _state_scope_key("a_b", "c") != _state_scope_key("a", "b_c")
 
 
 def test_jobs_and_fail_closed_dependency_require_auth(test_client):

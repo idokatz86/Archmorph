@@ -56,33 +56,43 @@ def resolve_project_access(
     project_id: str,
     caller_user_id: str,
     tenant_id: str,
+    lock_authorization: bool = False,
 ) -> Optional[tuple[Workspace, str]]:
     """Resolve owner or current member access without consulting Redis."""
-    project = db.query(Workspace).filter(
+    project_query = db.query(Workspace).filter(
         Workspace.id == project_id,
         Workspace.tenant_id == tenant_id,
         Workspace.status == "active",
         Workspace.is_default.is_(False),
-    ).first()
+    )
+    if lock_authorization:
+        project_query = project_query.with_for_update(read=True)
+    project = project_query.first()
     if project is None:
         return None
     if project.owner_user_id == caller_user_id:
         return project, "owner"
-    tenant_admin = db.query(TeamMember.id).filter(
+    tenant_admin_query = db.query(TeamMember.id).filter(
         TeamMember.org_id == tenant_id,
         TeamMember.user_id == caller_user_id,
         TeamMember.role.in_(("owner", "admin")),
         TeamMember.is_active.is_(True),
-    ).first()
+    )
+    if lock_authorization:
+        tenant_admin_query = tenant_admin_query.with_for_update(read=True)
+    tenant_admin = tenant_admin_query.first()
     if tenant_admin is not None:
         return project, "admin"
-    member = db.query(ProjectMember).filter(
+    member_query = db.query(ProjectMember).filter(
         ProjectMember.project_id == project_id,
         ProjectMember.project_owner_user_id == project.owner_user_id,
         ProjectMember.tenant_id == tenant_id,
         ProjectMember.member_user_id == caller_user_id,
         ProjectMember.role.in_(PROJECT_ROLES),
-    ).first()
+    )
+    if lock_authorization:
+        member_query = member_query.with_for_update(read=True)
+    member = member_query.first()
     if member is None:
         return None
     return project, member.role
@@ -95,12 +105,14 @@ def require_project_access(
     caller_user_id: str,
     tenant_id: str,
     allowed_roles: frozenset[str],
+    lock_authorization: bool = False,
 ) -> Optional[tuple[Workspace, str]]:
     resolved = resolve_project_access(
         db,
         project_id=project_id,
         caller_user_id=caller_user_id,
         tenant_id=tenant_id,
+        lock_authorization=lock_authorization,
     )
     if resolved is None or resolved[1] not in allowed_roles:
         return None

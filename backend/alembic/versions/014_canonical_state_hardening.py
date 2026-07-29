@@ -50,6 +50,9 @@ _DOWNGRADE_DATA_CATEGORIES = {
 # tenant rewrite alias/audit evidence is append-only. The generalized guard
 # below now applies the same fix-forward rule to every 014-only data category.
 
+_CANONICAL_STATE_ENVIRONMENTS = frozenset({"dev", "staging", "prod"})
+_STATE_ENVIRONMENT_ALIASES = {"production": "prod"}
+
 
 def _legacy_scope(owner_user_id: str) -> str:
     provider = None
@@ -87,6 +90,122 @@ def _legacy_tenant_scope(owner_user_id: str, source_tenant_id: str) -> str | Non
 
 def _tenant_predicate(column, tenant_id: str | None):
     return column.is_(None) if tenant_id is None else column == tenant_id
+
+
+def _normalize_state_environment(environment: object) -> str | None:
+    if not isinstance(environment, str):
+        return None
+    normalized = environment.strip().lower()
+    normalized = _STATE_ENVIRONMENT_ALIASES.get(normalized, normalized)
+    return normalized if normalized in _CANONICAL_STATE_ENVIRONMENTS else None
+
+
+def _deployment_state_row_is_empty(row) -> bool:
+    """Return true only when discarding this row cannot discard state/lock data."""
+    return bool(
+        row.state_json in (None, {})
+        and row.previous_state_json in (None, {})
+        and row.lock_id is None
+        and row.lock_info in (None, {})
+        and row.locked_at is None
+    )
+
+
+def _canonicalize_deployment_states(bind) -> None:
+    """Normalize 013 rows and fail closed before discarding material conflicts."""
+    metadata = sa.MetaData()
+    deployment_state = sa.Table("deployment_state", metadata, autoload_with=bind)
+    workspaces = sa.Table("workspaces", metadata, autoload_with=bind)
+    rows = bind.execute(
+        sa.select(
+            deployment_state.c.id,
+            deployment_state.c.project_id,
+            deployment_state.c.environment,
+            deployment_state.c.state_json,
+            deployment_state.c.previous_state_json,
+            deployment_state.c.lock_id,
+            deployment_state.c.lock_info,
+            deployment_state.c.locked_at,
+            workspaces.c.id.label("canonical_project_id"),
+            workspaces.c.owner_user_id.label("project_owner_user_id"),
+            workspaces.c.tenant_id.label("project_tenant_id"),
+        )
+        .select_from(
+            deployment_state.outerjoin(
+                workspaces,
+                workspaces.c.id == deployment_state.c.project_id,
+            )
+        )
+        .order_by(deployment_state.c.id.asc())
+    ).all()
+
+    orphan_count = sum(row.canonical_project_id is None for row in rows)
+    if orphan_count:
+        raise RuntimeError(
+            "Migration refused: Terraform state contains rows without a canonical "
+            f"Project ({orphan_count} rows); no identifiers or state data were emitted"
+        )
+
+    normalized_rows = []
+    invalid_environment_count = 0
+    for row in rows:
+        normalized_environment = _normalize_state_environment(row.environment)
+        if normalized_environment is None:
+            invalid_environment_count += 1
+            continue
+        normalized_rows.append((row, normalized_environment))
+    if invalid_environment_count:
+        raise RuntimeError(
+            "Migration refused: Terraform state contains unsupported environment "
+            f"values ({invalid_environment_count} rows); no values or state data were emitted"
+        )
+
+    groups: dict[tuple[str, str], list] = {}
+    for row, normalized_environment in normalized_rows:
+        groups.setdefault(
+            (str(row.canonical_project_id), normalized_environment),
+            [],
+        ).append(row)
+
+    conflicting_scopes = 0
+    conflicting_material_rows = 0
+    for group_rows in groups.values():
+        material_rows = [
+            row for row in group_rows if not _deployment_state_row_is_empty(row)
+        ]
+        if len(material_rows) > 1:
+            conflicting_scopes += 1
+            conflicting_material_rows += len(material_rows)
+    if conflicting_scopes:
+        raise RuntimeError(
+            "Migration refused: canonical Terraform state has multiple material rows "
+            f"in {conflicting_scopes} scopes ({conflicting_material_rows} rows); "
+            "no winner was selected, no row was discarded, and no identifiers or "
+            "state data were emitted"
+        )
+
+    for (_project_id, normalized_environment), group_rows in sorted(groups.items()):
+        ordered_rows = sorted(group_rows, key=lambda row: int(row.id))
+        material_rows = [
+            row for row in ordered_rows if not _deployment_state_row_is_empty(row)
+        ]
+        survivor = material_rows[0] if material_rows else ordered_rows[0]
+        duplicate_ids = [row.id for row in ordered_rows if row.id != survivor.id]
+        if duplicate_ids:
+            bind.execute(
+                deployment_state.delete().where(
+                    deployment_state.c.id.in_(duplicate_ids)
+                )
+            )
+        bind.execute(
+            deployment_state.update()
+            .where(deployment_state.c.id == survivor.id)
+            .values(
+                environment=normalized_environment,
+                owner_user_id=survivor.project_owner_user_id,
+                tenant_id=survivor.project_tenant_id,
+            )
+        )
 
 
 def _audit(
@@ -162,6 +281,7 @@ def _deduplicate_analyses(bind, tables, audit) -> None:
     decisions = tables["decisions"]
     source_assets = tables["source_assets"]
     workspaces = tables["workspaces"]
+    deployment_state = tables["deployment_state"]
     groups = bind.execute(
         sa.select(
             analyses.c.owner_user_id,
@@ -291,9 +411,17 @@ def _deduplicate_analyses(bind, tables, audit) -> None:
                         .where(source_assets.c.workspace_id == duplicate_workspace_id)
                         .values(workspace_id=survivor_workspace_id)
                     )
-                    bind.execute(
-                        workspaces.delete().where(workspaces.c.id == duplicate_workspace_id)
-                    )
+                    project_state = bind.execute(
+                        sa.select(deployment_state.c.id)
+                        .where(deployment_state.c.project_id == duplicate_workspace_id)
+                        .limit(1)
+                    ).first()
+                    if project_state is None:
+                        bind.execute(
+                            workspaces.delete().where(
+                                workspaces.c.id == duplicate_workspace_id
+                            )
+                        )
         bind.execute(
             analyses.update()
             .where(analyses.c.id == survivor_id)
@@ -1120,59 +1248,13 @@ def upgrade() -> None:
 
     if not context.is_offline_mode():
         bind = op.get_bind()
-        duplicate_state_scopes = bind.execute(sa.text("""
-            SELECT owner_user_id, tenant_id, project_id, environment
-            FROM deployment_state
-            WHERE owner_user_id IS NOT NULL AND tenant_id IS NOT NULL
-            GROUP BY owner_user_id, tenant_id, project_id, environment
-            HAVING count(*) > 1
-        """)).all()
-        for owner_user_id, tenant_id, project_id, environment in duplicate_state_scopes:
-            rows = bind.execute(
-                sa.text("""
-                    SELECT id, state_json, previous_state_json, lock_id, lock_info
-                    FROM deployment_state
-                    WHERE owner_user_id = :owner_user_id
-                      AND tenant_id = :tenant_id
-                      AND project_id = :project_id
-                      AND environment = :environment
-                    ORDER BY updated_at DESC NULLS LAST, id DESC
-                """),
-                {
-                    "owner_user_id": owner_user_id,
-                    "tenant_id": tenant_id,
-                    "project_id": project_id,
-                    "environment": environment,
-                },
-            ).mappings().all()
-            material_rows = [
-                row for row in rows
-                if row["state_json"] or row["previous_state_json"] or row["lock_id"] or row["lock_info"]
-            ]
-            if len(material_rows) > 1:
-                raise RuntimeError(
-                    "Migration refused: duplicate Terraform state scope contains "
-                    "multiple material rows and requires operator reconciliation"
-                )
-            survivor_id = material_rows[0]["id"] if material_rows else rows[0]["id"]
-            bind.execute(
-                sa.text("DELETE FROM deployment_state WHERE id = ANY(:duplicate_ids)"),
-                {"duplicate_ids": [row["id"] for row in rows if row["id"] != survivor_id]},
-            )
-    op.create_unique_constraint(
-        "uq_deployment_state_scope",
-        "deployment_state",
-        ["owner_user_id", "tenant_id", "project_id", "environment"],
-    )
-
-    if not context.is_offline_mode():
-        bind = op.get_bind()
         metadata = sa.MetaData()
         metadata.reflect(
             bind=bind,
             only=[
                 *list(_TENANT_TABLES),
                 "analysis_versions",
+                "deployment_state",
                 "tenant_rehome_audit",
                 "tenant_rehome_aliases",
             ],
@@ -1184,6 +1266,56 @@ def upgrade() -> None:
         _normalize_version_lineage(bind, metadata.tables, audit)
         _deduplicate_artifacts(bind, metadata.tables, audit)
         _elect_default_workspaces(bind, metadata.tables["workspaces"], audit)
+        _canonicalize_deployment_states(bind)
+
+    op.alter_column(
+        "deployment_state",
+        "project_id",
+        existing_type=sa.String(),
+        type_=sa.String(36),
+        existing_nullable=False,
+    )
+    op.alter_column(
+        "deployment_state",
+        "environment",
+        existing_type=sa.String(),
+        type_=sa.String(20),
+        existing_nullable=False,
+    )
+    op.alter_column(
+        "deployment_state",
+        "owner_user_id",
+        existing_type=sa.String(),
+        type_=sa.String(100),
+        existing_nullable=True,
+        nullable=False,
+    )
+    op.alter_column(
+        "deployment_state",
+        "tenant_id",
+        existing_type=sa.String(),
+        type_=sa.String(100),
+        existing_nullable=True,
+    )
+    if dialect_name == "postgresql":
+        op.create_check_constraint(
+            "ck_deployment_state_environment",
+            "deployment_state",
+            "environment IN ('dev', 'staging', 'prod')",
+        )
+        op.create_foreign_key(
+            "fk_deployment_state_project",
+            "deployment_state",
+            "workspaces",
+            ["project_id"],
+            ["id"],
+            ondelete="CASCADE",
+        )
+    op.create_unique_constraint(
+        "uq_deployment_state_project_environment",
+        "deployment_state",
+        ["project_id", "environment"],
+    )
 
     op.create_index(
         "ux_analyses_owner_tenant_diagram",
@@ -1286,7 +1418,52 @@ def downgrade() -> None:
                 "revision, export and reversibly convert the affected categories, "
                 "or fix forward; no rows were changed."
             )
-    op.drop_constraint("uq_deployment_state_scope", "deployment_state", type_="unique")
+    op.drop_constraint(
+        "uq_deployment_state_project_environment",
+        "deployment_state",
+        type_="unique",
+    )
+    dialect_name = context.get_context().dialect.name
+    if dialect_name == "postgresql":
+        op.drop_constraint(
+            "fk_deployment_state_project",
+            "deployment_state",
+            type_="foreignkey",
+        )
+        op.drop_constraint(
+            "ck_deployment_state_environment",
+            "deployment_state",
+            type_="check",
+        )
+    op.alter_column(
+        "deployment_state",
+        "tenant_id",
+        existing_type=sa.String(100),
+        type_=sa.String(),
+        existing_nullable=True,
+    )
+    op.alter_column(
+        "deployment_state",
+        "owner_user_id",
+        existing_type=sa.String(100),
+        type_=sa.String(),
+        existing_nullable=False,
+        nullable=True,
+    )
+    op.alter_column(
+        "deployment_state",
+        "environment",
+        existing_type=sa.String(20),
+        type_=sa.String(),
+        existing_nullable=False,
+    )
+    op.alter_column(
+        "deployment_state",
+        "project_id",
+        existing_type=sa.String(36),
+        type_=sa.String(),
+        existing_nullable=False,
+    )
     for table_name in ("funnel_steps", "usage_counters"):
         op.drop_index(f"ix_{table_name}_tenant_id", table_name=table_name)
         op.drop_index(f"ix_{table_name}_owner_user_id", table_name=table_name)
@@ -1299,7 +1476,6 @@ def downgrade() -> None:
     op.drop_index("ix_migration_replays_diagram_id", table_name="migration_replays")
     op.drop_index("ix_migration_replays_analysis_id", table_name="migration_replays")
     op.drop_table("migration_replays")
-    dialect_name = context.get_context().dialect.name
     if dialect_name == "postgresql":
         op.drop_constraint("ck_workspaces_status", "workspaces", type_="check")
         op.drop_constraint("ck_decisions_severity", "decisions", type_="check")

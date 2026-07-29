@@ -49,6 +49,51 @@ def _reset_database(engine) -> None:
         connection.execute(text("CREATE SCHEMA public"))
 
 
+def _seed_013_terraform_state_scope(
+    engine,
+    *,
+    first_state: str | None,
+    second_state: str | None,
+) -> dict[str, str]:
+    suffix = uuid.uuid4().hex[:12]
+    seeded = {
+        "default_workspace": str(uuid.uuid4()),
+        "project": str(uuid.uuid4()),
+        "owner": f"tf-migration-owner-{suffix}",
+        "tenant": f"tf-migration-tenant-{suffix}",
+        "other_owner": f"tf-migration-other-{suffix}",
+        "other_tenant": f"tf-migration-other-tenant-{suffix}",
+    }
+    with engine.begin() as connection:
+        connection.execute(
+            text("""
+                INSERT INTO workspaces
+                    (id, owner_user_id, tenant_id, name, source_cloud, target_cloud,
+                     status, is_public)
+                VALUES
+                    (:default_workspace, :owner, :tenant, 'Default Workspace',
+                     'aws', 'azure', 'active', false),
+                    (:project, :owner, :tenant, 'Terraform migration project',
+                     'aws', 'azure', 'active', false)
+            """),
+            seeded,
+        )
+        connection.execute(
+            text("""
+                INSERT INTO deployment_state
+                    (project_id, environment, owner_user_id, tenant_id, state_json,
+                     previous_state_json, lock_id, lock_info, locked_at)
+                VALUES
+                    (:project, ' PRODUCTION ', :owner, :tenant,
+                     CAST(:first_state AS json), NULL, NULL, CAST('{}' AS json), NULL),
+                    (:project, 'prod', :other_owner, :other_tenant,
+                     CAST(:second_state AS json), NULL, NULL, NULL, NULL)
+            """),
+            {**seeded, "first_state": first_state, "second_state": second_state},
+        )
+    return seeded
+
+
 def _seed_013(engine) -> dict[str, str]:
     owner = "github_42"
     legacy_tenant = "github:github_42"
@@ -116,6 +161,16 @@ def _seed_013(engine) -> dict[str, str]:
             VALUES
                 (:decision, :analysis_b, :version_b, :owner, :tenant, 'risk', 'preserve me', 'open')
         """), {**ids, "owner": owner, "tenant": legacy_tenant})
+        connection.execute(
+            text("""
+                INSERT INTO deployment_state
+                    (project_id, environment, owner_user_id, tenant_id, state_json)
+                VALUES
+                    (:workspace_b, 'Production', :owner, :tenant,
+                     CAST('{"serial": 7}' AS json))
+            """),
+            {**ids, "owner": owner, "tenant": legacy_tenant},
+        )
     return {**ids, "owner": owner, "target_tenant": long_target_tenant}
 
 
@@ -158,6 +213,30 @@ def _assert_014_state(engine, seeded: dict[str, str], *, expect_seed_audits: boo
             WHERE owner_user_id = :owner AND tenant_id = :target_tenant AND is_default
         """), seeded).scalar_one()
         assert defaults == 1
+        state = (
+            connection.execute(
+                text("""
+                SELECT project_id, environment, owner_user_id, tenant_id, state_json
+                FROM deployment_state
+            """)
+            )
+            .mappings()
+            .one()
+        )
+        assert state == {
+            "project_id": seeded["workspace_b"],
+            "environment": "prod",
+            "owner_user_id": seeded["owner"],
+            "tenant_id": seeded["target_tenant"],
+            "state_json": {"serial": 7},
+        }
+        assert (
+            connection.execute(
+                text("SELECT count(*) FROM workspaces WHERE id = :workspace_b"),
+                seeded,
+            ).scalar_one()
+            == 1
+        )
         statuses = set(connection.execute(text("SELECT status FROM tenant_rehome_audit")).scalars())
         if expect_seed_audits:
             assert {
@@ -338,6 +417,50 @@ def test_013_production_init_is_read_only_then_014_migrates_without_partial_sche
         assert readiness_014["missing_schema_objects"] == []
         assert readiness_014["ready_for_production"] is True
         database.init_db()
+
+        drift_cases = (
+            (
+                "ALTER TABLE deployment_state ALTER COLUMN owner_user_id DROP NOT NULL",
+                "ALTER TABLE deployment_state ALTER COLUMN owner_user_id SET NOT NULL",
+                "nullability:deployment_state.owner_user_id",
+            ),
+            (
+                "ALTER TABLE deployment_state DROP CONSTRAINT "
+                "uq_deployment_state_project_environment",
+                "ALTER TABLE deployment_state ADD CONSTRAINT "
+                "uq_deployment_state_project_environment UNIQUE "
+                "(project_id, environment)",
+                "constraint:deployment_state.project_environment_unique",
+            ),
+            (
+                "ALTER TABLE deployment_state DROP CONSTRAINT "
+                "fk_deployment_state_project",
+                "ALTER TABLE deployment_state ADD CONSTRAINT "
+                "fk_deployment_state_project FOREIGN KEY (project_id) "
+                "REFERENCES workspaces(id) ON DELETE CASCADE",
+                "constraint:deployment_state.project_fk",
+            ),
+            (
+                "ALTER TABLE deployment_state DROP CONSTRAINT "
+                "ck_deployment_state_environment",
+                "ALTER TABLE deployment_state ADD CONSTRAINT "
+                "ck_deployment_state_environment CHECK "
+                "(environment IN ('dev', 'staging', 'prod'))",
+                "constraint:deployment_state.environment",
+            ),
+        )
+        for remove_constraint, restore_constraint, missing_object in drift_cases:
+            with engine.begin() as connection:
+                connection.execute(text(remove_constraint))
+            drifted = database.database_readiness()
+            assert drifted["current_revision"] == "014"
+            assert drifted["schema_at_head"] is True
+            assert drifted["required_schema_present"] is False
+            assert drifted["ready_for_production"] is False
+            assert missing_object in drifted["missing_schema_objects"]
+            with engine.begin() as connection:
+                connection.execute(text(restore_constraint))
+        assert database.database_readiness()["ready_for_production"] is True
     finally:
         _reset_database(engine)
         engine.dispose()
@@ -832,6 +955,197 @@ def test_downgrade_refuses_when_any_014_only_durable_category_has_rows():
                 text("SELECT count(*) FROM cost_records WHERE tenant_id IS NOT NULL")
             ).scalar_one() == 1
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def test_terraform_state_empty_duplicates_normalize_cycle_and_fk_cascade():
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    try:
+        _reset_database(engine)
+        _upgrade(config, engine, "013")
+        seeded = _seed_013_terraform_state_scope(
+            engine,
+            first_state="{}",
+            second_state=None,
+        )
+
+        _upgrade(config, engine, "014")
+        with engine.connect() as connection:
+            row = (
+                connection.execute(
+                    text("""
+                    SELECT project_id, environment, owner_user_id, tenant_id, state_json
+                    FROM deployment_state
+                """)
+                )
+                .mappings()
+                .one()
+            )
+            assert row == {
+                "project_id": seeded["project"],
+                "environment": "prod",
+                "owner_user_id": seeded["owner"],
+                "tenant_id": seeded["tenant"],
+                "state_json": {},
+            }
+
+        inspector = inspect(engine)
+        unique_constraints = {
+            constraint["name"]: tuple(constraint["column_names"])
+            for constraint in inspector.get_unique_constraints("deployment_state")
+        }
+        assert unique_constraints["uq_deployment_state_project_environment"] == (
+            "project_id",
+            "environment",
+        )
+        foreign_keys = {
+            foreign_key["name"]: foreign_key
+            for foreign_key in inspector.get_foreign_keys("deployment_state")
+        }
+        assert (
+            foreign_keys["fk_deployment_state_project"]["referred_table"]
+            == "workspaces"
+        )
+        assert (
+            foreign_keys["fk_deployment_state_project"]["options"]["ondelete"]
+            == "CASCADE"
+        )
+        checks = {
+            check["name"]: check["sqltext"]
+            for check in inspector.get_check_constraints("deployment_state")
+        }
+        environment_check = checks["ck_deployment_state_environment"]
+        assert "environment" in environment_check
+        assert all(
+            value in environment_check for value in ("'dev'", "'staging'", "'prod'")
+        )
+
+        _downgrade(config, engine, "013")
+        with engine.connect() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT count(*) FROM deployment_state")
+                ).scalar_one()
+                == 1
+            )
+            assert (
+                connection.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar_one()
+                == "013"
+            )
+
+        _upgrade(config, engine, "014")
+        with engine.begin() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT count(*) FROM deployment_state")
+                ).scalar_one()
+                == 1
+            )
+            connection.execute(
+                text("DELETE FROM workspaces WHERE id = :project_id"),
+                {"project_id": seeded["project"]},
+            )
+            assert (
+                connection.execute(
+                    text("SELECT count(*) FROM deployment_state")
+                ).scalar_one()
+                == 0
+            )
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def test_terraform_state_material_row_survives_empty_duplicate():
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    try:
+        _reset_database(engine)
+        _upgrade(config, engine, "013")
+        seeded = _seed_013_terraform_state_scope(
+            engine,
+            first_state=None,
+            second_state='{"serial": 9, "material": true}',
+        )
+
+        _upgrade(config, engine, "014")
+        with engine.connect() as connection:
+            row = (
+                connection.execute(
+                    text("""
+                    SELECT project_id, environment, owner_user_id, tenant_id, state_json
+                    FROM deployment_state
+                """)
+                )
+                .mappings()
+                .one()
+            )
+            assert row == {
+                "project_id": seeded["project"],
+                "environment": "prod",
+                "owner_user_id": seeded["owner"],
+                "tenant_id": seeded["tenant"],
+                "state_json": {"serial": 9, "material": True},
+            }
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def test_terraform_state_material_duplicates_abort_without_secret_evidence_or_loss():
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    try:
+        _reset_database(engine)
+        _upgrade(config, engine, "013")
+        seeded = _seed_013_terraform_state_scope(
+            engine,
+            first_state='{"serial": 1, "private": "first-material"}',
+            second_state='{"serial": 2, "private": "second-material"}',
+        )
+
+        with pytest.raises(RuntimeError) as raised:
+            _upgrade(config, engine, "014")
+        message = str(raised.value)
+        assert "multiple material rows" in message
+        assert "no winner was selected" in message
+        for secret_evidence in (
+            seeded["project"],
+            seeded["owner"],
+            seeded["tenant"],
+            seeded["other_owner"],
+            "first-material",
+            "second-material",
+        ):
+            assert secret_evidence not in message
+
+        with engine.connect() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar_one()
+                == "013"
+            )
+            states = (
+                connection.execute(
+                    text("SELECT state_json FROM deployment_state ORDER BY id")
+                )
+                .scalars()
+                .all()
+            )
+            assert states == [
+                {"serial": 1, "private": "first-material"},
+                {"serial": 2, "private": "second-material"},
+            ]
+            assert "is_default" not in {
+                column["name"]
+                for column in inspect(connection).get_columns("workspaces")
+            }
     finally:
         _reset_database(engine)
         engine.dispose()

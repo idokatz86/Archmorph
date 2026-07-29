@@ -258,6 +258,7 @@ def database_readiness() -> dict[str, object]:
                     "analysis_versions",
                     "artifacts",
                     "decisions",
+                    "deployment_state",
                 }
                 if not bridge_on_013:
                     required_tables.update(
@@ -303,6 +304,63 @@ def database_readiness() -> dict[str, object]:
                     for column_name in ("owner_user_id", "tenant_id", "actor_kind", "key_id"):
                         if column_name not in cost_columns:
                             missing_schema_objects.append(f"column:cost_records.{column_name}")
+                if "deployment_state" in present_tables and not bridge_on_013:
+                    state_columns = {
+                        column["name"]: column
+                        for column in inspector.get_columns("deployment_state")
+                    }
+                    owner_column = state_columns.get("owner_user_id")
+                    if owner_column is None:
+                        missing_schema_objects.append(
+                            "column:deployment_state.owner_user_id"
+                        )
+                    elif owner_column.get("nullable", True):
+                        missing_schema_objects.append(
+                            "nullability:deployment_state.owner_user_id"
+                        )
+                    unique_constraints = {
+                        constraint.get("name"): tuple(
+                            constraint.get("column_names") or ()
+                        )
+                        for constraint in inspector.get_unique_constraints(
+                            "deployment_state"
+                        )
+                    }
+                    if unique_constraints.get(
+                        "uq_deployment_state_project_environment"
+                    ) != ("project_id", "environment"):
+                        missing_schema_objects.append(
+                            "constraint:deployment_state.project_environment_unique"
+                        )
+                    foreign_keys = {
+                        constraint.get("name"): constraint
+                        for constraint in inspector.get_foreign_keys("deployment_state")
+                    }
+                    project_fk = foreign_keys.get("fk_deployment_state_project")
+                    if not (
+                        project_fk
+                        and tuple(project_fk.get("constrained_columns") or ())
+                        == ("project_id",)
+                        and project_fk.get("referred_table") == "workspaces"
+                        and tuple(project_fk.get("referred_columns") or ()) == ("id",)
+                        and str(
+                            (project_fk.get("options") or {}).get("ondelete", "")
+                        ).upper()
+                        == "CASCADE"
+                    ):
+                        missing_schema_objects.append(
+                            "constraint:deployment_state.project_fk"
+                        )
+                    check_constraints = {
+                        constraint.get("name")
+                        for constraint in inspector.get_check_constraints(
+                            "deployment_state"
+                        )
+                    }
+                    if "ck_deployment_state_environment" not in check_constraints:
+                        missing_schema_objects.append(
+                            "constraint:deployment_state.environment"
+                        )
                 required_schema_present = not missing_schema_objects
             connection_ok = True
         except Exception as exc:

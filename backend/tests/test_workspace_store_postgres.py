@@ -18,9 +18,11 @@ from limits import parse as parse_rate_limit
 from limits.storage import RedisStorage
 from limits.strategies import FixedWindowRateLimiter
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import sessionmaker
 
+from error_envelope import ArchmorphException
+from models.deployment_state import DeploymentState
 from models.workspace import (
     APIKeyCredential,
     Analysis,
@@ -40,6 +42,8 @@ from models.workspace import (
     TenantRehomeAlias,
     Workspace,
 )
+from project_store import PROJECT_EDIT_ROLES
+from routers.tf_backend import authorized_deployment_state
 from session_store import InMemoryStore, RedisStore
 from routers import shared
 from routers.api_keys_routes import create_api_key, rotate_api_key
@@ -160,6 +164,167 @@ def test_postgres_decision_composite_fk_rejects_cross_analysis_version(postgres_
         db.rollback()
     finally:
         db.close()
+
+
+def test_postgres_two_authorized_principals_racing_first_state_create_one_row(
+    postgres_factory,
+):
+    suffix = uuid.uuid4().hex[:12]
+    project_id = f"proj-pg-tf-{suffix}"
+    tenant_id = f"tenant-pg-tf-{suffix}"
+    owner_user_id = f"owner-pg-tf-{suffix}"
+    editor_user_id = f"editor-pg-tf-{suffix}"
+    db = postgres_factory()
+    try:
+        db.add(
+            Workspace(
+                id=project_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                name="PostgreSQL Terraform state race",
+                status="active",
+                is_default=False,
+            )
+        )
+        db.flush()
+        db.add(
+            ProjectMember(
+                project_id=project_id,
+                project_owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                member_user_id=editor_user_id,
+                role="editor",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    barrier = threading.Barrier(2)
+
+    def create_as(caller_user_id: str) -> int:
+        session = postgres_factory()
+        try:
+            barrier.wait(timeout=10)
+            with authorized_deployment_state(
+                session,
+                project_id=project_id,
+                caller_user_id=caller_user_id,
+                tenant_id=tenant_id,
+                environment=" PRODUCTION ",
+                allowed_roles=PROJECT_EDIT_ROLES,
+            ) as (state, _canonical_project, environment):
+                assert environment == "prod"
+                return state.id
+        finally:
+            session.close()
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        state_ids = list(executor.map(create_as, [owner_user_id, editor_user_id]))
+
+    assert len(set(state_ids)) == 1
+    db = postgres_factory()
+    try:
+        states = (
+            db.query(DeploymentState)
+            .filter(
+                DeploymentState.project_id == project_id,
+                DeploymentState.environment == "prod",
+            )
+            .all()
+        )
+        assert len(states) == 1
+        assert states[0].owner_user_id == owner_user_id
+        assert states[0].tenant_id == tenant_id
+    finally:
+        db.close()
+
+
+def test_postgres_member_revocation_cannot_race_authorized_state_commit(
+    postgres_factory,
+):
+    suffix = uuid.uuid4().hex[:12]
+    project_id = f"proj-pg-auth-race-{suffix}"
+    tenant_id = f"tenant-pg-auth-race-{suffix}"
+    owner_user_id = f"owner-pg-auth-race-{suffix}"
+    editor_user_id = f"editor-pg-auth-race-{suffix}"
+    db = postgres_factory()
+    try:
+        db.add(
+            Workspace(
+                id=project_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                name="PostgreSQL Terraform authorization race",
+                status="active",
+                is_default=False,
+            )
+        )
+        db.flush()
+        db.add(
+            ProjectMember(
+                project_id=project_id,
+                project_owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                member_user_id=editor_user_id,
+                role="editor",
+            )
+        )
+        db.commit()
+    finally:
+        db.close()
+
+    editor_db = postgres_factory()
+    remover_db = postgres_factory()
+    try:
+        with authorized_deployment_state(
+            editor_db,
+            project_id=project_id,
+            environment="dev",
+            caller_user_id=editor_user_id,
+            tenant_id=tenant_id,
+            allowed_roles=PROJECT_EDIT_ROLES,
+        ) as (state, project, environment):
+            assert state.project_id == project.id == project_id
+            assert environment == "dev"
+            remover_db.execute(text("SET LOCAL lock_timeout = '250ms'"))
+            with pytest.raises(OperationalError):
+                remover_db.query(ProjectMember).filter(
+                    ProjectMember.project_id == project_id,
+                    ProjectMember.member_user_id == editor_user_id,
+                ).delete(synchronize_session=False)
+                remover_db.commit()
+            remover_db.rollback()
+
+        removed = (
+            remover_db.query(ProjectMember)
+            .filter(
+                ProjectMember.project_id == project_id,
+                ProjectMember.member_user_id == editor_user_id,
+            )
+            .delete(synchronize_session=False)
+        )
+        assert removed == 1
+        remover_db.commit()
+
+        denied_db = postgres_factory()
+        try:
+            with pytest.raises(ArchmorphException) as denied:
+                with authorized_deployment_state(
+                    denied_db,
+                    project_id=project_id,
+                    environment="dev",
+                    caller_user_id=editor_user_id,
+                    tenant_id=tenant_id,
+                    allowed_roles=PROJECT_EDIT_ROLES,
+                ):
+                    pytest.fail("revoked editor reached Terraform state")
+            assert denied.value.status_code == 404
+        finally:
+            denied_db.close()
+    finally:
+        editor_db.close()
+        remover_db.close()
 
 
 def test_postgres_api_key_rotation_preserves_canonical_owner(postgres_factory, monkeypatch):

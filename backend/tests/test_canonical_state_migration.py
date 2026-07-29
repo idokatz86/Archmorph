@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
 
 from auth import AuthProvider, legacy_owner_tenant_scope, provider_subject_tenant_scope
 
@@ -72,6 +75,11 @@ def test_migration_contains_conflict_audit_and_uniqueness_guards():
     assert "ux_analyses_owner_tenant_diagram" in source
     assert "ux_artifacts_version_type_hash" in source
     assert "ux_workspaces_default_owner_tenant" in source
+    assert "uq_deployment_state_project_environment" in source
+    assert "fk_deployment_state_project" in source
+    assert "ck_deployment_state_environment" in source
+    assert "_canonicalize_deployment_states" in source
+    assert "no winner was selected" in source
     assert "retain VARCHAR(100)" in source
     assert "tenant rewrite alias/audit evidence is append-only" in source
     assert 'op.drop_table("analysis_mutation_receipts")' in source
@@ -81,4 +89,35 @@ def test_migration_contains_conflict_audit_and_uniqueness_guards():
     assert 'op.drop_table("diagram_lifecycle")' in source
     assert "ix_analysis_versions_analysis_num" in (
         MIGRATION_PATH.parent.joinpath("013_durable_workspaces.py").read_text(encoding="utf-8")
+    )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_empty"),
+    [
+        ({}, True),
+        ({"state_json": {"serial": 0}}, False),
+        ({"state_json": []}, False),
+        ({"state_json": False}, False),
+        ({"previous_state_json": {"serial": 0}}, False),
+        ({"lock_id": ""}, False),
+        ({"lock_info": {"ID": "lock"}}, False),
+        ({"locked_at": "timestamp-present"}, False),
+    ],
+)
+def test_terraform_state_migration_deduplicates_only_truly_empty_rows(
+    overrides,
+    expected_empty,
+):
+    values = {
+        "state_json": {},
+        "previous_state_json": None,
+        "lock_id": None,
+        "lock_info": {},
+        "locked_at": None,
+        **overrides,
+    }
+    assert (
+        migration._deployment_state_row_is_empty(SimpleNamespace(**values))
+        is expected_empty
     )

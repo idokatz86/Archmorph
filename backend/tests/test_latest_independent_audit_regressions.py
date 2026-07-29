@@ -25,7 +25,7 @@ from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 from database import Base
 from analysis_payload_bounds import AnalysisPayloadTooLarge, validate_restore_payload_shape
-from models.workspace import RestoreGrant
+from models.workspace import RestoreGrant, Workspace
 from workspace_store import (
     consume_restore_grant,
     issue_restore_grant,
@@ -38,8 +38,9 @@ from auth import AuthProvider, User, generate_session_token
 from export_capabilities import _principal_marker
 from job_queue import Job
 from models.deployment_state import DeploymentState
+from project_store import PROJECT_READ_ROLES
 from routers.jobs import _ensure_job_access
-from routers.tf_backend import get_deployment_state
+from routers.tf_backend import authorized_deployment_state
 
 
 @pytest.fixture(autouse=True)
@@ -477,20 +478,32 @@ def test_b2c_canonical_subject_owns_jobs_capabilities_and_legacy_terraform(db):
         durable_principal=principal,
     )
 
-    db.add(DeploymentState(
-        project_id="b2c-project",
-        environment="prod",
-        owner_user_id="legacy-b2c-user-id",
-        tenant_id="b2c-tenant",
-        state_json={"version": 1},
-    ))
-    db.commit()
-    state = get_deployment_state(
-        db,
-        "b2c-project",
-        "prod",
+    project = Workspace(
+        id="b2c-project",
         owner_user_id="canonical-b2c-subject",
         tenant_id="b2c-tenant",
-        legacy_owner_user_ids=("legacy-b2c-user-id",),
+        name="B2C canonical project",
+        status="active",
+        is_default=False,
     )
-    assert state.owner_user_id == "canonical-b2c-subject"
+    db.add(project)
+    db.flush()
+    db.add(
+        DeploymentState(
+            project_id="b2c-project",
+            environment="prod",
+            owner_user_id="legacy-b2c-user-id",
+            tenant_id="b2c-tenant",
+            state_json={"version": 1},
+        )
+    )
+    db.commit()
+    with authorized_deployment_state(
+        db,
+        project_id=project.id,
+        environment="prod",
+        caller_user_id="canonical-b2c-subject",
+        tenant_id="b2c-tenant",
+        allowed_roles=PROJECT_READ_ROLES,
+    ) as (state, _canonical_project, _environment):
+        assert state.owner_user_id == "canonical-b2c-subject"
