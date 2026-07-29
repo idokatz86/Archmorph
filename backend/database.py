@@ -40,9 +40,27 @@ DATABASE_URL = os.getenv(
     "sqlite:///./data/archmorph.db",
 )
 
+_POSTGRES_URL_PREFIXES = (
+    "postgresql://",
+    "postgresql+psycopg://",
+    "postgresql+psycopg2://",
+    "postgresql+asyncpg://",
+)
+
+
+def _is_postgres_url(database_url: str) -> bool:
+    return database_url.startswith(_POSTGRES_URL_PREFIXES)
+
+
+def _async_database_url(database_url: str) -> str:
+    if _is_postgres_url(database_url):
+        suffix = database_url.split("://", 1)[1]
+        return f"postgresql+asyncpg://{suffix}"
+    return database_url.replace("sqlite:///", "sqlite+aiosqlite:///")
+
 # SQLite-specific: enable WAL mode for concurrent reads + write-ahead logging
 _IS_SQLITE = DATABASE_URL.startswith("sqlite")
-_IS_POSTGRES = DATABASE_URL.startswith(("postgresql://", "postgresql+psycopg://", "postgresql+asyncpg://"))
+_IS_POSTGRES = _is_postgres_url(DATABASE_URL)
 _ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
 _PRODUCTION_LIKE = _ENVIRONMENT in ("production", "prod", "staging")
 _ENFORCE_POSTGRES = os.getenv(
@@ -114,7 +132,7 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 # ─────────────────────────────────────────────────────────────
 # Async Engine & Session (Issue #370)
 # ─────────────────────────────────────────────────────────────
-ASYNC_DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://").replace("sqlite:///", "sqlite+aiosqlite:///")
+ASYNC_DATABASE_URL = _async_database_url(DATABASE_URL)
 async_engine = create_async_engine(ASYNC_DATABASE_URL, **_engine_kwargs)
 
 if _IS_SQLITE:
@@ -298,6 +316,22 @@ def database_readiness() -> dict[str, object]:
                     if "workspace_id" not in purge_columns:
                         missing_schema_objects.append(
                             "column:purge_operations.workspace_id"
+                        )
+                    purge_indexes = {
+                        index.get("name"): tuple(index.get("column_names") or ())
+                        for index in inspector.get_indexes("purge_operations")
+                    }
+                    if purge_indexes.get(
+                        "ix_purge_operations_scope_lookup"
+                    ) != ("scope_type", "scope_id"):
+                        missing_schema_objects.append(
+                            "index:purge_operations.scope_lookup"
+                        )
+                    if purge_indexes.get(
+                        "ix_purge_operations_status_id"
+                    ) != ("status", "id"):
+                        missing_schema_objects.append(
+                            "index:purge_operations.status_cursor"
                         )
                 if "restore_grants" in present_tables and not bridge_on_013:
                     grant_columns = {

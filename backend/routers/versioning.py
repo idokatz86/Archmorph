@@ -8,6 +8,7 @@ from functools import partial
 from typing import Optional
 
 from database import SessionLocal
+from durable_purge_fence import PurgeFenceUnavailableError, PurgedScopeError
 from routers.shared import (
     SESSION_STORE,
     limiter,
@@ -31,6 +32,13 @@ from workspace_store import (
 )
 
 router = APIRouter()
+
+
+def _transient_call(function, /, *args, **kwargs):
+    try:
+        return function(*args, **kwargs)
+    except (PurgeFenceUnavailableError, PurgedScopeError) as exc:
+        raise ArchmorphException(404, "Diagram not found") from exc
 
 
 def _durable_call(request: Request, diagram_id: str, function):
@@ -132,7 +140,12 @@ async def create_version_endpoint(
             label=message or "manual-version",
         )
         return result.version.to_dict()
-    version = create_version(diagram_id=diagram_id, snapshot=analysis, message=message)
+    version = _transient_call(
+        create_version,
+        diagram_id=diagram_id,
+        snapshot=analysis,
+        message=message,
+    )
     return {
         **version.to_dict(),
         "compatibility": "transient-anonymous-or-sample-version-store",
@@ -166,7 +179,10 @@ async def get_version_history_endpoint(
         },
     )
     if result is None:
-        return {**get_version_history(diagram_id), "compatibility": "transient-anonymous-or-sample-version-store"}
+        return {
+            **_transient_call(get_version_history, diagram_id),
+            "compatibility": "transient-anonymous-or-sample-version-store",
+        }
     versions = result["versions"]
     return {
             "diagram_id": result["diagram_id"],
@@ -207,7 +223,7 @@ async def get_version_endpoint(
         ),
     )
     if version is None:
-        version = get_version(diagram_id, version_number)
+        version = _transient_call(get_version, diagram_id, version_number)
         if not version:
             raise ArchmorphException(404, f"Version {version_number} not found")
         return {
@@ -248,7 +264,7 @@ async def restore_version_endpoint(
     except AnalysisVersionConflictError as exc:
         raise ArchmorphException(409, str(exc)) from exc
     if restored is None:
-        snapshot = restore_version(diagram_id, version_number)
+        snapshot = _transient_call(restore_version, diagram_id, version_number)
         if not snapshot:
             raise ArchmorphException(404, f"Version {version_number} not found")
         SESSION_STORE[diagram_id] = snapshot
@@ -289,7 +305,7 @@ async def compare_versions_endpoint(
     )
     if diff is None:
         return {
-            **compare_versions(diagram_id, v1, v2),
+            **_transient_call(compare_versions, diagram_id, v1, v2),
             "compatibility": "transient-anonymous-or-sample-version-store",
         }
     return diff

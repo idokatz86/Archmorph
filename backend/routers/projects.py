@@ -128,11 +128,6 @@ async def get_project_analysis(
         _principal(request),
         PROJECT_READ_ROLES,
     )
-    record_event("project_analysis_merged", {
-        "project_id": project_id,
-        "diagrams": len(combined.get("source_diagram_ids", [])),
-        "services": combined.get("services_detected", 0),
-    })
     return combined
 
 

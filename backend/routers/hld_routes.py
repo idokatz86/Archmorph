@@ -22,6 +22,7 @@ from routers.shared import (
     get_api_key_service_principal,
     limiter,
     persist_diagram_mutation_async,
+    require_api_read_or_user_session,
     require_api_write_or_user_session,
     require_diagram_access,
 )
@@ -241,13 +242,12 @@ async def _ensure_hld(request: Request, session: dict, diagram_id: str) -> dict:
 async def get_hld(
     request: Request,
     diagram_id: str,
-    _auth=Depends(require_api_write_or_user_session),
+    _auth=Depends(require_api_read_or_user_session),
 ):
     """Get previously generated HLD document."""
     session = await authorize_diagram_access_async(
         request, diagram_id, purpose="view an HLD"
     )
-    session = await _ensure_hld(request, session, diagram_id)
     if "hld" not in session:
         raise ArchmorphException(404, "No HLD found. Generate one first.")
     return {

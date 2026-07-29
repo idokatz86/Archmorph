@@ -29,7 +29,6 @@ from routers.shared import (
     verify_api_key,
 )
 from routers.shared import persist_diagram_mutation
-from usage_metrics import record_event
 from cost_optimizer import analyze_cost_optimizations
 from cost_assumptions import build_cost_assumptions_artifact
 from services.azure_pricing import estimate_services_cost
@@ -37,6 +36,7 @@ from terraform_preview import preview_terraform_plan
 from utils.chat_coercion import coerce_to_str_list
 from iac_generator import generate_iac_code
 from log_sanitizer import log_model_output_metadata
+from route_effects import write_route_effects
 from export_capabilities import (
     consume_export_capability,
     issue_export_capability_for_request,
@@ -62,8 +62,6 @@ async def _persist_mutation(request, diagram_id, snapshot, **kwargs):
 @limiter.limit("15/minute")
 async def estimate_cost(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Estimate monthly Azure costs for the analysed architecture."""
-    record_event("cost_estimates", {"diagram_id": diagram_id})
-
     session = await authorize_diagram_access_async(request, diagram_id, purpose="view cost estimates")
 
     mappings = session.get("mappings", [])
@@ -74,7 +72,12 @@ async def estimate_cost(request: Request, diagram_id: str, _auth=Depends(verify_
     sku_strategy = iac_params.get("sku_strategy", "Balanced")
 
     if mappings:
-        result = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+        result = estimate_services_cost(
+            mappings,
+            region=region,
+            sku_strategy=sku_strategy,
+            persist_cache=False,
+        )
         result["diagram_id"] = diagram_id
         return result
 
@@ -103,8 +106,6 @@ async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify
     optimization recommendations, cost-by-category, and source vs
     target comparison.
     """
-    record_event("cost_breakdown", {"diagram_id": diagram_id})
-
     session = await authorize_diagram_access_async(request, diagram_id, purpose="view cost breakdowns")
 
     mappings = session.get("mappings", [])
@@ -115,7 +116,12 @@ async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify
 
     # Base cost estimate
     if mappings:
-        cost_data = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+        cost_data = estimate_services_cost(
+            mappings,
+            region=region,
+            sku_strategy=sku_strategy,
+            persist_cache=False,
+        )
     else:
         cost_data = {"services": [], "total_monthly_estimate": {"low": 0, "high": 0}}
 
@@ -601,7 +607,12 @@ async def get_configured_cost(request: Request, diagram_id: str, _auth=Depends(v
             "overrides_applied": 0,
         }
 
-    base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+    base = estimate_services_cost(
+        mappings,
+        region=region,
+        sku_strategy=sku_strategy,
+        persist_cache=False,
+    )
     overrides = session.get("_cost_overrides", {})
     configured = _apply_overrides(base.get("services", []), overrides)
 
@@ -620,7 +631,12 @@ async def get_configured_cost(request: Request, diagram_id: str, _auth=Depends(v
     }
 
 
-@router.get("/api/diagrams/{diagram_id}/cost-assumptions", response_model=CostAssumptionsResponse, dependencies=[Depends(require_diagram_access)])
+@router.get(
+    "/api/diagrams/{diagram_id}/cost-assumptions",
+    response_model=CostAssumptionsResponse,
+    dependencies=[Depends(require_diagram_access)],
+    openapi_extra=write_route_effects("artifact", "sql"),
+)
 @limiter.limit("15/minute")
 async def get_cost_assumptions(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Return a reviewable JSON artifact with cost-estimate assumptions."""
@@ -653,7 +669,12 @@ async def get_ri_savings(request: Request, diagram_id: str, _auth=Depends(verify
     if not mappings:
         return {"diagram_id": diagram_id, "savings": []}
 
-    base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+    base = estimate_services_cost(
+        mappings,
+        region=region,
+        sku_strategy=sku_strategy,
+        persist_cache=False,
+    )
     overrides = session.get("_cost_overrides", {})
     services = base.get("services", [])
 
@@ -699,7 +720,11 @@ async def get_ri_savings(request: Request, diagram_id: str, _auth=Depends(verify
     }
 
 
-@router.get("/api/diagrams/{diagram_id}/cost-estimate/export", dependencies=[Depends(require_diagram_access)])
+@router.get(
+    "/api/diagrams/{diagram_id}/cost-estimate/export",
+    dependencies=[Depends(require_diagram_access)],
+    openapi_extra=write_route_effects("artifact", "capability"),
+)
 @limiter.limit("10/minute")
 async def export_cost_csv(
     request: Request,

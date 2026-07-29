@@ -19,7 +19,12 @@ from logging_config import ArchmorphJsonFormatter
 from main import app
 from routers import shared
 from routers.api_keys_routes import _hash_index, _keys, create_api_key
-from routers.shared import ROUTE_EFFECT_SCOPE_MANIFEST, route_effect_scope
+from routers.shared import route_effect_scope
+from route_effects import (
+    classify_endpoint_effects,
+    runtime_route_effect_scope,
+    runtime_route_effects,
+)
 from session_store import InMemoryStore
 from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
@@ -263,21 +268,81 @@ def test_legacy_orphan_ring_is_quarantined_not_claimed():
     assert quarantined["diagram_id"] is None
 
 
-def test_effect_scope_manifest_covers_v1_aliases_and_runtime_effectful_routes():
-    for (method, path), scope in ROUTE_EFFECT_SCOPE_MANIFEST.items():
-        assert scope in {"write", "admin"}
-        assert route_effect_scope(method, path) == scope
-        if path.startswith("/api/"):
-            assert route_effect_scope(method, "/api/v1/" + path[len("/api/"):]) == scope
+def test_runtime_effect_classification_covers_every_base_and_v1_get_both_directions():
+    audited = 0
+    for route in app.routes:
+        if not isinstance(route, APIRoute) or not route.path.startswith("/api/"):
+            continue
+        for method in sorted(set(route.methods or ()) & {"GET", "HEAD"}):
+            audited += 1
+            detected = classify_endpoint_effects(route.endpoint)
+            declared = runtime_route_effects(route)
+            scope = runtime_route_effect_scope(route, method)
+            assert detected == declared, (
+                f"{method} {route.path} effect mismatch: "
+                f"detected={sorted(detected)} declared={sorted(declared)}"
+            )
+            assert scope == ("write" if detected else None)
+            assert route_effect_scope(
+                method,
+                route.path,
+                route=route,
+            ) == scope
 
-    runtime = {
-        (method, route.path)
-        for route in app.routes
-        if isinstance(route, APIRoute)
-        for method in route.methods
+    assert audited > 250
+
+
+def test_identified_gets_are_runtime_classified_side_effect_free():
+    corrected_paths = {
+        "/api/replays",
+        "/api/diagrams/{diagram_id}/cost-breakdown",
+        "/api/diagrams/{diagram_id}/cost-estimate",
+        "/api/projects/{project_id}/analysis",
     }
-    for key in ROUTE_EFFECT_SCOPE_MANIFEST:
-        assert key in runtime
+    routes = {
+        route.path: route
+        for route in app.routes
+        if isinstance(route, APIRoute) and "GET" in (route.methods or set())
+    }
+    for path in corrected_paths:
+        route = routes[path]
+        assert classify_endpoint_effects(route.endpoint) == frozenset()
+        assert runtime_route_effects(route) == frozenset()
+        assert runtime_route_effect_scope(route, "GET") is None
+        v1_path = "/api/v1/" + path[len("/api/"):]
+        if v1_path in routes:
+            assert classify_endpoint_effects(routes[v1_path].endpoint) == frozenset()
+            assert runtime_route_effects(routes[v1_path]) == frozenset()
+
+
+def test_effectful_get_scope_is_documented_in_base_and_v1_openapi_contract():
+    expected = {
+        "/api/diagrams/{diagram_id}/cost-assumptions": {"artifact", "sql"},
+        "/api/diagrams/{diagram_id}/cost-estimate/export": {
+            "artifact",
+            "capability",
+        },
+        "/api/diagrams/{diagram_id}/migration-timeline/export": {
+            "artifact",
+            "capability",
+            "telemetry",
+        },
+        "/api/diagrams/{diagram_id}/report": {
+            "artifact",
+            "capability",
+            "telemetry",
+        },
+        "/api/replay/{replay_id}/export": {"artifact"},
+    }
+    schema = app.openapi()
+    for base_path, effects in expected.items():
+        for path in (
+            base_path,
+            "/api/v1/" + base_path[len("/api/") :],
+        ):
+            operation = schema["paths"][path]["get"]
+            assert operation["x-archmorph-effect-scope"] == "write"
+            assert set(operation["x-archmorph-effects"]) == effects
 
 
 def test_read_key_cannot_call_effectful_get_but_write_key_reaches_handler(test_client):
@@ -298,6 +363,81 @@ def test_read_key_cannot_call_effectful_get_but_write_key_reaches_handler(test_c
     )
     assert denied.status_code == denied_v1.status_code == 403
     assert allowed_scope.status_code == 404
+
+
+def test_read_key_reaches_corrected_side_effect_free_gets(test_client, monkeypatch):
+    from routers import projects as project_routes
+    from routers import replay_routes
+
+    _reader, read_key = create_api_key("reader", ["read"])
+    headers = _headers(read_key)
+    monkeypatch.setattr(
+        replay_routes,
+        "list_migration_replays",
+        lambda *_args, **_kwargs: {"replays": [], "total": 0},
+    )
+    monkeypatch.setattr(
+        project_routes,
+        "_combined_analysis_for_project",
+        lambda *_args, **_kwargs: {
+            "project_id": "side-effect-free",
+            "source_diagram_ids": [],
+            "services_detected": 0,
+        },
+    )
+    replay_routes._replay_store.clear()
+
+    with patch("routers.insights.record_event", create=True) as telemetry:
+        responses = [
+            test_client.get("/api/replays", headers=headers),
+            test_client.get(
+                "/api/diagrams/not-owned/cost-breakdown",
+                headers=headers,
+            ),
+            test_client.get(
+                "/api/diagrams/not-owned/cost-estimate",
+                headers=headers,
+            ),
+            test_client.get(
+                "/api/projects/not-owned/analysis",
+                headers=headers,
+            ),
+        ]
+
+    assert responses[0].status_code == 200, responses[0].text
+    assert [response.status_code for response in responses[1:]] == [404, 404, 200]
+    assert replay_routes._replay_store.keys("*") == []
+    telemetry.assert_not_called()
+
+
+def test_read_only_cost_estimation_does_not_mutate_process_or_file_cache(
+    tmp_path,
+    monkeypatch,
+):
+    from services import azure_pricing
+
+    cache_file = tmp_path / "pricing-cache.json"
+    monkeypatch.setattr(azure_pricing, "CACHE_FILE", cache_file)
+    monkeypatch.setattr(azure_pricing, "_price_cache", {})
+    monkeypatch.setattr(azure_pricing, "_cache_loaded", False)
+    monkeypatch.setattr(azure_pricing, "_get_blob_client", lambda: None)
+    monkeypatch.setattr(azure_pricing, "_fetch_price_from_api", lambda *_args, **_kwargs: None)
+
+    result = azure_pricing.estimate_services_cost(
+        [
+            {
+                "source_service": "Lambda",
+                "source_provider": "aws",
+                "azure_service": "Azure Functions",
+            }
+        ],
+        persist_cache=False,
+    )
+
+    assert result["service_count"] == 1
+    assert azure_pricing._price_cache == {}
+    assert azure_pricing._cache_loaded is False
+    assert not cache_file.exists()
 
 
 def test_rate_limit_readiness_requires_explicit_shared_storage_for_redis_host(monkeypatch):

@@ -850,4 +850,6 @@ class PurgeOperation(Base):
             unique=True,
         ),
         Index("ix_purge_operations_status", "status"),
+        Index("ix_purge_operations_scope_lookup", "scope_type", "scope_id"),
+        Index("ix_purge_operations_status_id", "status", "id"),
     )

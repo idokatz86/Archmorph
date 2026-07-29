@@ -31,6 +31,7 @@ from admin_auth import (
     is_configured as admin_is_configured,
 )
 from error_envelope import ArchmorphException
+from route_effects import runtime_route_effect_scope
 from session_store import get_store
 from starlette.concurrency import run_in_threadpool
 
@@ -313,7 +314,15 @@ async def verify_api_key(
         context = _authenticate_api_key(api_key, required=False)
     route = request.scope.get("route") if request is not None else None
     path_template = getattr(route, "path", request.url.path if request is not None else "")
-    required_scope = route_effect_scope(request.method, path_template) if request is not None else None
+    required_scope = (
+        route_effect_scope(
+            request.method,
+            path_template,
+            route=route,
+        )
+        if request is not None
+        else None
+    )
     if required_scope is None:
         required_scope = "read" if request is None or request.method in {"GET", "HEAD", "OPTIONS"} else "write"
     if not context.has_scope(required_scope):
@@ -359,47 +368,15 @@ require_api_write = require_api_scope("write")
 require_api_admin = require_api_scope("admin")
 
 
-ROUTE_EFFECT_SCOPE_MANIFEST: dict[tuple[str, str], str] = {
-    # GET compatibility routes that persist generated artifacts/state.
-    ("GET", "/api/diagrams/{diagram_id}/hld"): "write",
-    ("GET", "/api/diagrams/{diagram_id}/cost-assumptions"): "write",
-    ("GET", "/api/diagrams/{diagram_id}/cost-estimate/export"): "write",
-    ("GET", "/api/diagrams/{diagram_id}/migration-timeline/export"): "write",
-    ("GET", "/api/diagrams/{diagram_id}/report"): "write",
-    ("GET", "/api/replay/{replay_id}/export"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/export-diagram"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/export-architecture-package"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/export-hld"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/export-package"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/generate-hld"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/generate-hld-async"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/generate"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/generate-async"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/iac-chat"): "write",
-    ("DELETE", "/api/diagrams/{diagram_id}/iac-chat"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/cost-estimate/configure"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/restore-session"): "write",
-    # Explicit mutation routes whose verb already communicates the effect.
-    ("POST", "/api/diagrams/{diagram_id}/migration-timeline"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/network-topology"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/review-queue/{item_id}/disposition"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/versions"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/versions/save"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/versions/{version}/branch"): "write",
-    ("POST", "/api/diagrams/{diagram_id}/versions/{version_number}/restore"): "write",
-    ("POST", "/api/replay/record"): "write",
-    ("POST", "/api/replay/events"): "write",
-    ("POST", "/api/cost/budgets"): "write",
-    ("PUT", "/api/cost/budgets/{budget_id}"): "write",
-}
-
-
-def route_effect_scope(method: str, path_template: str) -> Optional[str]:
-    """Return explicit effect scope, resolving v1 mirrors to their base path."""
-    normalized_path = path_template
-    if normalized_path.startswith("/api/v1/"):
-        normalized_path = "/api/" + normalized_path[len("/api/v1/"):]
-    return ROUTE_EFFECT_SCOPE_MANIFEST.get((method.upper(), normalized_path))
+def route_effect_scope(
+    method: str,
+    path_template: str,
+    *,
+    route: object = None,
+) -> Optional[str]:
+    """Return effect scope from the matched runtime route's OpenAPI contract."""
+    del path_template  # The runtime route, including v1 clones, is authoritative.
+    return runtime_route_effect_scope(route, method) if route is not None else None
 
 
 async def enforce_route_effect_scope(
@@ -410,7 +387,11 @@ async def enforce_route_effect_scope(
     """Enforce effect scope for any manifest-listed route, regardless of verb."""
     route = request.scope.get("route")
     path_template = getattr(route, "path", request.url.path)
-    required_scope = route_effect_scope(request.method, path_template)
+    required_scope = route_effect_scope(
+        request.method,
+        path_template,
+        route=route,
+    )
     if required_scope is None:
         return None
     context = await verify_api_key_or_user_session(
@@ -863,7 +844,11 @@ def authorize_diagram_access(
 
     route = request.scope.get("route")
     path_template = getattr(route, "path", request.url.path)
-    required_effect_scope = route_effect_scope(request.method, path_template)
+    required_effect_scope = route_effect_scope(
+        request.method,
+        path_template,
+        route=route,
+    )
     if required_effect_scope:
         context = getattr(request.state, "credential_context", None)
         bearer_user = get_user_from_request_headers(dict(request.headers))

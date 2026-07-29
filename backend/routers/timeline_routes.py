@@ -35,6 +35,7 @@ from migration_timeline import (
     render_timeline_markdown,
     render_timeline_csv,
 )
+from route_effects import write_route_effects
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +115,7 @@ async def get_migration_timeline(
 @router.get(
     "/api/diagrams/{diagram_id}/migration-timeline/export",
     dependencies=[Depends(require_diagram_access)],
+    openapi_extra=write_route_effects("artifact", "capability", "telemetry"),
 )
 @limiter.limit("15/minute")
 async def export_migration_timeline(

@@ -994,8 +994,8 @@ def _is_cache_valid(data: dict[str, Any]) -> bool:
     return time.time() - cached_at < CACHE_MAX_AGE_SECONDS
 
 
-def _load_cache() -> dict[str, Any]:
-    """Load pricing cache from Azure Blob Storage (primary) or local disk (fallback)."""
+def _load_cache(*, mutate: bool = True) -> dict[str, Any]:
+    """Load pricing cache, optionally without changing process-local state."""
     global _price_cache, _cache_loaded
     if _cache_loaded and _price_cache:
         return _price_cache
@@ -1008,11 +1008,12 @@ def _load_cache() -> dict[str, Any]:
             raw = blob_breaker.call(lambda: blob.download_blob().readall())
             data = json.loads(raw)
             if _is_cache_valid(data):
-                _price_cache = data
-                _cache_loaded = True
+                if mutate:
+                    _price_cache = data
+                    _cache_loaded = True
                 logger.info("Loaded Azure pricing cache from Blob Storage (age: %.1f h)",
                             (time.time() - data.get("cached_at", 0)) / 3600)
-                return _price_cache
+                return data
             else:
                 logger.info("Blob pricing cache expired, will refresh")
         except Exception as exc:
@@ -1023,17 +1024,19 @@ def _load_cache() -> dict[str, Any]:
         try:
             data = json.loads(CACHE_FILE.read_text())
             if _is_cache_valid(data):
-                _price_cache = data
-                _cache_loaded = True
+                if mutate:
+                    _price_cache = data
+                    _cache_loaded = True
                 logger.info("Loaded Azure pricing cache from local disk (age: %.1f h)",
                             (time.time() - data.get("cached_at", 0)) / 3600)
-                return _price_cache
+                return data
             else:
                 logger.info("Local pricing cache expired, will refresh")
         except (json.JSONDecodeError, KeyError):
             logger.warning("Corrupt pricing cache, will refresh")
 
-    _cache_loaded = True
+    if mutate:
+        _cache_loaded = True
     return {}
 
 
@@ -1137,6 +1140,8 @@ def _fetch_price_from_api(
 def fetch_prices_for_region(
     arm_region: str,
     needed_services: set[str] | None = None,
+    *,
+    persist_cache: bool = True,
 ) -> dict[str, float]:
     """
     Fetch pricing for services in a given region.
@@ -1149,7 +1154,7 @@ def fetch_prices_for_region(
     Returns dict of { azure_service_name: monthly_estimate_usd }.
     Uses cache when available.
     """
-    cache = _load_cache()
+    cache = _load_cache(mutate=persist_cache)
     cache_key = f"prices_{arm_region}"
 
     if cache_key in cache:
@@ -1193,7 +1198,7 @@ def fetch_prices_for_region(
                 prices[svc] = SERVICE_PRICE_QUERIES[svc].get("fallback_monthly", 0)
 
     # Only cache a full fetch (all services) to avoid partial caches
-    if not needed_services:
+    if not needed_services and persist_cache:
         if not cache:
             cache = {"cached_at": time.time()}
         cache[cache_key] = prices
@@ -1519,6 +1524,8 @@ def estimate_services_cost(
     mappings: list[dict[str, Any]],
     region: str = "westeurope",
     sku_strategy: str = "Balanced",
+    *,
+    persist_cache: bool = True,
 ) -> dict[str, Any]:
     """
     Calculate cost estimate for translated Azure services.
@@ -1546,9 +1553,13 @@ def estimate_services_cost(
             needed_keys.add(canonical)
 
     cache_key = f"prices_{region}"
-    pricing_cache = _load_cache()
+    pricing_cache = _load_cache(mutate=persist_cache)
     used_regional_cache = cache_key in pricing_cache
-    prices = fetch_prices_for_region(region, needed_services=needed_keys or None)
+    prices = fetch_prices_for_region(
+        region,
+        needed_services=needed_keys or None,
+        persist_cache=persist_cache,
+    )
     pricing_cache_scope = "partial" if needed_keys and not used_regional_cache else "global"
     metadata_cache = pricing_cache or _price_cache
     cache_timestamp = metadata_cache.get("cached_at") if pricing_cache_scope == "global" and metadata_cache else None

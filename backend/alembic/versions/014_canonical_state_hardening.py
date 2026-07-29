@@ -1145,6 +1145,16 @@ def upgrade() -> None:
     op.create_index("ix_purge_operations_workspace_id", "purge_operations", ["workspace_id"])
     op.create_index("ix_purge_operations_status", "purge_operations", ["status"])
     op.create_index(
+        "ix_purge_operations_scope_lookup",
+        "purge_operations",
+        ["scope_type", "scope_id"],
+    )
+    op.create_index(
+        "ix_purge_operations_status_id",
+        "purge_operations",
+        ["status", "id"],
+    )
+    op.create_index(
         "ux_purge_operations_scope",
         "purge_operations",
         ["owner_user_id", "tenant_id", "scope_type", "scope_id"],
@@ -1570,6 +1580,8 @@ def downgrade() -> None:
     op.drop_column("cost_records", "tenant_id")
     op.drop_column("cost_records", "owner_user_id")
     op.drop_index("ux_purge_operations_scope", table_name="purge_operations")
+    op.drop_index("ix_purge_operations_status_id", table_name="purge_operations")
+    op.drop_index("ix_purge_operations_scope_lookup", table_name="purge_operations")
     op.drop_index("ix_purge_operations_status", table_name="purge_operations")
     op.drop_index("ix_purge_operations_workspace_id", table_name="purge_operations")
     op.drop_table("purge_operations")

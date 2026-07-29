@@ -756,6 +756,9 @@ def _generate_and_verify_iac(
             temperature=0.2,
             max_tokens=32768,
             bypass_cache=True,
+            cache_diagram_id=(analysis or {}).get("diagram_id"),
+            cache_owner_user_id=(analysis or {}).get("_owner_user_id"),
+            cache_tenant_id=(analysis or {}).get("_tenant_id"),
         )
         code = response.choices[0].message.content.strip()
     except Exception as exc:
@@ -817,6 +820,9 @@ def _verify_iac_completeness(
             temperature=0.1,
             max_tokens=32768,
             bypass_cache=True,
+            cache_diagram_id=(analysis or {}).get("diagram_id"),
+            cache_owner_user_id=(analysis or {}).get("_owner_user_id"),
+            cache_tenant_id=(analysis or {}).get("_tenant_id"),
         )
 
         verified_code = verify_response.choices[0].message.content.strip()

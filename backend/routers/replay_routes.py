@@ -12,6 +12,7 @@ from pydantic import Field
 
 from database import SessionLocal
 from error_envelope import ArchmorphException
+from route_effects import write_route_effects
 from routers.shared import (
     authorize_diagram_access_async,
     get_request_durable_principal,
@@ -115,7 +116,6 @@ async def require_replay_access(request: Request, replay_id: str) -> dict:
         return serialize_migration_replay(db, replay)
 
     result = await _db_call(load)
-    _project(result)
     return result
 
 
@@ -204,7 +204,10 @@ async def get_replay(
     return replay
 
 
-@router.get("/{replay_id}/export")
+@router.get(
+    "/{replay_id}/export",
+    openapi_extra=write_route_effects("artifact"),
+)
 @limiter.limit("10/minute")
 async def export_replay(
     request: Request,
@@ -263,6 +266,4 @@ async def list_replays(
         offset=(page - 1) * limit,
     )
     result.update({"page": page, "limit": limit})
-    for summary in result["replays"]:
-        _replay_store.set(summary["replay_id"], summary)
     return result

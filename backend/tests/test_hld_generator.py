@@ -578,8 +578,8 @@ class TestHldEndpoints:
         assert "hld" in data
         assert "markdown" in data
 
-    def test_get_hld_auto_generated(self, client, analyzed_diagram):
-        """GET without having generated an HLD should auto-generate it (status 200)"""
+    def test_get_hld_without_generation_is_read_only_404(self, client, analyzed_diagram):
+        """GET never auto-generates; callers must use the write-scoped POST."""
         resp = client.get(f"/api/diagrams/{analyzed_diagram}/hld")
-        assert resp.status_code == 200
-        assert "hld" in resp.json()
+        assert resp.status_code == 404
+        assert "Generate one first" in resp.json()["error"]["message"]

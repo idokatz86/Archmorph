@@ -237,6 +237,9 @@ def process_iac_chat(
             temperature=0.2,
             response_format={"type": "json_object"},
             bypass_cache=True,
+            cache_diagram_id=diagram_id,
+            cache_owner_user_id=(analysis_context or {}).get("_owner_user_id"),
+            cache_tenant_id=(analysis_context or {}).get("_tenant_id"),
         )
 
         raw_text = response.choices[0].message.content.strip()

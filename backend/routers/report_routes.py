@@ -27,6 +27,7 @@ from export_capabilities import (
     verify_export_capability,
 )
 from export_artifacts import persist_generated_export_async
+from route_effects import write_route_effects
 from starlette.concurrency import run_in_threadpool
 
 logger = logging.getLogger(__name__)
@@ -54,7 +55,11 @@ def _analysis_version_created_at(*, diagram_id: str, principal: dict):
         db.close()
 
 
-@router.get("/api/diagrams/{diagram_id}/report", dependencies=[Depends(require_diagram_access)])
+@router.get(
+    "/api/diagrams/{diagram_id}/report",
+    dependencies=[Depends(require_diagram_access)],
+    openapi_extra=write_route_effects("artifact", "capability", "telemetry"),
+)
 @limiter.limit("10/minute")
 async def download_analysis_report(
     request: Request,

@@ -1305,7 +1305,11 @@ def test_concurrent_usage_event_cannot_reappear_after_postgres_purge(
     monkeypatch.setattr(usage_metrics, "AZURE_STORAGE_ACCOUNT_URL", "")
     monkeypatch.setattr(usage_metrics, "AZURE_STORAGE_CONNECTION_STRING", "")
     original_metrics = usage_metrics._metrics
+    original_baseline = usage_metrics._metrics_baseline
+    original_blob_baseline = usage_metrics._blob_metrics_baseline
     usage_metrics._metrics = json.loads(json.dumps(usage_metrics._DEFAULT_METRICS))
+    usage_metrics._metrics_baseline = json.loads(json.dumps(usage_metrics._metrics))
+    usage_metrics._blob_metrics_baseline = json.loads(json.dumps(usage_metrics._metrics))
     original_fence = usage_metrics._subject_write_fence
     original_begin = purge_module.begin_diagram_purge
     fence_acquired = threading.Event()
@@ -1358,6 +1362,8 @@ def test_concurrent_usage_event_cannot_reappear_after_postgres_purge(
     finally:
         release_event.set()
         usage_metrics._metrics = original_metrics
+        usage_metrics._metrics_baseline = original_baseline
+        usage_metrics._blob_metrics_baseline = original_blob_baseline
 
 
 def test_restore_grant_cleanup_is_safe_during_concurrent_consumption(postgres_factory):

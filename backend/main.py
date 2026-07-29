@@ -161,7 +161,10 @@ configure_auto_instrumentation()
 from database import init_db  # noqa: E402
 from version import __version__  # noqa: E402
 from service_updater import start_scheduler, stop_scheduler  # noqa: E402
-from usage_metrics import apply_durable_purge_fences, flush_metrics  # noqa: E402
+from usage_metrics import (  # noqa: E402
+    apply_durable_purge_fences as apply_usage_purge_fences,
+    flush_metrics,
+)
 from restore_grant_cleanup import restore_grant_cleanup_lifecycle  # noqa: E402
 from analytics import track_request_latency  # noqa: E402
 from observability import (  # noqa: E402
@@ -330,7 +333,14 @@ async def lifespan(app: FastAPI):
             logger.warning("Icon auto-load skipped: %s", exc)
 
     await asyncio.gather(_init_database(), _init_icons())
-    await asyncio.to_thread(apply_durable_purge_fences)
+    from openai_client import apply_durable_purge_fences as apply_response_cache_fences
+    from versioning import apply_durable_purge_fences as apply_version_fences
+
+    await asyncio.gather(
+        asyncio.to_thread(apply_usage_purge_fences),
+        asyncio.to_thread(apply_response_cache_fences),
+        asyncio.to_thread(apply_version_fences),
+    )
 
     from session_store import session_store_readiness
 

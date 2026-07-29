@@ -9040,7 +9040,12 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Get Cost Assumptions"
+        "summary": "Get Cost Assumptions",
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "sql"
+        ]
       }
     },
     "/api/diagrams/{diagram_id}/cost-breakdown": {
@@ -9284,7 +9289,12 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Export Cost Csv"
+        "summary": "Export Cost Csv",
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability"
+        ]
       }
     },
     "/api/diagrams/{diagram_id}/cost-estimate/savings": {
@@ -10464,7 +10474,13 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Export Migration Timeline"
+        "summary": "Export Migration Timeline",
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability",
+          "telemetry"
+        ]
       }
     },
     "/api/diagrams/{diagram_id}/network-topology": {
@@ -10874,7 +10890,13 @@
             "HTTPBearer": []
           }
         ],
-        "summary": "Download Analysis Report"
+        "summary": "Download Analysis Report",
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability",
+          "telemetry"
+        ]
       }
     },
     "/api/diagrams/{diagram_id}/restore-session": {
@@ -14666,6 +14688,10 @@
         "summary": "Export Replay",
         "tags": [
           "Replay"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact"
         ]
       }
     },
@@ -20539,6 +20565,11 @@
         "summary": "Get Cost Assumptions V1",
         "tags": [
           "v1"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "sql"
         ]
       }
     },
@@ -20798,6 +20829,11 @@
         "summary": "Export Cost Csv V1",
         "tags": [
           "v1"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability"
         ]
       }
     },
@@ -22039,6 +22075,12 @@
         "summary": "Export Migration Timeline V1",
         "tags": [
           "v1"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability",
+          "telemetry"
         ]
       }
     },
@@ -22473,6 +22515,12 @@
         "summary": "Download Analysis Report V1",
         "tags": [
           "v1"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability",
+          "telemetry"
         ]
       }
     },
@@ -26408,6 +26456,10 @@
         "tags": [
           "Replay",
           "v1"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact"
         ]
       }
     },

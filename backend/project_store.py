@@ -261,8 +261,9 @@ def get_project(
     tenant_id: str,
     project_store: Any = None,
     allowed_roles: frozenset[str] = PROJECT_READ_ROLES,
+    refresh_cache: bool = False,
 ) -> Optional[Dict[str, Any]]:
-    """Load an authorized project from PostgreSQL and refresh cache projection."""
+    """Load an authorized project; cache refresh requires an explicit opt-in."""
     resolved = require_project_access(
         db,
         project_id=project_id,
@@ -303,12 +304,13 @@ def get_project(
             else "stale"
         ),
     }
-    _cache_project(
-        project_store,
-        result,
-        owner_user_id=project.owner_user_id,
-        tenant_id=tenant_id,
-    )
+    if refresh_cache:
+        _cache_project(
+            project_store,
+            result,
+            owner_user_id=project.owner_user_id,
+            tenant_id=tenant_id,
+        )
     return result
 
 

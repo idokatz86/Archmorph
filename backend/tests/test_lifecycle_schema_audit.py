@@ -94,8 +94,12 @@ def lifecycle_runtime(tmp_path, monkeypatch):
 @pytest.fixture()
 def isolated_usage_metrics(tmp_path, monkeypatch):
     original_metrics = usage_metrics._metrics
+    original_baseline = usage_metrics._metrics_baseline
+    original_blob_baseline = usage_metrics._blob_metrics_baseline
     original_file = usage_metrics.METRICS_FILE
     usage_metrics._metrics = json.loads(json.dumps(usage_metrics._DEFAULT_METRICS))
+    usage_metrics._metrics_baseline = copy.deepcopy(usage_metrics._metrics)
+    usage_metrics._blob_metrics_baseline = copy.deepcopy(usage_metrics._metrics)
     monkeypatch.setattr(usage_metrics, "METRICS_FILE", str(tmp_path / "usage.json"))
     monkeypatch.setattr(usage_metrics, "AZURE_STORAGE_ACCOUNT_URL", "")
     monkeypatch.setattr(usage_metrics, "AZURE_STORAGE_CONNECTION_STRING", "")
@@ -103,6 +107,8 @@ def isolated_usage_metrics(tmp_path, monkeypatch):
         yield
     finally:
         usage_metrics._metrics = original_metrics
+        usage_metrics._metrics_baseline = original_baseline
+        usage_metrics._blob_metrics_baseline = original_blob_baseline
         usage_metrics.METRICS_FILE = original_file
 
 

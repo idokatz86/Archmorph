@@ -70,6 +70,8 @@ def test_migration_contains_conflict_audit_and_uniqueness_guards():
     assert "diagram_lifecycle" in source
     assert "restore_grants" in source
     assert "purge_operations" in source
+    assert "ix_purge_operations_scope_lookup" in source
+    assert "ix_purge_operations_status_id" in source
     assert "_deduplicate_analyses" in source
     assert "_deduplicate_artifacts" in source
     assert "ux_analyses_owner_tenant_diagram" in source

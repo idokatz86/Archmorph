@@ -13,6 +13,7 @@ from typing import Optional
 import logging
 
 from database import SessionLocal
+from durable_purge_fence import PurgeFenceUnavailableError, PurgedScopeError
 from routers.shared import limiter, persist_diagram_mutation_async, require_diagram_access, verify_api_key
 from starlette.concurrency import run_in_threadpool
 from versioning import compare_versions, create_version, get_version
@@ -20,6 +21,13 @@ from versioning import compare_versions, create_version, get_version
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _transient_call(function, /, *args, **kwargs):
+    try:
+        return function(*args, **kwargs)
+    except (PurgeFenceUnavailableError, PurgedScopeError) as exc:
+        raise ArchmorphException(404, "Diagram not found") from exc
 
 
 def _durable_call(request: Request, diagram_id: str, function):
@@ -103,7 +111,7 @@ async def save_version(
             "label": version.label,
             "created_at": version.created_at.isoformat(),
         }
-    version = create_version(diagram_id, analysis, message=label)
+    version = _transient_call(create_version, diagram_id, analysis, message=label)
     return {
         "version": version.version_number,
         "version_number": version.version_number,
@@ -147,7 +155,7 @@ async def diff_versions(
         ),
     )
     if diff is None:
-        diff = compare_versions(diagram_id, v1, v2)
+        diff = _transient_call(compare_versions, diagram_id, v1, v2)
         diff["compatibility"] = "transient-anonymous-or-sample-version-store"
     if "error" in diff:
         raise ArchmorphException(404, "One or both versions not found")
@@ -210,10 +218,15 @@ async def branch_version(
             "created_at": branched.created_at.isoformat(),
             "branched_from": version,
         }
-    source = get_version(diagram_id, version)
+    source = _transient_call(get_version, diagram_id, version)
     if source is None:
         raise ArchmorphException(404, f"Version {version} not found for diagram {diagram_id}")
-    branched = create_version(diagram_id, source.snapshot, message=label or f"Branch from version {version}")
+    branched = _transient_call(
+        create_version,
+        diagram_id,
+        source.snapshot,
+        message=label or f"Branch from version {version}",
+    )
     return {
         "version": branched.version_number,
         "version_number": branched.version_number,
