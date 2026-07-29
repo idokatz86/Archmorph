@@ -26,7 +26,6 @@ from tenacity import (
     retry,
     stop_after_attempt,
     retry_if_exception,
-    before_sleep_log,
 )
 
 logger = logging.getLogger(__name__)
@@ -267,11 +266,24 @@ def openai_admission_slot():
         _openai_inflight.release()
 
 
+def _log_retry_metadata(retry_state) -> None:
+    """Log retry timing and exception class without SDK exception content."""
+    outcome = retry_state.outcome
+    exception = outcome.exception() if outcome is not None else None
+    next_action = retry_state.next_action
+    logger.warning(
+        "OpenAI retry scheduled attempt=%d wait_seconds=%.3f error_type=%s",
+        retry_state.attempt_number,
+        next_action.sleep if next_action is not None else 0.0,
+        type(exception).__name__ if exception is not None else "unknown",
+    )
+
+
 _retry_impl = retry(
     retry=retry_if_exception(_is_retryable_exception),
     stop=stop_after_attempt(3),
     wait=_retry_wait_seconds,
-    before_sleep=before_sleep_log(logger, logging.WARNING),
+    before_sleep=_log_retry_metadata,
     reraise=True,
 )
 

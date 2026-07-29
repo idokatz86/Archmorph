@@ -211,11 +211,10 @@ async def _ensure_hld(request: Request, session: dict, diagram_id: str) -> dict:
             label="hld-auto-generated",
         )
         session = updated_session
-        logger.info("Auto-generated HLD for session %s", str(diagram_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+        logger.info("Auto-generated HLD for session")
     except Exception as e:
         logger.warning(
-            "Auto-HLD generation failed diagram_id=%s error_type=%s",
-            str(diagram_id).replace('\n', '').replace('\r', ''),
+            "Auto-HLD generation failed error_type=%s",
             type(e).__name__,
         )
 
@@ -297,9 +296,12 @@ async def export_hld_endpoint(
                         diagram_b64 = base64.b64encode(content.encode()).decode()
                     elif isinstance(content, (bytes, bytearray)):
                         diagram_b64 = base64.b64encode(content).decode()
-                    logger.info("Auto-generated architecture diagram for customer export of %s", str(diagram_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+                    logger.info("Auto-generated architecture diagram for customer export")
             except Exception as e:
-                logger.warning("Failed to auto-generate architecture diagram: %s", str(e).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+                logger.warning(
+                    "Failed to auto-generate architecture diagram error_type=%s",
+                    type(e).__name__,
+                )
 
         if not diagram_b64:
             raise ArchmorphException(
@@ -327,7 +329,7 @@ async def export_hld_endpoint(
     except ValueError as e:
         raise ArchmorphException(400, str(e))
     except Exception as e:
-        logger.error("HLD export failed: %s", str(e).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+        logger.error("HLD export failed error_type=%s", type(e).__name__)
         raise ArchmorphException(500, "Export failed. Please try again or contact support.")
 
     export_bytes = base64.b64decode(result["content_b64"], validate=True)
@@ -701,7 +703,10 @@ async def export_migration_package(
                 docx_bytes = base64.b64decode(docx_export["content_b64"], validate=True)
                 zf.writestr("documents/high-level-design.docx", docx_bytes)
             except Exception as exc:
-                logger.warning("DOCX export failed in package: %s", str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+                logger.warning(
+                    "DOCX export failed in package error_type=%s",
+                    type(exc).__name__,
+                )
 
         # 6. README
         diagram_type = session.get('diagram_type', 'Architecture')

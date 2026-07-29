@@ -16,6 +16,7 @@ import hmac
 from collections import OrderedDict
 from functools import partial
 from typing import FrozenSet, Optional, List
+from urllib.parse import urlsplit
 
 from fastapi import Security, Request
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
@@ -36,11 +37,6 @@ from starlette.concurrency import run_in_threadpool
 # ─────────────────────────────────────────────────────────────
 # Rate Limiting
 # ─────────────────────────────────────────────────────────────
-_redis_url = os.getenv("REDIS_URL", "")
-_redis_host = os.getenv("REDIS_HOST", "")
-_configured_rate_limit_storage = os.getenv("RATE_LIMIT_STORAGE", "").strip()
-
-
 def _rate_limit_storage_uri() -> str:
     """Resolve a shared limiter backend without treating REDIS_HOST as local.
 
@@ -49,7 +45,20 @@ def _rate_limit_storage_uri() -> str:
     so that mode must provide an explicit shared ``RATE_LIMIT_STORAGE`` adapter
     URI rather than silently falling back to one process's memory.
     """
-    return _configured_rate_limit_storage or _redis_url or "memory://"
+    return (
+        os.getenv("RATE_LIMIT_STORAGE", "").strip()
+        or os.getenv("REDIS_URL", "").strip()
+        or "memory://"
+    )
+
+
+def _is_supported_shared_rate_limit_uri(storage_uri: str) -> bool:
+    """Return whether ``limits`` has a real Redis adapter target to use."""
+    try:
+        parsed = urlsplit(storage_uri)
+    except ValueError:
+        return False
+    return parsed.scheme.lower() in {"redis", "rediss"} and bool(parsed.hostname)
 
 
 _rate_limit_storage = _rate_limit_storage_uri()
@@ -130,35 +139,49 @@ def current_credential_context() -> Optional[CredentialContext]:
 
 def rate_limit_readiness() -> dict[str, object]:
     """Return whether rate limits are shared when horizontal scale is possible."""
-    from session_store import _declared_replica_count, _is_multi_worker
+    from session_store import _declared_replica_count, _env_int, _is_multi_worker
 
     enabled = os.getenv("RATE_LIMIT_ENABLED", "true").lower() != "false"
-    multi_replica = _declared_replica_count() > 1
-    multi_worker = _is_multi_worker()
-    storage_uri = (
-        os.getenv("RATE_LIMIT_STORAGE", "").strip()
-        or os.getenv("REDIS_URL", "").strip()
-        or "memory://"
+    environment = (
+        os.getenv("ENVIRONMENT") or os.getenv("ENV") or "development"
+    ).lower()
+    production_like = environment in {"production", "prod", "staging"}
+    declared_replica_count = _declared_replica_count()
+    declared_max_replica_count = max(
+        declared_replica_count,
+        _env_int("CONTAINER_APP_MAX_REPLICAS", 1),
+        _env_int("MAX_REPLICAS", 1),
     )
-    shared = storage_uri.startswith(("redis://", "rediss://"))
+    multi_replica = declared_replica_count > 1
+    autoscale_possible = declared_max_replica_count > 1
+    multi_worker = _is_multi_worker()
+    storage_uri = _rate_limit_storage_uri()
+    shared = _is_supported_shared_rate_limit_uri(storage_uri)
     redis_host = os.getenv("REDIS_HOST", "").strip()
-    configured_storage = os.getenv("RATE_LIMIT_STORAGE", "").strip()
-    entra_host_requires_adapter = bool(redis_host and not configured_storage)
-    shared_required = enabled and (multi_replica or multi_worker)
+    entra_host_requires_adapter = bool(enabled and redis_host and not shared)
+    shared_required = enabled and (
+        multi_replica
+        or multi_worker
+        or autoscale_possible
+        or (production_like and bool(redis_host))
+    )
     ready = not shared_required or shared
     return {
         "enabled": enabled,
+        "production_like": production_like,
         "storage": "shared" if shared else "local",
         "shared": shared,
         "shared_required": shared_required,
         "multi_worker": multi_worker,
-        "declared_replica_count": _declared_replica_count(),
+        "declared_replica_count": declared_replica_count,
+        "declared_max_replica_count": declared_max_replica_count,
         "multi_replica": multi_replica,
+        "autoscale_possible": autoscale_possible,
         "entra_host_requires_adapter": entra_host_requires_adapter,
         "ready": ready,
         "reason": (
             "RATE_LIMIT_STORAGE must use a shared Redis-compatible URI when "
-            "REDIS_HOST/Entra mode or horizontal production scale is enabled"
+            "REDIS_HOST/Entra mode, horizontal scale, or autoscale is enabled"
             if not ready
             else None
         ),
@@ -1215,7 +1238,10 @@ EXPORT_CAPABILITY_STORE = get_store("export_capabilities", maxsize=2000, ttl=720
 
 # Production guard: warn if in-memory stores are used in production (#494)
 _env = os.getenv("ENVIRONMENT", "development").lower()
-if _env in ("production", "prod", "staging") and not _redis_url:
+_session_redis_configured = bool(
+    os.getenv("REDIS_URL", "").strip() or os.getenv("REDIS_HOST", "").strip()
+)
+if _env in ("production", "prod", "staging") and not _session_redis_configured:
     logger.warning(
         "PRODUCTION WITHOUT REDIS: SESSION_STORE, IMAGE_STORE, SHARE_STORE use file-backed local storage. "
         "Data may be LOST on deploy/restart and will not scale across replicas. Set REDIS_URL or REDIS_HOST. (#494)"

@@ -253,7 +253,7 @@ class SubAgentOrchestrator:
 
         except asyncio.TimeoutError:
             duration_ms = int((time.perf_counter() - start) * 1000)
-            logger.warning("Step %s timed out after %dms", step.id, duration_ms)
+            logger.warning("Agent workflow step timed out duration_ms=%d", duration_ms)
             return StepResult(
                 step_id=step.id,
                 status=StepStatus.TIMED_OUT,
@@ -262,7 +262,11 @@ class SubAgentOrchestrator:
             )
         except Exception as exc:
             duration_ms = int((time.perf_counter() - start) * 1000)
-            logger.error("Step %s failed: %s", step.id, exc)
+            logger.error(
+                "Agent workflow step failed duration_ms=%d error_type=%s",
+                duration_ms,
+                type(exc).__name__,
+            )
             return StepResult(
                 step_id=step.id,
                 status=StepStatus.FAILED,
@@ -299,7 +303,10 @@ class SubAgentOrchestrator:
 
             if not ready:
                 # Deadlock — should not happen after topological sort
-                logger.error("Workflow deadlock detected: remaining=%s", remaining)
+                logger.error(
+                    "Workflow deadlock detected remaining_count=%d",
+                    len(remaining),
+                )
                 break
 
             # Cap concurrent fan-out

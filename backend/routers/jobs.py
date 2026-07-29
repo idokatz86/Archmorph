@@ -189,6 +189,6 @@ async def get_queue_metrics(request: Request):
         from openai_client import get_openai_error_metrics
         metrics["openai"] = {**openai_defaults, **get_openai_error_metrics(), "available": True}
     except Exception:
-        logger.debug("OpenAI metrics unavailable for jobs summary", exc_info=True)
+        logger.debug("OpenAI metrics unavailable for jobs summary")
         metrics["openai"] = openai_defaults
     return metrics

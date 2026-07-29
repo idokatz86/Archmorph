@@ -16,6 +16,7 @@ import threading
 
 from utils.chat_coercion import coerce_to_str_list
 
+from log_sanitizer import log_model_output_metadata
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, meter_openai_response, openai_retry
 from observability import increment_counter, record_histogram, set_gauge
 from prompt_guard import PROMPT_ARMOR
@@ -39,7 +40,7 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)))
     except ValueError:
-        logger.warning("Invalid %s=%r; using default %d", name, os.getenv(name), default)
+        logger.warning("Invalid integer setting %s; using default %d", name, default)
         return default
 
 
@@ -150,7 +151,10 @@ def compress_image(image_bytes: bytes, content_type: str = "image/png") -> Tuple
             image_bytes = _rasterize_pdf_to_png(image_bytes)
             content_type = "image/png"
         except ValueError as exc:
-            logger.error("PDF rasterization failed: %s", exc)
+            logger.error(
+                "PDF rasterization failed error_type=%s",
+                type(exc).__name__,
+            )
             raise
 
     try:
@@ -197,8 +201,11 @@ def compress_image(image_bytes: bytes, content_type: str = "image/png") -> Tuple
             logger.debug(f"Compressed image from {len(image_bytes)} to {len(compressed)} bytes.")
             return compressed, "image/jpeg", w, h
 
-    except Exception as e:
-        logger.warning(f"Image compression failed, using original bytes: {e}")
+    except Exception as exc:
+        logger.warning(
+            "Image compression failed; using original bytes error_type=%s",
+            type(exc).__name__,
+        )
         return image_bytes, content_type, 0, 0
 
 
@@ -431,8 +438,11 @@ def analyze_image(
         actor_kind="background" if owner_user_id and tenant_id else None,
     )
 
+    raw_content = ""
+    content = ""
     try:
-        content = response.choices[0].message.content.strip()
+        raw_content = response.choices[0].message.content.strip()
+        content = raw_content
         if content.startswith("```json"):
             content = content.replace("```json", "", 1)
         if content.startswith("```"):
@@ -450,18 +460,31 @@ def analyze_image(
         if isinstance(result, dict) and "warnings" in result:
             result["warnings"] = coerce_to_str_list(result.get("warnings", []))
 
+        log_model_output_metadata(
+            logger,
+            component="vision_analyzer",
+            model=model_name,
+            output=raw_content,
+            parse_status="parsed",
+        )
+
         with _vision_cache_lock:
             _vision_cache[cache_key] = result
             _record_vision_cache_reference(diagram_id, cache_key)
             
         return result
-    except Exception as e:
-        logger.error(
-            "Vision response parse failed error_type=%s response_length=%d response_sha256=%s",
-            type(e).__name__,
-            len(content),
-            hashlib.sha256(content.encode("utf-8")).hexdigest()[:12],
+    except Exception as exc:
+        log_model_output_metadata(
+            logger,
+            component="vision_analyzer",
+            model=model_name,
+            output=raw_content,
+            parse_status=(
+                "invalid_json" if isinstance(exc, json.JSONDecodeError) else "failed"
+            ),
+            exception=exc,
+            level=logging.ERROR,
         )
-        raise RuntimeError("GPT-4o vision did not return a valid JSON schema.") from e
+        raise RuntimeError("GPT-4o vision did not return a valid JSON schema.") from exc
     finally:
         _record_vision_latency(start_time, False, model_name, prompt_hash)

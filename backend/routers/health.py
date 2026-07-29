@@ -101,8 +101,9 @@ async def _catalog_health() -> tuple[dict, dict]:
         return _catalog_health_from_state(prefer_blob=False)
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "Failed to load service catalog health from blob; falling back to disk: %s",
-            exc,
+            "Failed to load service catalog health from blob error_type=%s; "
+            "falling back to disk",
+            type(exc).__name__,
         )
         return _catalog_health_from_state(prefer_blob=False)
 
@@ -183,9 +184,8 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
                 checks["storage"] = "ok"
             except Exception as exc:
                 logger.warning(
-                    "Storage health probe unreachable: %s: %s",
+                    "Storage health probe unreachable error_type=%s",
                     type(exc).__name__,
-                    exc,
                 )
                 checks["storage"] = "unreachable"
                 degraded = True

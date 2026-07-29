@@ -622,11 +622,25 @@ class JobManager:
             if not self._events_store.set(job.job_id, self._event_ring_scope(job)):
                 logger.warning("Initial event state unavailable for accepted job %s; it will be created lazily", job.job_id)
             self._notify_submission_listeners()
-            logger.info("Job submitted: %s (type=%s, diagram=%s)", job.job_id, job_type, diagram_id)
+            diagram_sha256 = (
+                hashlib.sha256(str(diagram_id).encode("utf-8")).hexdigest()[:12]
+                if diagram_id is not None
+                else "none"
+            )
+            logger.info(
+                "Job submitted: %s type=%s diagram_sha256=%s",
+                job.job_id,
+                job_type,
+                diagram_sha256,
+            )
             return job
-        except Exception:
+        except Exception as exc:
             if job_persisted:
-                logger.exception("Accepted job persistence completed before a later submission error")
+                logger.error(
+                    "Accepted job persisted before later submission failure "
+                    "error_type=%s",
+                    type(exc).__name__,
+                )
                 return job
             if idempotency_key:
                 self._release_idempotency(idempotency_key, job.job_id)
@@ -648,7 +662,7 @@ class JobManager:
             try:
                 listener()
             except Exception:
-                logger.debug("Durable worker submission notification failed", exc_info=True)
+                logger.debug("Durable worker submission notification failed")
 
     def _reserve_idempotency(self, input_hash: str, job_id: str) -> Optional[Job]:
         """Atomically reserve an input hash, returning an existing reusable job."""
@@ -1143,9 +1157,16 @@ class JobManager:
         job = self.get(job_id)
         if not job or job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
             return
+        error_length = len(error)
+        error_sha256 = hashlib.sha256(error.encode("utf-8")).hexdigest()
         if job.durable:
             if self._owned_terminal_transition(job_id, JobStatus.FAILED, error=error):
-                logger.error("Job failed: %s — %s", job_id, error)
+                logger.error(
+                    "Job failed: %s error_length=%d error_sha256=%s",
+                    job_id,
+                    error_length,
+                    error_sha256,
+                )
             return
         job.status = JobStatus.FAILED
         self._release_active_counters(job)
@@ -1155,7 +1176,12 @@ class JobManager:
         job.updated_at = job.completed_at
         self._jobs_store.set(job.job_id, job.to_storage_dict())
         self._emit(job, "error", {"error": error})
-        logger.error("Job failed: %s — %s", job_id, error)
+        logger.error(
+            "Job failed: %s error_length=%d error_sha256=%s",
+            job_id,
+            error_length,
+            error_sha256,
+        )
 
     def cancel(self, job_id: str) -> bool:
         """Cancel a job. Returns True if cancelled, False if already done."""
@@ -1899,7 +1925,6 @@ class DurableJobWorker:
                 "Durable job execution failed (job_type=%s, error_type=%s)",
                 job.job_type,
                 type(exc).__name__,
-                exc_info=True,
             )
             with self.manager.lease_context(lease_token):
                 self.manager.fail(job_id, "Durable job execution failed")

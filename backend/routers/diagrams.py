@@ -78,6 +78,11 @@ UPLOAD_CHUNK_SIZE_BYTES = 1024 * 1024
 VISIO_EXTENSION = ".vsdx"
 
 
+def _diagram_log_ref(diagram_id: object) -> str:
+    """Return a non-reversible diagram reference for operational logs."""
+    return hashlib.sha256(str(diagram_id).encode("utf-8")).hexdigest()[:12]
+
+
 def _enrich_with_sku(result: dict) -> dict:
     """Enrich analysis mappings with SKU-level instance type translations.
 
@@ -117,7 +122,7 @@ def _enrich_with_provenance(result: dict) -> dict:
         try:
             m["confidence_provenance"] = build_provenance(m)
         except Exception:
-            logger.debug("Provenance enrichment skipped for mapping: %s", m.get("source_service"))
+            logger.debug("Provenance enrichment skipped for mapping")
     return result
 
 
@@ -147,8 +152,8 @@ def _enrich_with_architecture_issues(result: dict) -> dict:
         result["architecture_issues_summary"] = summary
     except Exception as exc:
         logger.warning(
-            "architecture_rules evaluation failed: %s",
-            str(exc).replace("\n", " ").replace("\r", " "),
+            "architecture_rules evaluation failed error_type=%s",
+            type(exc).__name__,
         )
         result.setdefault("architecture_issues", [])
         result.setdefault(
@@ -537,7 +542,11 @@ async def upload_diagram(
         namespace_claim["_owner_api_key_id"] = upload_api_key_id
         namespace_claim["_tenant_id"] = f"service:{upload_api_key_id.split(':', 1)[-1]}"
     SESSION_STORE.set(diagram_id, namespace_claim)
-    logger.info("Stored image for %s (%s bytes, %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''), str(file.content_type).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+    logger.info(
+        "Stored image diagram_sha256=%s image_bytes=%d",
+        _diagram_log_ref(diagram_id),
+        len(image_bytes),
+    )
 
     # Proactive capacity warning (#177)
     img_usage = len(IMAGE_STORE) / IMAGE_STORE.maxsize
@@ -751,7 +760,11 @@ async def restore_session(
             restored_content_type,
         )
         restored_parts.append("image")
-    logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+    logger.info(
+        "Session restored via client cache diagram_sha256=%s parts_count=%d",
+        _diagram_log_ref(diagram_id),
+        len(restored_parts),
+    )
     record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
     next_restore_capability = issue_restore_capability(
         request,
@@ -917,7 +930,11 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     image_b64, content_type = IMAGE_STORE[diagram_id]
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
-    logger.info("Analyzing diagram %s (%s bytes)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+    logger.info(
+        "Analyzing diagram diagram_sha256=%s image_bytes=%d",
+        _diagram_log_ref(diagram_id),
+        len(image_bytes),
+    )
 
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
@@ -977,8 +994,8 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             return await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
         except Exception as exc:
             logger.warning(
-                "Image classification failed diagram_id=%s error_type=%s; proceeding",
-                str(diagram_id).replace('\n', '').replace('\r', ''),
+                "Image classification failed diagram_sha256=%s error_type=%s; proceeding",
+                _diagram_log_ref(diagram_id),
                 type(exc).__name__,
             )
             return {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown", "reason": "Classification unavailable"}
@@ -1000,8 +1017,14 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     )
 
     if not classification["is_architecture_diagram"]:
-        logger.info("Image rejected for %s: %s (confidence: %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(classification["reason"]).replace('\n', '').replace('\r', ''), str(classification["confidence"]).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
-        record_event("images_rejected", {"diagram_id": diagram_id, "image_type": classification["image_type"], "reason": classification["reason"]})
+        logger.info(
+            "Image rejected diagram_sha256=%s",
+            _diagram_log_ref(diagram_id),
+        )
+        record_event(
+            "images_rejected",
+            {"diagram_id": diagram_id},
+        )
         raise ArchmorphException(
             status_code=422,
             detail={
@@ -1011,10 +1034,17 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             },
         )
 
-    logger.info("Image classified as architecture diagram for %s (confidence: %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(classification["confidence"]).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+    logger.info(
+        "Image classified as architecture diagram diagram_sha256=%s",
+        _diagram_log_ref(diagram_id),
+    )
 
     if isinstance(analysis_result_or_exc, Exception):
-        logger.error("Vision analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(analysis_result_or_exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
+        logger.error(
+            "Vision analysis failed diagram_sha256=%s error_type=%s",
+            _diagram_log_ref(diagram_id),
+            type(analysis_result_or_exc).__name__,
+        )
         _raise_analysis_service_failure(analysis_result_or_exc)
 
     result = await asyncio.to_thread(_normalize_analysis, analysis_result_or_exc)
@@ -1179,8 +1209,8 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
             classification = await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
         except Exception as exc:
             logger.warning(
-                "Classification failed diagram_id=%s error_type=%s",
-                str(diagram_id).replace('\n', '').replace('\r', ''),
+                "Classification failed diagram_sha256=%s error_type=%s",
+                _diagram_log_ref(diagram_id),
                 type(exc).__name__,
             )
             classification = {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown"}
@@ -1304,5 +1334,9 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         ))
 
     except Exception as exc:
-        logger.error("Async analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
+        logger.error(
+            "Async analysis failed diagram_sha256=%s error_type=%s",
+            _diagram_log_ref(diagram_id),
+            type(exc).__name__,
+        )
         job_manager.fail(job_id, str(exc))

@@ -179,8 +179,8 @@ def trace_span(name: str, attributes: Optional[Dict[str, str]] = None):
     span = SpanContext(name, attributes, _otel_span=otel_span)
     try:
         yield span
-    except Exception as e:
-        span.set_status("ERROR", str(e))
+    except Exception as exc:
+        span.set_status("ERROR", type(exc).__name__)
         raise
     finally:
         span.end()
@@ -202,8 +202,8 @@ def traced(name: Optional[str] = None):
                 try:
                     result = await func(*args, **kwargs)
                     return result
-                except Exception as e:
-                    span.set_status("ERROR", str(e))
+                except Exception as exc:
+                    span.set_status("ERROR", type(exc).__name__)
                     raise
 
         @wraps(func)
@@ -212,8 +212,8 @@ def traced(name: Optional[str] = None):
                 try:
                     result = func(*args, **kwargs)
                     return result
-                except Exception as e:
-                    span.set_status("ERROR", str(e))
+                except Exception as exc:
+                    span.set_status("ERROR", type(exc).__name__)
                     raise
 
         if asyncio_iscoroutinefunction(func):

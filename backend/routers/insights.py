@@ -35,6 +35,7 @@ from services.azure_pricing import estimate_services_cost
 from terraform_preview import preview_terraform_plan
 from utils.chat_coercion import coerce_to_str_list
 from iac_generator import generate_iac_code
+from log_sanitizer import log_model_output_metadata
 from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
 from export_artifacts import persist_generated_export_async
 
@@ -207,7 +208,7 @@ async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify
                 "azure_doc_link": opt.get("azure_doc_link", ""),
             })
     except Exception:
-        logger.warning("Cost optimization analysis failed for %s", str(diagram_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+        logger.warning("Cost optimization analysis failed")
 
     # Source vs target comparison (rough estimate: source typically 10-20% more)
     total_mid = (total_low + total_high) / 2
@@ -371,10 +372,13 @@ Zones: {zones_ctx}
 Total services: {len(mappings)}
 Diagram type: {analysis.get('diagram_type', 'unknown')}"""
 
+    raw = ""
+    model_name = "unconfigured"
     try:
         from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT
         import json as _json
         client = get_openai_client()
+        model_name = AZURE_OPENAI_DEPLOYMENT
 
         response = await asyncio.to_thread(
             lambda: client.chat.completions.create(
@@ -388,8 +392,15 @@ Diagram type: {analysis.get('diagram_type', 'unknown')}"""
                 response_format={"type": "json_object"},
             )
         )
-        raw = response.choices[0].message.content or "{}"
-        result = _json.loads(raw)
+        raw = response.choices[0].message.content or ""
+        result = _json.loads(raw or "{}")
+        log_model_output_metadata(
+            logger,
+            component="migration_chat",
+            model=model_name,
+            output=raw,
+            parse_status="parsed",
+        )
         return {
             "reply": result.get("reply", "I couldn't generate a response. Please try rephrasing."),
             # Coerce to strings — GPT JSON mode occasionally returns objects
@@ -399,7 +410,17 @@ Diagram type: {analysis.get('diagram_type', 'unknown')}"""
             "related_services": coerce_to_str_list(result.get("related_services", [])),
         }
     except Exception as exc:
-        logger.error("Migration chat failed error_type=%s", type(exc).__name__)
+        log_model_output_metadata(
+            logger,
+            component="migration_chat",
+            model=model_name,
+            output=raw,
+            parse_status=(
+                "invalid_json" if isinstance(exc, json.JSONDecodeError) else "failed"
+            ),
+            exception=exc,
+            level=logging.ERROR,
+        )
         return {
             "reply": "Sorry, I couldn't process your question right now. Please try again.",
             "related_services": [],

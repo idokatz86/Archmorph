@@ -285,8 +285,7 @@ async def generate_iac(
         )
     except Exception as exc:
         logger.error(
-            "IaC generation failed diagram_id=%s error_type=%s",
-            str(diagram_id).replace('\n', '').replace('\r', ''),
+            "IaC generation failed error_type=%s",
             type(exc).__name__,
         )
         raise ArchmorphException(500, "IaC generation failed. Please try again.")
@@ -734,9 +733,8 @@ async def generate_iac_scaffold(
         )
     except Exception as exc:
         logger.error(
-            "IaC scaffold generation failed for %s: %s",
-            str(diagram_id).replace('\n', '').replace('\r', ''),
-            str(exc).replace('\n', '').replace('\r', ''),
+            "IaC scaffold generation failed error_type=%s",
+            type(exc).__name__,
         )
         raise ArchmorphException(500, "IaC scaffold generation failed. Please try again.")
 
