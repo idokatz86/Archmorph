@@ -24,6 +24,7 @@ from routers.shared import (
     authorize_diagram_access_async,
     limiter,
     persist_diagram_mutation_async,
+    require_api_write_or_user_session,
     require_diagram_access,
     verify_api_key,
 )
@@ -36,7 +37,11 @@ from terraform_preview import preview_terraform_plan
 from utils.chat_coercion import coerce_to_str_list
 from iac_generator import generate_iac_code
 from log_sanitizer import log_model_output_metadata
-from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
+from export_capabilities import (
+    consume_export_capability,
+    issue_export_capability_for_request,
+    verify_export_capability,
+)
 from export_artifacts import persist_generated_export_async
 
 logger = logging.getLogger(__name__)
@@ -699,7 +704,7 @@ async def get_ri_savings(request: Request, diagram_id: str, _auth=Depends(verify
 async def export_cost_csv(
     request: Request,
     diagram_id: str,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Export cost breakdown as CSV with overrides applied."""
@@ -757,12 +762,23 @@ async def export_cost_csv(
         media_type="text/csv",
         headers={
             "Content-Disposition": f"attachment; filename=cost-estimate-{diagram_id}.csv",
-            "X-Artifact-SHA256": hashlib.sha256(csv_content.encode("utf-8")).hexdigest(),
-            **({
-                "X-Artifact-ID": artifact.id,
-                "X-Analysis-Version-ID": artifact.version_id,
-            } if artifact is not None else {}),
+            "X-Artifact-SHA256": hashlib.sha256(
+                csv_content.encode("utf-8")
+            ).hexdigest(),
+            **(
+                {
+                    "X-Artifact-ID": artifact.id,
+                    "X-Analysis-Version-ID": artifact.version_id,
+                }
+                if artifact is not None
+                else {}
+            ),
         },
     )
-    response.headers["X-Export-Capability-Next"] = issue_export_capability(diagram_id)
+    response.headers[
+        "X-Export-Capability-Next"
+    ] = await issue_export_capability_for_request(
+        request,
+        diagram_id,
+    )
     return response

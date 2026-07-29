@@ -428,42 +428,54 @@ async def verify_api_key_or_user_session(
     api_key: Optional[str] = Security(API_KEY_HEADER),
     credentials: Optional[HTTPAuthorizationCredentials] = Security(USER_BEARER),
 ) -> CredentialContext:
-    """Allow either the service API key or a signed-in user bearer session."""
+    """Allow a canonical user bearer session or a service API key.
+
+    Browser-owned routes intentionally prefer a valid bearer session when both
+    credential types are present.  This prevents a configured static key (for
+    example one injected by an edge or test harness) from replacing the human
+    principal used for durable ownership checks.
+    """
+    from auth import get_user_from_request_headers
+
+    user = get_user_from_request_headers(dict(request.headers))
+    if credentials is not None and credentials.scheme.lower() == "bearer" and user:
+        owner_user_id = (
+            user.provider_subject
+            if user.provider.value == "azure_ad_b2c" and user.provider_subject
+            else user.id
+        )
+        context = CredentialContext(
+            kind=CredentialKind.BEARER,
+            principal_id=f"user:{owner_user_id}",
+            key_id=None,
+            scopes=frozenset({"read", "write"}),
+            rate_limit=None,
+            tenant_id=user.tenant_id,
+            owner_user_id=owner_user_id,
+        )
+        return set_request_credential_context(request, context)
+
     existing = getattr(request.state, "credential_context", None)
     if existing is not None:
         return existing
+
     try:
         return await verify_api_key(api_key, request=request)
     except ArchmorphException as exc:
         if exc.status_code != 401:
             raise
-
-        from auth import get_user_from_request_headers
-
-        user = get_user_from_request_headers(dict(request.headers))
-        if credentials is not None and credentials.scheme.lower() == "bearer" and user:
-            owner_user_id = (
-                user.provider_subject
-                if user.provider.value == "azure_ad_b2c" and user.provider_subject
-                else user.id
-            )
-            context = CredentialContext(
-                kind=CredentialKind.BEARER,
-                principal_id=f"user:{owner_user_id}",
-                key_id=None,
-                scopes=frozenset({"read", "write"}),
-                rate_limit=None,
-                tenant_id=user.tenant_id,
-                owner_user_id=owner_user_id,
-            )
-            return set_request_credential_context(request, context)
-        raise ArchmorphException(status_code=401, detail="Invalid or missing API key or user session") from exc
+        raise ArchmorphException(
+            status_code=401,
+            detail="Invalid or missing API key or user session",
+        ) from exc
 
 
 async def require_api_read_or_user_session(
     context: CredentialContext = Security(verify_api_key_or_user_session),
 ) -> CredentialContext:
     """Require read scope for API keys or accept a signed-in user."""
+    if not context.has_scope("read"):
+        raise ArchmorphException(403, "API key scope 'read' is required")
     return context
 
 
@@ -471,7 +483,38 @@ async def require_api_write_or_user_session(
     context: CredentialContext = Security(verify_api_key_or_user_session),
 ) -> CredentialContext:
     """Require write scope for API keys or accept a signed-in user."""
+    if not context.has_scope("write"):
+        raise ArchmorphException(403, "API key scope 'write' is required")
     return context
+
+
+def optional_api_or_user_scope(scope: str):
+    """Accept capability-only requests or validate any presented credential."""
+    if scope not in {"read", "write"}:
+        raise ValueError("Unsupported optional credential scope")
+
+    async def dependency(
+        request: Request,
+        api_key: Optional[str] = Security(API_KEY_HEADER),
+        credentials: Optional[HTTPAuthorizationCredentials] = Security(USER_BEARER),
+    ) -> Optional[CredentialContext]:
+        if not api_key and credentials is None:
+            return None
+        context = await verify_api_key_or_user_session(
+            request,
+            api_key=api_key,
+            credentials=credentials,
+        )
+        if not context.has_scope(scope):
+            raise ArchmorphException(403, f"API key scope '{scope}' is required")
+        return context
+
+    dependency.__name__ = f"optional_api_or_user_{scope}"
+    return dependency
+
+
+optional_api_read_or_user_session = optional_api_or_user_scope("read")
+optional_api_write_or_user_session = optional_api_or_user_scope("write")
 
 
 def get_api_key_service_principal(headers: dict) -> Optional[str]:
@@ -777,7 +820,10 @@ def authorize_diagram_access(
     required_effect_scope = route_effect_scope(request.method, path_template)
     if required_effect_scope:
         context = getattr(request.state, "credential_context", None)
-        if context is None and request.headers.get("x-api-key"):
+        bearer_user = get_user_from_request_headers(dict(request.headers))
+        if bearer_user is not None:
+            context = None
+        elif context is None and request.headers.get("x-api-key"):
             context = _authenticate_api_key(
                 request.headers.get("x-api-key"),
                 required=False,

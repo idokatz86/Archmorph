@@ -8,9 +8,11 @@ import os
 import secrets
 import time
 from dataclasses import dataclass
+from functools import partial
 from typing import Optional
 
-from fastapi import Header, Query, Request
+from fastapi import Header, Request
+from starlette.concurrency import run_in_threadpool
 
 from error_envelope import ArchmorphException
 from routers.shared import EXPORT_CAPABILITY_STORE
@@ -19,8 +21,30 @@ logger = logging.getLogger(__name__)
 
 EXPORT_CAPABILITY_HEADER = "X-Export-Capability"
 EXPORT_CAPABILITY_SCOPE = "artifact:export"
+EXPORT_CAPABILITY_ANY_FORMAT = "*"
+EXPORT_CAPABILITY_ANY_INTENT = EXPORT_CAPABILITY_SCOPE
 RESTORE_CAPABILITY_SCOPE = "session:restore"
 DEFAULT_EXPORT_CAPABILITY_TTL_SECONDS = 15 * 60
+
+_EXPORT_ROUTE_CONTRACTS = frozenset(
+    {
+        ("architecture_diagram", "excalidraw"),
+        ("architecture_diagram", "drawio"),
+        ("architecture_diagram", "vsdx"),
+        ("architecture_diagram", "landing-zone-svg"),
+        ("architecture_package", "html"),
+        ("architecture_package", "svg"),
+        ("hld", "docx"),
+        ("hld", "pdf"),
+        ("hld", "pptx"),
+        ("migration_package", "zip"),
+        ("analysis_report", "pdf"),
+        ("cost_estimate", "csv"),
+        ("migration_timeline", "json"),
+        ("migration_timeline", "md"),
+        ("migration_timeline", "csv"),
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -34,6 +58,29 @@ class ExportCapability:
     record: dict
 
 
+@dataclass(frozen=True)
+class ExportCapabilityBinding:
+    """Secret-free canonical scope attached to a private export capability."""
+
+    principal_marker: str
+    owner_user_id: str
+    tenant_id: str
+    analysis_id: str
+    project_id: str
+    analysis_version: int
+
+    def to_record(self) -> dict:
+        return {
+            "binding_version": 1,
+            "principal_marker": self.principal_marker,
+            "owner_user_id": self.owner_user_id,
+            "tenant_id": self.tenant_id,
+            "analysis_id": self.analysis_id,
+            "project_id": self.project_id,
+            "analysis_version": self.analysis_version,
+        }
+
+
 def _principal_marker(request: Request) -> Optional[str]:
     from routers.shared import get_request_durable_principal
 
@@ -42,6 +89,168 @@ def _principal_marker(request: Request) -> Optional[str]:
         return None
     actor_kind = "api" if principal.get("owner_api_key_id") else "user"
     return f"{actor_kind}:{principal['tenant_id']}:{principal['owner_user_id']}"
+
+
+def _principal_marker_from_identity(
+    *,
+    owner_user_id: str,
+    tenant_id: str,
+    owner_api_key_id: Optional[str],
+) -> str:
+    actor_kind = "api" if owner_api_key_id else "user"
+    return f"{actor_kind}:{tenant_id}:{owner_user_id}"
+
+
+def _normalize_route_path(path: str) -> str:
+    if path.startswith("/api/v1/"):
+        return "/api/" + path[len("/api/v1/") :]
+    return path
+
+
+def _request_export_contract(request: Request) -> tuple[str, str]:
+    """Return the bounded export intent/format represented by a route call."""
+    route = request.scope.get("route")
+    path = _normalize_route_path(getattr(route, "path", request.url.path))
+    query = request.query_params
+    if path.endswith("/export-diagram"):
+        return "architecture_diagram", query.get("format", "excalidraw").lower()
+    if path.endswith("/export-architecture-package"):
+        return "architecture_package", query.get("format", "html").lower()
+    if path.endswith("/export-hld"):
+        return "hld", query.get("format", "").lower()
+    if path.endswith("/export-package"):
+        return "migration_package", "zip"
+    if path.endswith("/report"):
+        return "analysis_report", query.get("format", "pdf").lower()
+    if path.endswith("/cost-estimate/export"):
+        return "cost_estimate", "csv"
+    if path.endswith("/migration-timeline/export"):
+        return "migration_timeline", query.get("format", "json").lower()
+    return EXPORT_CAPABILITY_ANY_INTENT, EXPORT_CAPABILITY_ANY_FORMAT
+
+
+def _resolve_durable_binding_for_identity(
+    diagram_id: str,
+    *,
+    caller_owner_user_id: str,
+    tenant_id: str,
+    owner_api_key_id: Optional[str],
+) -> Optional[ExportCapabilityBinding]:
+    """Resolve one exact active analysis/project scope from PostgreSQL authority."""
+    from database import SessionLocal
+    from models.workspace import Analysis, Workspace
+    from project_store import PROJECT_READ_ROLES, resolve_diagram_access
+
+    db = SessionLocal()
+    try:
+        if owner_api_key_id:
+            row = (
+                db.query(Analysis, Workspace)
+                .join(
+                    Workspace,
+                    Workspace.id == Analysis.workspace_id,
+                )
+                .filter(
+                    Analysis.diagram_id == diagram_id,
+                    Analysis.owner_user_id == caller_owner_user_id,
+                    Analysis.tenant_id == tenant_id,
+                    Workspace.owner_user_id == caller_owner_user_id,
+                    Workspace.tenant_id == tenant_id,
+                    Workspace.status == "active",
+                )
+                .first()
+            )
+            if row is None:
+                return None
+            analysis, project = row
+        else:
+            resolved = resolve_diagram_access(
+                db,
+                diagram_id,
+                caller_user_id=caller_owner_user_id,
+                tenant_id=tenant_id,
+                allowed_roles=PROJECT_READ_ROLES,
+            )
+            if resolved is None:
+                return None
+            analysis, project, _role = resolved
+        return ExportCapabilityBinding(
+            principal_marker=_principal_marker_from_identity(
+                owner_user_id=caller_owner_user_id,
+                tenant_id=tenant_id,
+                owner_api_key_id=owner_api_key_id,
+            ),
+            owner_user_id=project.owner_user_id,
+            tenant_id=tenant_id,
+            analysis_id=analysis.id,
+            project_id=project.id,
+            analysis_version=int(analysis.current_version or 0),
+        )
+    finally:
+        db.close()
+
+
+def _is_public_export_session(diagram_id: str) -> bool:
+    from routers.shared import SESSION_STORE
+
+    session = SESSION_STORE.peek(diagram_id)
+    return bool(
+        isinstance(session, dict)
+        and (
+            diagram_id.startswith("sample-")
+            or session.get("is_sample")
+            or session.get("is_template")
+        )
+    )
+
+
+async def export_capability_binding_for_request(
+    request: Request,
+    diagram_id: str,
+) -> Optional[ExportCapabilityBinding]:
+    """Resolve a request's canonical caller plus exact durable export scope."""
+    from routers.shared import get_request_durable_principal
+
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal.get("tenant_id"):
+        return None
+    return await run_in_threadpool(
+        partial(
+            _resolve_durable_binding_for_identity,
+            diagram_id,
+            caller_owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+            owner_api_key_id=principal.get("owner_api_key_id"),
+        )
+    )
+
+
+def issue_export_capability_for_identity(
+    diagram_id: str,
+    *,
+    caller_owner_user_id: str,
+    tenant_id: str,
+    owner_api_key_id: Optional[str] = None,
+    ttl_seconds: Optional[int] = None,
+    issued_intent: str = EXPORT_CAPABILITY_ANY_INTENT,
+    issued_format: str = EXPORT_CAPABILITY_ANY_FORMAT,
+) -> str:
+    """Issue for a trusted canonical identity after durable authorization."""
+    binding = _resolve_durable_binding_for_identity(
+        diagram_id,
+        caller_owner_user_id=caller_owner_user_id,
+        tenant_id=tenant_id,
+        owner_api_key_id=owner_api_key_id,
+    )
+    if binding is None:
+        raise ArchmorphException(404, "Diagram not found")
+    return issue_export_capability(
+        diagram_id,
+        ttl_seconds=ttl_seconds,
+        binding=binding,
+        issued_intent=issued_intent,
+        issued_format=issued_format,
+    )
 
 
 def _ttl_seconds() -> int:
@@ -95,31 +304,194 @@ def issue_export_capability(
     *,
     ttl_seconds: Optional[int] = None,
     principal_marker: Optional[str] = None,
+    binding: Optional[ExportCapabilityBinding] = None,
     scope: str = EXPORT_CAPABILITY_SCOPE,
+    issued_intent: str = EXPORT_CAPABILITY_ANY_INTENT,
+    issued_format: str = EXPORT_CAPABILITY_ANY_FORMAT,
 ) -> str:
     """Issue an opaque, URL-safe, single-use export capability for a diagram."""
     ttl = ttl_seconds or _ttl_seconds()
     token = secrets.token_urlsafe(32)
     token_digest = _digest(token)
     expires_at = time.time() + ttl
-    EXPORT_CAPABILITY_STORE.set(
+    record = {
+        "diagram_id": diagram_id,
+        "scope": scope,
+        "binding_version": 0,
+        "principal_marker": principal_marker,
+        "intent": issued_intent,
+        "format": issued_format,
+        "issued_intent": issued_intent,
+        "issued_format": issued_format,
+        "authorized_contracts": [
+            {"intent": intent, "format": format_name}
+            for intent, format_name in sorted(_EXPORT_ROUTE_CONTRACTS)
+        ],
+        "expires_at": expires_at,
+        "issued_at": time.time(),
+    }
+    if binding is not None:
+        if principal_marker and not secrets.compare_digest(
+            principal_marker,
+            binding.principal_marker,
+        ):
+            raise ValueError("Export capability principal binding mismatch")
+        record.update(binding.to_record())
+    stored = EXPORT_CAPABILITY_STORE.set(
         token_digest,
-        {
-            "diagram_id": diagram_id,
-            "scope": scope,
-            "principal_marker": principal_marker,
-            "expires_at": expires_at,
-            "issued_at": time.time(),
-        },
+        record,
         ttl=ttl,
     )
+    if not stored:
+        _audit("issue_store_failed", diagram_id, token_digest)
+        raise ArchmorphException(
+            503,
+            "Export capability issuance is temporarily unavailable",
+        )
     _audit("issued", diagram_id, token_digest)
     return token
 
 
-def attach_export_capability(payload, diagram_id: str, *, principal_marker: Optional[str] = None):
+def attach_export_capability(
+    payload,
+    diagram_id: str,
+    *,
+    principal_marker: Optional[str] = None,
+    binding: Optional[ExportCapabilityBinding] = None,
+    issued_intent: str = EXPORT_CAPABILITY_ANY_INTENT,
+    issued_format: str = EXPORT_CAPABILITY_ANY_FORMAT,
+):
     """Return *payload* with a freshly issued ``export_capability`` field."""
-    token = issue_export_capability(diagram_id, principal_marker=principal_marker)
+    token = issue_export_capability(
+        diagram_id,
+        principal_marker=principal_marker,
+        binding=binding,
+        issued_intent=issued_intent,
+        issued_format=issued_format,
+    )
+    if isinstance(payload, dict):
+        return {
+            **payload,
+            "export_capability": token,
+            "export_capability_expires_in": _ttl_seconds(),
+        }
+    return payload
+
+
+async def issue_export_capability_for_request(
+    request: Request,
+    diagram_id: str,
+    *,
+    ttl_seconds: Optional[int] = None,
+    issued_intent: Optional[str] = None,
+    issued_format: Optional[str] = None,
+) -> str:
+    """Issue a capability bound to the request caller and durable diagram."""
+    binding = await export_capability_binding_for_request(request, diagram_id)
+    if (
+        binding is None
+        and export_capability_required()
+        and not _is_public_export_session(diagram_id)
+    ):
+        raise ArchmorphException(404, "Diagram not found")
+    route_intent, route_format = _request_export_contract(request)
+    return issue_export_capability(
+        diagram_id,
+        ttl_seconds=ttl_seconds,
+        binding=binding,
+        principal_marker=_principal_marker(request) if binding is None else None,
+        issued_intent=issued_intent or route_intent,
+        issued_format=issued_format or route_format,
+    )
+
+
+async def attach_export_capability_for_request(
+    payload,
+    request: Request,
+    diagram_id: str,
+    *,
+    issued_intent: Optional[str] = None,
+    issued_format: Optional[str] = None,
+):
+    """Attach a request- and resource-bound successor capability."""
+    token = await issue_export_capability_for_request(
+        request,
+        diagram_id,
+        issued_intent=issued_intent,
+        issued_format=issued_format,
+    )
+    if isinstance(payload, dict):
+        return {
+            **payload,
+            "export_capability": token,
+            "export_capability_expires_in": _ttl_seconds(),
+        }
+    return payload
+
+
+async def issue_export_capability_for_persisted_job(
+    manager,
+    job_id: str,
+    diagram_id: str,
+    *,
+    issued_intent: str = EXPORT_CAPABILITY_ANY_INTENT,
+    issued_format: str = EXPORT_CAPABILITY_ANY_FORMAT,
+) -> str:
+    """Issue from the persisted canonical job envelope, never request state."""
+    job = manager.get_persisted(job_id)
+    if job is None or job.diagram_id != diagram_id:
+        raise ArchmorphException(503, "Persisted job identity is unavailable")
+    if job.owner_user_id and not job.owner_api_key_id and job.tenant_id:
+        caller_owner_user_id = job.owner_user_id
+        owner_api_key_id = None
+    elif job.owner_api_key_id and not job.owner_user_id and job.tenant_id:
+        caller_owner_user_id = job.owner_api_key_id
+        owner_api_key_id = job.owner_api_key_id
+    else:
+        raise ArchmorphException(503, "Persisted job identity is incomplete")
+    binding = await run_in_threadpool(
+        partial(
+            _resolve_durable_binding_for_identity,
+            diagram_id,
+            caller_owner_user_id=caller_owner_user_id,
+            tenant_id=job.tenant_id,
+            owner_api_key_id=owner_api_key_id,
+        )
+    )
+    if binding is None:
+        raise ArchmorphException(404, "Diagram not found")
+    return issue_export_capability(
+        diagram_id,
+        binding=binding,
+        issued_intent=issued_intent,
+        issued_format=issued_format,
+    )
+
+
+async def attach_export_capability_for_persisted_job(
+    payload,
+    manager,
+    job_id: str,
+    diagram_id: str,
+    *,
+    issued_intent: str = EXPORT_CAPABILITY_ANY_INTENT,
+    issued_format: str = EXPORT_CAPABILITY_ANY_FORMAT,
+    allow_missing_durable_scope: bool = False,
+):
+    """Attach a capability derived exclusively from a persisted job envelope."""
+    try:
+        token = await issue_export_capability_for_persisted_job(
+            manager,
+            job_id,
+            diagram_id,
+            issued_intent=issued_intent,
+            issued_format=issued_format,
+        )
+    except ArchmorphException as exc:
+        if not allow_missing_durable_scope or exc.status_code != 404:
+            raise
+        _audit("job_successor_not_issued_without_durable_scope", diagram_id)
+        return payload
     if isinstance(payload, dict):
         return {
             **payload,
@@ -151,54 +523,101 @@ async def verify_export_capability(
     request: Request,
     diagram_id: str,
     x_export_capability: Optional[str] = Header(None, alias=EXPORT_CAPABILITY_HEADER),
-    export_token: Optional[str] = Query(None, include_in_schema=False),
 ) -> Optional[ExportCapability]:
     """Validate a one-time export capability without consuming it.
 
-    ``X-Export-Capability`` is the preferred transport because it avoids token
-    leakage through URLs. ``export_token`` remains as a hidden query fallback
-    for curl/manual local testing only.
+    Capabilities are accepted only through ``X-Export-Capability`` so raw
+    tokens never become part of browser history, proxy access logs, or URLs.
     """
+    if any(
+        key in request.query_params for key in ("export_token", "export_capability")
+    ):
+        _audit("query_token_rejected", diagram_id)
+        raise ArchmorphException(400, "Export capabilities are not accepted in URLs")
+
     if not export_capability_required():
         _audit("bypass_disabled", diagram_id)
         return None
 
-    environment = (os.getenv("ENVIRONMENT") or os.getenv("ENV") or "production").lower()
-    if export_token and environment not in {"dev", "development", "local", "test"}:
-        _audit("query_token_rejected", diagram_id)
-        raise ArchmorphException(400, "Query-string export capabilities are disabled outside local development")
-
-    token = x_export_capability or export_token
+    token = x_export_capability
     if not token:
         _audit("missing", diagram_id)
         raise ArchmorphException(401, "Missing export capability")
 
     token_digest = _digest(token)
     record = EXPORT_CAPABILITY_STORE.peek(token_digest)
-    if not record:
+    if not isinstance(record, dict):
         _audit("unknown_or_replayed", diagram_id, token_digest)
-        raise ArchmorphException(401, "Invalid or replayed export capability")
+        raise ArchmorphException(401, "Invalid or unavailable export capability")
 
     if record.get("scope") != EXPORT_CAPABILITY_SCOPE:
         EXPORT_CAPABILITY_STORE.delete(token_digest)
         _audit("wrong_scope", diagram_id, token_digest)
-        raise ArchmorphException(403, "Export capability is not authorized for this operation")
+        raise ArchmorphException(401, "Invalid or unavailable export capability")
 
     if record.get("diagram_id") != diagram_id:
         _audit("wrong_diagram", diagram_id, token_digest)
-        raise ArchmorphException(403, "Export capability is not authorized for this diagram")
+        raise ArchmorphException(401, "Invalid or unavailable export capability")
 
-    bound_principal = record.get("principal_marker")
-    caller_principal = _principal_marker(request)
-    if bound_principal and not secrets.compare_digest(str(bound_principal), caller_principal or ""):
-        _audit("wrong_principal", diagram_id, token_digest)
-        raise ArchmorphException(404, "Diagram not found")
-
-    expires_at = float(record.get("expires_at", 0))
+    try:
+        expires_at = float(record.get("expires_at", 0))
+        binding_version = int(record.get("binding_version", 0) or 0)
+    except (TypeError, ValueError):
+        EXPORT_CAPABILITY_STORE.delete(token_digest)
+        _audit("malformed", diagram_id, token_digest)
+        raise ArchmorphException(401, "Invalid or unavailable export capability")
     if expires_at < time.time():
         EXPORT_CAPABILITY_STORE.delete(token_digest)
         _audit("expired", diagram_id, token_digest)
-        raise ArchmorphException(401, "Expired export capability")
+        raise ArchmorphException(401, "Invalid or unavailable export capability")
+
+    if not (
+        isinstance(record.get("intent"), str)
+        and isinstance(record.get("format"), str)
+        and secrets.compare_digest(
+            record["intent"], str(record.get("issued_intent", ""))
+        )
+        and secrets.compare_digest(
+            record["format"], str(record.get("issued_format", ""))
+        )
+    ):
+        EXPORT_CAPABILITY_STORE.delete(token_digest)
+        _audit("malformed_scope", diagram_id, token_digest)
+        raise ArchmorphException(401, "Invalid or unavailable export capability")
+
+    requested_contract = _request_export_contract(request)
+    authorized_contracts = {
+        (item.get("intent"), item.get("format"))
+        for item in record.get("authorized_contracts", [])
+        if isinstance(item, dict)
+    }
+    if requested_contract not in authorized_contracts:
+        _audit("wrong_contract", diagram_id, token_digest)
+        raise ArchmorphException(401, "Invalid or unavailable export capability")
+
+    if binding_version == 1:
+        current_binding = await export_capability_binding_for_request(
+            request, diagram_id
+        )
+        expected = current_binding.to_record() if current_binding is not None else {}
+        binding_fields = (
+            "principal_marker",
+            "owner_user_id",
+            "tenant_id",
+            "analysis_id",
+            "project_id",
+        )
+        if any(
+            not secrets.compare_digest(
+                str(record.get(field, "")), str(expected.get(field, ""))
+            )
+            for field in binding_fields
+        ):
+            _audit("wrong_binding", diagram_id, token_digest)
+            raise ArchmorphException(401, "Invalid or unavailable export capability")
+    elif binding_version != 0 or not _is_public_export_session(diagram_id):
+        _audit("unbound_private_capability", diagram_id, token_digest)
+        raise ArchmorphException(401, "Invalid or unavailable export capability")
 
     _audit("validated", diagram_id, token_digest)
     return ExportCapability(

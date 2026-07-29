@@ -26,9 +26,11 @@ from routers.shared import (
     get_api_key_service_principal,
     limiter,
     persist_diagram_mutation_async,
+    require_api_write_or_user_session,
     require_diagram_access,
     verify_api_key,
 )
+from export_capabilities import attach_export_capability_for_persisted_job
 from job_queue import JobStoreError, job_manager
 from openai_client import AZURE_OPENAI_DEPLOYMENT
 from usage_metrics import record_event, record_funnel_step
@@ -458,7 +460,7 @@ async def generate_iac_async(
     diagram_id: str,
     format: Literal["terraform", "bicep"] = "terraform",
     force: bool = False,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     """Start async IaC code generation. Returns 202 with job_id.
 
@@ -492,7 +494,7 @@ async def generate_iac_async(
             "generate_iac",
             diagram_id=diagram_id,
             owner_user_id=principal["owner_user_id"] if user else None,
-            tenant_id=user.tenant_id if user else None,
+            tenant_id=principal["tenant_id"] if principal else None,
             owner_api_key_id=api_key_principal_id if not user else None,
             execution_payload=execution_payload,
         )
@@ -640,9 +642,8 @@ async def _run_iac_job(
         elif latest_session is not None:
             current_etag = _get_stored_etag(latest_session)
 
-        job_manager.complete(
-            job_id,
-            result={
+        completion_result = await attach_export_capability_for_persisted_job(
+            {
                 "diagram_id": diagram_id,
                 "format": iac_format,
                 "code": code,
@@ -652,6 +653,14 @@ async def _run_iac_job(
                 "canonical_state_conflict": canonical_state_changed,
                 "current_etag": current_etag,
             },
+            job_manager,
+            job_id,
+            diagram_id,
+            allow_missing_durable_scope=True,
+        )
+        job_manager.complete(
+            job_id,
+            result=completion_result,
         )
 
     except Exception as exc:

@@ -22,9 +22,8 @@ from routers.shared import (
     get_api_key_service_principal,
     limiter,
     persist_diagram_mutation_async,
+    require_api_write_or_user_session,
     require_diagram_access,
-    verify_api_key,
-    verify_api_key_or_user_session,
 )
 from job_queue import JobStoreError, job_manager
 from openai_client import AZURE_OPENAI_DEPLOYMENT
@@ -34,7 +33,12 @@ from error_envelope import ArchmorphException
 from hld_export import export_hld, SUPPORTED_FORMATS
 from services.azure_pricing import estimate_services_cost
 from diagram_export import generate_diagram
-from export_capabilities import _principal_marker, attach_export_capability, consume_export_capability, verify_export_capability
+from export_capabilities import (
+    attach_export_capability_for_persisted_job,
+    attach_export_capability_for_request,
+    consume_export_capability,
+    verify_export_capability,
+)
 from export_artifacts import persist_generated_export_async
 
 logger = logging.getLogger(__name__)
@@ -111,13 +115,22 @@ def _hld_generation_input_hash(session: dict) -> str:
 # ─────────────────────────────────────────────────────────────
 # HLD Generation — AI-powered High-Level Design document
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/generate-hld", dependencies=[Depends(require_diagram_access)])
+@router.post(
+    "/api/diagrams/{diagram_id}/generate-hld",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("10/minute")
-async def generate_hld_endpoint(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+async def generate_hld_endpoint(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(require_api_write_or_user_session),
+):
     """Generate a comprehensive High-Level Design document."""
     record_event("hld_generated", {"diagram_id": diagram_id})
 
-    session = await authorize_diagram_access_async(request, diagram_id, purpose="generate an HLD")
+    session = await authorize_diagram_access_async(
+        request, diagram_id, purpose="generate an HLD"
+    )
 
     updated_session = copy.deepcopy(session)
     analysis = updated_session
@@ -221,11 +234,19 @@ async def _ensure_hld(request: Request, session: dict, diagram_id: str) -> dict:
     return session
 
 
-@router.get("/api/diagrams/{diagram_id}/hld", dependencies=[Depends(require_diagram_access)])
+@router.get(
+    "/api/diagrams/{diagram_id}/hld", dependencies=[Depends(require_diagram_access)]
+)
 @limiter.limit("30/minute")
-async def get_hld(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
+async def get_hld(
+    request: Request,
+    diagram_id: str,
+    _auth=Depends(require_api_write_or_user_session),
+):
     """Get previously generated HLD document."""
-    session = await authorize_diagram_access_async(request, diagram_id, purpose="view an HLD")
+    session = await authorize_diagram_access_async(
+        request, diagram_id, purpose="view an HLD"
+    )
     session = await _ensure_hld(request, session, diagram_id)
     if "hld" not in session:
         raise ArchmorphException(404, "No HLD found. Generate one first.")
@@ -236,12 +257,15 @@ async def get_hld(request: Request, diagram_id: str, _auth=Depends(verify_api_ke
     }
 
 
-@router.post("/api/diagrams/{diagram_id}/export-hld", dependencies=[Depends(require_diagram_access)])
+@router.post(
+    "/api/diagrams/{diagram_id}/export-hld",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("10/minute")
 async def export_hld_endpoint(
     request: Request,
     diagram_id: str,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Export HLD document to Word, PDF, or PowerPoint format.
@@ -330,7 +354,9 @@ async def export_hld_endpoint(
         raise ArchmorphException(400, str(e))
     except Exception as e:
         logger.error("HLD export failed error_type=%s", type(e).__name__)
-        raise ArchmorphException(500, "Export failed. Please try again or contact support.")
+        raise ArchmorphException(
+            500, "Export failed. Please try again or contact support."
+        )
 
     export_bytes = base64.b64decode(result["content_b64"], validate=True)
     artifact = await persist_generated_export_async(
@@ -345,18 +371,21 @@ async def export_hld_endpoint(
         result["artifact_id"] = artifact.id
         result["version_id"] = artifact.version_id
     consume_export_capability(capability)
-    return attach_export_capability(result, diagram_id, principal_marker=_principal_marker(request))
+    return await attach_export_capability_for_request(result, request, diagram_id)
 
 
 # ─────────────────────────────────────────────────────────────
 # Async HLD Generation (Issue #172)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/generate-hld-async", dependencies=[Depends(require_diagram_access)])
+@router.post(
+    "/api/diagrams/{diagram_id}/generate-hld-async",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("10/minute")
 async def generate_hld_async(
     request: Request,
     diagram_id: str,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     """Start async HLD document generation. Returns 202 with job_id."""
     from auth import get_user_from_request_headers
@@ -366,7 +395,9 @@ async def generate_hld_async(
     user = get_user_from_request_headers(headers)
     principal = get_request_durable_principal(request)
     api_key_principal_id = get_api_key_service_principal(headers)
-    session = await authorize_diagram_access_async(request, diagram_id, purpose="queue HLD generation")
+    session = await authorize_diagram_access_async(
+        request, diagram_id, purpose="queue HLD generation"
+    )
     analysis_hash = _hld_generation_input_hash(session)
 
     try:
@@ -374,7 +405,7 @@ async def generate_hld_async(
             "generate_hld",
             diagram_id=diagram_id,
             owner_user_id=principal["owner_user_id"] if user else None,
-            tenant_id=user.tenant_id if user else None,
+            tenant_id=principal["tenant_id"] if principal else None,
             owner_api_key_id=api_key_principal_id if not user else None,
             execution_payload={
                 "diagram_id": diagram_id,
@@ -505,7 +536,10 @@ async def _run_hld_job(job_id: str, payload: Dict[str, Any]) -> None:
                 except AnalysisVersionConflictError:
                     canonical_state_persisted = False
                 except Exception as exc:
-                    job_manager.fail(job_id, f"Canonical HLD persistence failed: {type(exc).__name__}")
+                    job_manager.fail(
+                        job_id,
+                        f"Canonical HLD persistence failed: {type(exc).__name__}",
+                    )
                     return
             else:
                 canonical_state_persisted, _latest_session = SESSION_STORE.update_if(
@@ -515,15 +549,22 @@ async def _run_hld_job(job_id: str, payload: Dict[str, Any]) -> None:
                 )
 
         record_event("hld_generated", {"diagram_id": diagram_id})
-        job_manager.complete(
-            job_id,
-            result={
+        completion_result = await attach_export_capability_for_persisted_job(
+            {
                 "diagram_id": diagram_id,
                 "hld": hld,
                 "markdown": markdown,
                 "canonical_state_persisted": canonical_state_persisted,
                 "canonical_state_conflict": not canonical_state_persisted,
             },
+            job_manager,
+            job_id,
+            diagram_id,
+            allow_missing_durable_scope=True,
+        )
+        job_manager.complete(
+            job_id,
+            result=completion_result,
         )
 
     except Exception as exc:
@@ -534,12 +575,15 @@ async def _run_hld_job(job_id: str, payload: Dict[str, Any]) -> None:
 # ─────────────────────────────────────────────────────────────
 # Migration Package Export (#252)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/export-package", dependencies=[Depends(require_diagram_access)])
+@router.post(
+    "/api/diagrams/{diagram_id}/export-package",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("5/minute")
 async def export_migration_package(
     request: Request,
     diagram_id: str,
-    _auth=Depends(verify_api_key_or_user_session),
+    _auth=Depends(require_api_write_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Export a complete migration package as a ZIP file.
@@ -754,7 +798,10 @@ Generated by Archmorph v{version}
     buf.seek(0)
     content_b64 = base64.b64encode(buf.getvalue()).decode()
 
-    record_event("migration_package_exported", {"diagram_id": diagram_id, "iac_format": iac_format})
+    record_event(
+        "migration_package_exported",
+        {"diagram_id": diagram_id, "iac_format": iac_format},
+    )
 
     package_bytes = buf.getvalue()
     artifact = await persist_generated_export_async(
@@ -766,13 +813,21 @@ Generated by Archmorph v{version}
         force_blob=True,
     )
     consume_export_capability(capability)
-    return attach_export_capability({
-        "filename": "archmorph-migration-package.zip",
-        "content_type": "application/zip",
-        "content_b64": content_b64,
-        "size_bytes": len(package_bytes),
-        **({
-            "artifact_id": artifact.id,
-            "version_id": artifact.version_id,
-        } if artifact is not None else {}),
-    }, diagram_id, principal_marker=_principal_marker(request))
+    return await attach_export_capability_for_request(
+        {
+            "filename": "archmorph-migration-package.zip",
+            "content_type": "application/zip",
+            "content_b64": content_b64,
+            "size_bytes": len(package_bytes),
+            **(
+                {
+                    "artifact_id": artifact.id,
+                    "version_id": artifact.version_id,
+                }
+                if artifact is not None
+                else {}
+            ),
+        },
+        request,
+        diagram_id,
+    )

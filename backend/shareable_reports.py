@@ -113,6 +113,33 @@ def get_share_stats(share_id: str) -> Optional[Dict[str, Any]]:
         }
 
 
+def rehome_share_creator(
+    share_id: str,
+    *,
+    legacy_creator_id: str,
+    canonical_creator_id: str,
+    tenant_id: str,
+) -> bool:
+    """Migrate one verified legacy user alias without widening share access."""
+    with _lock:
+        record = _shares.get(share_id)
+        if record is None:
+            return False
+        if record.get("creator_id") != legacy_creator_id:
+            return False
+        creator_tenant_id = record.get("creator_tenant_id")
+        if creator_tenant_id not in {None, tenant_id}:
+            return False
+        record["creator_id"] = canonical_creator_id
+        record["creator_tenant_id"] = tenant_id
+        expires_at = datetime.fromisoformat(record["expires_at"])
+        remaining_seconds = max(
+            1,
+            int((expires_at - datetime.now(timezone.utc)).total_seconds()),
+        )
+        return _shares.set(share_id, record, ttl=remaining_seconds)
+
+
 def delete_share(share_id: str) -> bool:
     """Revoke a share link. Returns True if it existed."""
     with _lock:

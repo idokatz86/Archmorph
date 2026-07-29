@@ -50,7 +50,12 @@ def test_front_door_waf_rate_limit_matches_all_without_negation():
 
 def test_sensitive_artifact_and_session_routes_require_api_key_dependency():
     from main import app
-    from routers.shared import verify_api_key, verify_api_key_or_user_session
+    from routers.shared import (
+        require_api_read_or_user_session,
+        require_api_write_or_user_session,
+        verify_api_key,
+        verify_api_key_or_user_session,
+    )
 
     protected_routes = {
         ("/api/diagrams/{diagram_id}/versions", "GET"),
@@ -77,13 +82,19 @@ def test_sensitive_artifact_and_session_routes_require_api_key_dependency():
     for route in app.routes:
         path = getattr(route, "path", None)
         methods = getattr(route, "methods", set()) or set()
-        route_keys = {(path, method) for method in methods if (path, method) in protected_routes}
+        route_keys = {
+            (path, method) for method in methods if (path, method) in protected_routes
+        }
         if not route_keys:
             continue
         dependency_callables = {dep.call for dep in route.dependant.dependencies}
-        assert (
-            verify_api_key in dependency_callables
-            or verify_api_key_or_user_session in dependency_callables
+        assert dependency_callables.intersection(
+            {
+                verify_api_key,
+                verify_api_key_or_user_session,
+                require_api_read_or_user_session,
+                require_api_write_or_user_session,
+            }
         ), f"{path} {methods} must require API key or bearer session"
         matched.update(route_keys)
 
@@ -128,12 +139,21 @@ def test_creator_owned_share_stats_denies_missing_user_identity(monkeypatch):
     monkeypatch.setattr(
         share_routes.shareable_reports,
         "get_share_stats",
-        lambda share_id: {"share_id": share_id, "creator_id": "owner-1", "view_count": 0},
+        lambda share_id: {
+            "share_id": share_id,
+            "creator_id": "owner-1",
+            "creator_tenant_id": "tenant-1",
+            "view_count": 0,
+        },
     )
-    monkeypatch.setattr(share_routes, "get_user_from_request_headers", lambda headers: None)
+    monkeypatch.setattr(
+        share_routes, "get_user_from_request_headers", lambda headers: None
+    )
 
     with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.get("/api/shared/share-1/stats", headers={"X-API-Key": "test-api-key"})
+        response = client.get(
+            "/api/shared/share-1/stats", headers={"X-API-Key": "test-api-key"}
+        )
 
     assert response.status_code in {403, 404}
 
@@ -147,16 +167,33 @@ def test_creator_owned_share_stats_allows_matching_user_identity(monkeypatch):
     monkeypatch.setattr(
         share_routes.shareable_reports,
         "get_share_stats",
-        lambda share_id: {"share_id": share_id, "creator_id": "owner-1", "view_count": 0},
+        lambda share_id: {
+            "share_id": share_id,
+            "creator_id": "owner-1",
+            "creator_tenant_id": "tenant-1",
+            "view_count": 0,
+        },
     )
     monkeypatch.setattr(
         share_routes,
         "get_user_from_request_headers",
-        lambda headers: SimpleNamespace(id="owner-1"),
+        lambda headers: SimpleNamespace(id="owner-1", tenant_id="tenant-1"),
+    )
+    monkeypatch.setattr(
+        share_routes,
+        "get_request_durable_principal",
+        lambda request: {
+            "owner_user_id": "owner-1",
+            "tenant_id": "tenant-1",
+            "owner_api_key_id": None,
+            "legacy_owner_user_ids": [],
+        },
     )
 
     with TestClient(app, raise_server_exceptions=False) as client:
-        response = client.get("/api/shared/share-1/stats", headers={"X-API-Key": "test-api-key"})
+        response = client.get(
+            "/api/shared/share-1/stats", headers={"X-API-Key": "test-api-key"}
+        )
 
     assert response.status_code == 200
     assert response.json()["creator_id"] == "owner-1"

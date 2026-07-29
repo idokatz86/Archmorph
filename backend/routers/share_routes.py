@@ -15,8 +15,9 @@ from routers.shared import (
     get_api_key_service_principal,
     get_request_durable_principal,
     limiter,
+    require_api_read_or_user_session,
+    require_api_write_or_user_session,
     require_diagram_access,
-    verify_api_key,
 )
 from auth import get_user_from_request_headers
 import shareable_reports
@@ -39,16 +40,26 @@ def require_share_access(request: Request, share_id: str) -> dict:
         legacy_owners = set((principal or {}).get("legacy_owner_user_ids", []))
         creator_id = record.get("creator_id")
         creator_tenant_id = record.get("creator_tenant_id")
-        accepted_creators = {canonical_owner, *legacy_owners}
-        if creator_tenant_id is None:
-            accepted_creators.add(user.id)
-        if creator_id and creator_id in accepted_creators and (
-            creator_tenant_id is None or creator_tenant_id == (principal or {}).get("tenant_id", user.tenant_id)
-        ):
+        canonical_tenant = (principal or {}).get("tenant_id", user.tenant_id)
+        if creator_id in legacy_owners and creator_tenant_id in {
+            None,
+            canonical_tenant,
+        }:
+            migrated = shareable_reports.rehome_share_creator(
+                share_id,
+                legacy_creator_id=creator_id,
+                canonical_creator_id=canonical_owner,
+                tenant_id=canonical_tenant,
+            )
+            if not migrated:
+                raise ArchmorphException(404, "Share link not found")
+            record = shareable_reports.get_share_stats(share_id)
+            if not record:
+                raise ArchmorphException(404, "Share link not found")
             return record
-        if not creator_id:
-            raise ArchmorphException(404, "Share link not found")
-        raise ArchmorphException(403, "Only the creator can access this share")
+        if creator_id == canonical_owner and creator_tenant_id == canonical_tenant:
+            return record
+        raise ArchmorphException(404, "Share link not found")
 
     api_key_principal_id = get_api_key_service_principal(headers)
     if not api_key_principal_id:
@@ -62,16 +73,21 @@ def require_share_access(request: Request, share_id: str) -> dict:
 # Shareable Stakeholder Reports
 # ─────────────────────────────────────────────────────────────
 
-@router.post("/api/diagrams/{diagram_id}/share", dependencies=[Depends(require_diagram_access)])
+
+@router.post(
+    "/api/diagrams/{diagram_id}/share", dependencies=[Depends(require_diagram_access)]
+)
 @limiter.limit("10/minute")
 async def create_stakeholder_share(
     request: Request,
     diagram_id: str,
     expiry_days: int = Query(30, ge=1, le=365),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     """Generate a shareable stakeholder link with role-based views."""
-    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="create a share link")
+    analysis = await authorize_diagram_access_async(
+        request, diagram_id, purpose="create a share link"
+    )
 
     # Extract creator identity when the request also carries an end-user session.
     principal = get_request_durable_principal(request)
@@ -127,7 +143,7 @@ async def get_shared_report(
 async def get_share_stats(
     request: Request,
     share_id: str,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
     _record=Depends(require_share_access),
 ):
     """View count and metadata (creator only)."""
@@ -142,7 +158,7 @@ async def get_share_stats(
 async def revoke_share(
     request: Request,
     share_id: str,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
     _record=Depends(require_share_access),
 ):
     """Revoke a share link."""

@@ -765,6 +765,13 @@ class JobManager:
             return self._hydrate_from_store(job_id, payload)
         return self._jobs.get(job_id)
 
+    def get_persisted(self, job_id: str) -> Optional[Job]:
+        """Load a job only from its shared persisted execution envelope."""
+        payload = self._jobs_store.get(job_id)
+        if not isinstance(payload, dict):
+            return None
+        return Job.from_dict(payload)
+
     def _hydrate_from_store(self, job_id: str, payload: Dict[str, Any]) -> Job:
         """Refresh the local job object from shared-store state."""
         loaded = Job.from_dict(payload)

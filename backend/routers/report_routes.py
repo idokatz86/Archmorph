@@ -13,10 +13,19 @@ from fastapi import APIRouter, Request, Depends
 from fastapi.responses import StreamingResponse
 
 from error_envelope import ArchmorphException
-from routers.shared import authorize_diagram_access_async, limiter, require_diagram_access, verify_api_key
+from routers.shared import (
+    authorize_diagram_access_async,
+    limiter,
+    require_api_write_or_user_session,
+    require_diagram_access,
+)
 from report_generator import generate_analysis_report_pdf
 from usage_metrics import record_event
-from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
+from export_capabilities import (
+    consume_export_capability,
+    issue_export_capability_for_request,
+    verify_export_capability,
+)
 from export_artifacts import persist_generated_export_async
 from starlette.concurrency import run_in_threadpool
 
@@ -50,7 +59,7 @@ def _analysis_version_created_at(*, diagram_id: str, principal: dict):
 async def download_analysis_report(
     request: Request,
     diagram_id: str,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Download a full analysis report as PDF.
@@ -99,10 +108,17 @@ async def download_analysis_report(
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Content-Length": str(len(pdf_bytes)),
             "X-Artifact-SHA256": hashlib.sha256(pdf_bytes).hexdigest(),
-            **({
-                "X-Artifact-ID": artifact.id,
-                "X-Analysis-Version-ID": artifact.version_id,
-            } if artifact is not None else {}),
-            "X-Export-Capability-Next": issue_export_capability(diagram_id),
+            **(
+                {
+                    "X-Artifact-ID": artifact.id,
+                    "X-Analysis-Version-ID": artifact.version_id,
+                }
+                if artifact is not None
+                else {}
+            ),
+            "X-Export-Capability-Next": await issue_export_capability_for_request(
+                request,
+                diagram_id,
+            ),
         },
     )

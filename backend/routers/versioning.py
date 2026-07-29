@@ -8,7 +8,14 @@ from functools import partial
 from typing import Optional
 
 from database import SessionLocal
-from routers.shared import SESSION_STORE, limiter, persist_diagram_mutation_async, require_diagram_access, verify_api_key
+from routers.shared import (
+    SESSION_STORE,
+    limiter,
+    persist_diagram_mutation_async,
+    require_api_read_or_user_session,
+    require_api_write_or_user_session,
+    require_diagram_access,
+)
 from starlette.concurrency import run_in_threadpool
 from routers.workspaces import _expected_version
 from versioning import (
@@ -97,16 +104,21 @@ def _restore_durable_version(
 
 
 async def _durable_call_async(request: Request, diagram_id: str, function):
-    return await run_in_threadpool(partial(_durable_call, request, diagram_id, function))
+    return await run_in_threadpool(
+        partial(_durable_call, request, diagram_id, function)
+    )
 
 
-@router.post("/api/diagrams/{diagram_id}/versions", dependencies=[Depends(require_diagram_access)])
+@router.post(
+    "/api/diagrams/{diagram_id}/versions",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("10/minute")
 async def create_version_endpoint(
     request: Request,
     diagram_id: str,
     message: Optional[str] = None,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
     analysis=Depends(require_diagram_access),
 ):
     """Create a new version of an architecture analysis."""
@@ -121,15 +133,21 @@ async def create_version_endpoint(
         )
         return result.version.to_dict()
     version = create_version(diagram_id=diagram_id, snapshot=analysis, message=message)
-    return {**version.to_dict(), "compatibility": "transient-anonymous-or-sample-version-store"}
+    return {
+        **version.to_dict(),
+        "compatibility": "transient-anonymous-or-sample-version-store",
+    }
 
 
-@router.get("/api/diagrams/{diagram_id}/versions", dependencies=[Depends(require_diagram_access)])
+@router.get(
+    "/api/diagrams/{diagram_id}/versions",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("30/minute")
 async def get_version_history_endpoint(
     request: Request,
     diagram_id: str,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
     _session=Depends(require_diagram_access),
 ):
     """Get version history for a diagram."""
@@ -173,7 +191,7 @@ async def get_version_endpoint(
     request: Request,
     diagram_id: str,
     version_number: int,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
     _session=Depends(require_diagram_access),
 ):
     """Get a specific version of an architecture."""
@@ -192,19 +210,27 @@ async def get_version_endpoint(
         version = get_version(diagram_id, version_number)
         if not version:
             raise ArchmorphException(404, f"Version {version_number} not found")
-        return {**version.to_dict(), "compatibility": "transient-anonymous-or-sample-version-store"}
+        return {
+            **version.to_dict(),
+            "compatibility": "transient-anonymous-or-sample-version-store",
+        }
     return version.to_dict(include_snapshot=True)
 
 
-@router.post("/api/diagrams/{diagram_id}/versions/{version_number}/restore", dependencies=[Depends(require_diagram_access)])
+@router.post(
+    "/api/diagrams/{diagram_id}/versions/{version_number}/restore",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("10/minute")
 async def restore_version_endpoint(
     request: Request,
     diagram_id: str,
     version_number: int,
     if_match: str = Header(..., alias="If-Match"),
-    idempotency_key: str = Header(..., alias="Idempotency-Key", min_length=8, max_length=200),
-    _auth=Depends(verify_api_key),
+    idempotency_key: str = Header(
+        ..., alias="Idempotency-Key", min_length=8, max_length=200
+    ),
+    _auth=Depends(require_api_write_or_user_session),
     _session=Depends(require_diagram_access),
 ):
     """Restore a previous version, creating a new version from it."""
@@ -245,7 +271,7 @@ async def compare_versions_endpoint(
     diagram_id: str,
     v1: int = Query(..., description="First version number"),
     v2: int = Query(..., description="Second version number"),
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_read_or_user_session),
     _session=Depends(require_diagram_access),
 ):
     """Compare two versions of an architecture."""

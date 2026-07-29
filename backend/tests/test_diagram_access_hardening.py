@@ -19,6 +19,8 @@ from routers.share_routes import require_share_access  # noqa: E402
 from routers.shared import (  # noqa: E402
     get_api_key_service_principal,
     get_request_durable_principal,
+    require_api_read_or_user_session,
+    require_api_write_or_user_session,
     require_diagram_access,
     verify_api_key,
     verify_api_key_or_user_session,
@@ -299,15 +301,30 @@ def test_diagram_artifact_routes_require_api_key_or_user_session_dependency_and_
     for route in app.routes:
         if not isinstance(route, APIRoute):
             continue
-        if not route.path.startswith("/api/diagrams/{diagram_id}/") or route.path in exempt_paths:
+        if (
+            not route.path.startswith("/api/diagrams/{diagram_id}/")
+            or route.path in exempt_paths
+        ):
             continue
         dependency_callables = {dep.call for dep in route.dependant.dependencies}
         methods = sorted(set(route.methods or ()) - {"HEAD", "OPTIONS"})
-        if verify_api_key not in dependency_callables and verify_api_key_or_user_session not in dependency_callables:
-            missing.append(f"{methods} {route.path} missing API-key-or-user-session auth dependency")
+        if not dependency_callables.intersection(
+            {
+                verify_api_key,
+                verify_api_key_or_user_session,
+                require_api_read_or_user_session,
+                require_api_write_or_user_session,
+            }
+        ):
+            missing.append(
+                f"{methods} {route.path} missing API-key-or-user-session auth dependency"
+            )
         if require_diagram_access not in dependency_callables:
             missing.append(f"{methods} {route.path} missing require_diagram_access")
-        if route.path in capability_paths and verify_export_capability not in dependency_callables:
+        if (
+            route.path in capability_paths
+            and verify_export_capability not in dependency_callables
+        ):
             missing.append(f"{methods} {route.path} missing verify_export_capability")
 
     assert not missing, "\n".join(missing)
@@ -315,7 +332,10 @@ def test_diagram_artifact_routes_require_api_key_or_user_session_dependency_and_
 
 def test_share_and_replay_manifests_keep_public_and_private_exceptions_explicit():
     indexed = {
-        (route.path, tuple(sorted(set(route.methods or ()) - {"HEAD", "OPTIONS"}))): route
+        (
+            route.path,
+            tuple(sorted(set(route.methods or ()) - {"HEAD", "OPTIONS"})),
+        ): route
         for route in app.routes
         if isinstance(route, APIRoute)
     }
@@ -333,7 +353,12 @@ def test_share_and_replay_manifests_keep_public_and_private_exceptions_explicit(
 
     for route in (shared_stats, shared_delete):
         deps = {dep.call for dep in route.dependant.dependencies}
-        assert verify_api_key in deps
+        expected_scope = (
+            require_api_read_or_user_session
+            if route is shared_stats
+            else require_api_write_or_user_session
+        )
+        assert expected_scope in deps
         assert require_share_access in deps
 
     for route in (replay_get, replay_export):

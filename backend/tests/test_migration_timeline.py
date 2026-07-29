@@ -3,7 +3,8 @@
 import csv
 import io
 
-from export_capabilities import issue_export_capability
+from auth import AuthProvider, User, generate_session_token
+from export_capabilities import issue_export_capability_for_identity
 from migration_timeline import (
     generate_timeline,
     render_timeline_markdown,
@@ -129,25 +130,51 @@ def test_timeline_routes_generate_seven_phases_and_export_real_formats(test_clie
 
 
 def test_timeline_export_consumes_one_time_capability(test_client, monkeypatch):
+    from database import SessionLocal
+    from workspace_store import persist_analysis_state
+
     diagram_id = "timeline-capability-diagram"
     monkeypatch.setenv("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "true")
-    SESSION_STORE[diagram_id] = {
+    snapshot = {
         **SAMPLE_ANALYSIS,
         "migration_timeline": generate_timeline(SAMPLE_ANALYSIS),
     }
-    token = issue_export_capability(diagram_id)
+    db = SessionLocal()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id="timeline-owner",
+            tenant_id="timeline-tenant",
+            diagram_id=diagram_id,
+            snapshot=snapshot,
+            session_store=SESSION_STORE,
+            cache_required=True,
+        )
+    finally:
+        db.close()
+    user = User(
+        id="timeline-owner",
+        provider=AuthProvider.GITHUB,
+        tenant_id="timeline-tenant",
+    )
+    auth_headers = {"Authorization": f"Bearer {generate_session_token(user)}"}
+    token = issue_export_capability_for_identity(
+        diagram_id,
+        caller_owner_user_id="timeline-owner",
+        tenant_id="timeline-tenant",
+    )
 
     try:
         first = test_client.get(
             f"/api/diagrams/{diagram_id}/migration-timeline/export?format=json",
-            headers={"X-Export-Capability": token},
+            headers={**auth_headers, "X-Export-Capability": token},
         )
         assert first.status_code == 200
         assert first.headers["x-export-capability-next"]
 
         replay = test_client.get(
             f"/api/diagrams/{diagram_id}/migration-timeline/export?format=json",
-            headers={"X-Export-Capability": token},
+            headers={**auth_headers, "X-Export-Capability": token},
         )
         assert replay.status_code == 401
     finally:

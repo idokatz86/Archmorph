@@ -15,6 +15,7 @@ from export_capabilities import (
     _digest,
     consume_export_capability,
     issue_export_capability,
+    issue_export_capability_for_identity,
 )
 from routers import shared as shared_router
 from routers.shared import EXPORT_CAPABILITY_STORE, SESSION_STORE
@@ -55,7 +56,6 @@ def diagram_id():
     did = "capability-boundary-diagram"
     snapshot = {
         **dict(SAMPLE_ANALYSIS),
-        "is_starter": True,
         "_owner_user_id": "cap-owner",
         "_tenant_id": "cap-tenant",
     }
@@ -92,7 +92,9 @@ def auth_headers():
     return {"Authorization": f"Bearer {generate_session_token(user)}"}
 
 
-def _export_package(client, did: str, auth_headers: dict[str, str], token: str | None = None):
+def _export_package(
+    client, did: str, auth_headers: dict[str, str], token: str | None = None
+):
     headers = dict(auth_headers)
     if token:
         headers["X-Export-Capability"] = token
@@ -102,42 +104,72 @@ def _export_package(client, did: str, auth_headers: dict[str, str], token: str |
     )
 
 
-def test_export_without_capability_is_unauthorized(test_client, diagram_id, auth_headers):
+def _bound_token(diagram_id: str, *, ttl_seconds: int | None = None) -> str:
+    return issue_export_capability_for_identity(
+        diagram_id,
+        caller_owner_user_id="cap-owner",
+        tenant_id="cap-tenant",
+        ttl_seconds=ttl_seconds,
+    )
+
+
+def test_export_without_capability_is_unauthorized(
+    test_client, diagram_id, auth_headers
+):
     response = _export_package(test_client, diagram_id, auth_headers)
 
     assert response.status_code == 401
     assert "Missing export capability" in response.text
 
 
-def test_export_with_expired_capability_is_unauthorized(test_client, diagram_id, auth_headers):
-    token = issue_export_capability(diagram_id)
+def test_export_with_expired_capability_is_unauthorized(
+    test_client, diagram_id, auth_headers
+):
+    token = _bound_token(diagram_id)
+    record = EXPORT_CAPABILITY_STORE.peek(_digest(token))
     EXPORT_CAPABILITY_STORE.set(
-        _digest(token),
-        {
-            "diagram_id": diagram_id,
-            "scope": EXPORT_CAPABILITY_SCOPE,
-            "expires_at": time.time() - 1,
-        },
+        _digest(token), {**record, "expires_at": time.time() - 1}
     )
 
     response = _export_package(test_client, diagram_id, auth_headers, token)
 
     assert response.status_code == 401
-    assert "Expired export capability" in response.text
+    assert "Invalid or unavailable export capability" in response.text
 
 
-def test_export_capability_cannot_cross_diagram_boundary(test_client, diagram_id, auth_headers):
+def test_export_capability_cannot_cross_diagram_boundary(
+    test_client, diagram_id, auth_headers
+):
+    from database import SessionLocal
+    from workspace_store import persist_analysis_state
+
     other_id = "other-capability-diagram"
-    token = issue_export_capability(other_id)
+    db = SessionLocal()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id="cap-owner",
+            tenant_id="cap-tenant",
+            diagram_id=other_id,
+            snapshot={**dict(SAMPLE_ANALYSIS), "diagram_id": other_id},
+            session_store=SESSION_STORE,
+            cache_required=True,
+        )
+    finally:
+        db.close()
+    token = _bound_token(other_id)
 
     response = _export_package(test_client, diagram_id, auth_headers, token)
 
-    assert response.status_code == 403
-    assert "not authorized for this diagram" in response.text
+    assert response.status_code == 401
+    assert "Invalid or unavailable export capability" in response.text
+    SESSION_STORE.delete(other_id)
 
 
-def test_export_capability_is_single_use_to_block_replay(test_client, diagram_id, auth_headers):
-    token = issue_export_capability(diagram_id)
+def test_export_capability_is_single_use_to_block_replay(
+    test_client, diagram_id, auth_headers
+):
+    token = _bound_token(diagram_id)
 
     first = _export_package(test_client, diagram_id, auth_headers, token)
     replay = _export_package(test_client, diagram_id, auth_headers, token)
@@ -146,11 +178,13 @@ def test_export_capability_is_single_use_to_block_replay(test_client, diagram_id
     assert first.json()["format"] == "architecture-package-html"
     assert first.json()["export_capability"] != token
     assert replay.status_code == 401
-    assert "Invalid or replayed export capability" in replay.text
+    assert "Invalid or unavailable export capability" in replay.text
 
 
-def test_rotated_capability_allows_next_valid_export(test_client, diagram_id, auth_headers):
-    token = issue_export_capability(diagram_id)
+def test_rotated_capability_allows_next_valid_export(
+    test_client, diagram_id, auth_headers
+):
+    token = _bound_token(diagram_id)
 
     first = _export_package(test_client, diagram_id, auth_headers, token)
     next_token = first.json()["export_capability"]
@@ -168,7 +202,7 @@ def test_diagram_export_accepts_bearer_session_with_capability_when_api_key_conf
     monkeypatch,
 ):
     monkeypatch.setattr(shared_router, "API_KEY", "configured-api-key")
-    token = issue_export_capability(diagram_id)
+    token = _bound_token(diagram_id)
     headers = {**auth_headers, "X-Export-Capability": token}
 
     response = test_client.post(
@@ -181,12 +215,16 @@ def test_diagram_export_accepts_bearer_session_with_capability_when_api_key_conf
     assert response.json()["content"]
 
 
-def test_valid_capability_survives_route_failure_before_export_success(test_client, diagram_id, auth_headers):
+def test_capability_does_not_rebind_after_analysis_delete_and_recreate(
+    test_client,
+    diagram_id,
+    auth_headers,
+):
     from database import SessionLocal
     from models.workspace import Analysis
     from workspace_store import persist_analysis_state
 
-    token = issue_export_capability(diagram_id)
+    token = _bound_token(diagram_id)
     SESSION_STORE.delete(diagram_id)
     db = SessionLocal()
     try:
@@ -209,7 +247,6 @@ def test_valid_capability_survives_route_failure_before_export_success(test_clie
             diagram_id=diagram_id,
             snapshot={
                 **dict(SAMPLE_ANALYSIS),
-                "is_starter": True,
                 "_owner_user_id": "cap-owner",
                 "_tenant_id": "cap-tenant",
             },
@@ -219,15 +256,24 @@ def test_valid_capability_survives_route_failure_before_export_success(test_clie
     finally:
         db.close()
     retried = _export_package(test_client, diagram_id, auth_headers, token)
+    refreshed = _export_package(
+        test_client,
+        diagram_id,
+        auth_headers,
+        _bound_token(diagram_id),
+    )
 
     assert failed.status_code == 404
-    assert retried.status_code == 200, retried.text
+    assert retried.status_code == 401
+    assert refreshed.status_code == 200, refreshed.text
 
 
-def test_query_export_token_rejected_outside_local(test_client, diagram_id, monkeypatch, auth_headers):
+def test_query_export_token_rejected_outside_local(
+    test_client, diagram_id, monkeypatch, auth_headers
+):
     monkeypatch.setenv("ENVIRONMENT", "production")
     monkeypatch.setattr(shared_router, "API_KEY", "prod-capability-key")
-    token = issue_export_capability(diagram_id)
+    token = _bound_token(diagram_id)
     headers = dict(auth_headers)
     headers["X-API-Key"] = "prod-capability-key"
 
@@ -237,7 +283,7 @@ def test_query_export_token_rejected_outside_local(test_client, diagram_id, monk
     )
 
     assert response.status_code == 400
-    assert "Query-string export capabilities are disabled" in response.text
+    assert "Export capabilities are not accepted in URLs" in response.text
 
 
 def test_concurrent_capability_consumers_have_exactly_one_winner(diagram_id):
@@ -291,3 +337,16 @@ def test_capability_consumption_fails_closed_when_atomic_delete_fails(
 
     assert exc_info.value.status_code == 503
     assert EXPORT_CAPABILITY_STORE.peek(token_digest) == record
+
+
+def test_capability_issuance_fails_closed_when_store_write_is_unconfirmed(
+    diagram_id,
+    monkeypatch,
+):
+    monkeypatch.setattr(EXPORT_CAPABILITY_STORE, "set", lambda *_args, **_kwargs: False)
+
+    with pytest.raises(ArchmorphException) as exc_info:
+        _bound_token(diagram_id)
+
+    assert exc_info.value.status_code == 503
+    assert "issuance is temporarily unavailable" in str(exc_info.value.detail)

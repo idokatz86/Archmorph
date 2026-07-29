@@ -34,8 +34,8 @@ import ci_smoke
 from job_queue import job_manager, AdmissionRejected, AdmissionStoreError, JobStoreError
 from usage_metrics import record_event, record_funnel_step
 from export_capabilities import (
-    _principal_marker,
-    attach_export_capability,
+    attach_export_capability_for_persisted_job,
+    attach_export_capability_for_request,
     decode_restore_capability,
     issue_restore_capability,
 )
@@ -566,15 +566,25 @@ async def upload_diagram(
         },
     )
     record_funnel_step(diagram_id, "upload")
-    principal_marker = _principal_marker(request)
-    return _attach_lifecycle_receipt(attach_export_capability({
-        "diagram_id": diagram_id,
-        "project_id": project_id,
-        "filename": file.filename,
-        "size": len(image_bytes),
-        "status": "uploaded",
-        "restore_capability": restore_capability,
-    }, diagram_id, principal_marker=principal_marker), diagram_id, image_present=True, session_present=False, principal=upload_principal)
+    capability_payload = await attach_export_capability_for_request(
+        request=request,
+        diagram_id=diagram_id,
+        payload={
+            "diagram_id": diagram_id,
+            "project_id": project_id,
+            "filename": file.filename,
+            "size": len(image_bytes),
+            "status": "uploaded",
+            "restore_capability": restore_capability,
+        },
+    )
+    return _attach_lifecycle_receipt(
+        capability_payload,
+        diagram_id,
+        image_present=True,
+        session_present=False,
+        principal=upload_principal,
+    )
 
 
 @router.post(
@@ -774,7 +784,7 @@ async def restore_session(
         tenant_id=tenant_id,
         payload_hash=snapshot_payload_hash(analysis),
     )
-    return _attach_lifecycle_receipt(attach_export_capability(
+    capability_payload = await attach_export_capability_for_request(
         {
             "status": "restored",
             "diagram_id": diagram_id,
@@ -782,9 +792,15 @@ async def restore_session(
             "analysis": analysis,
             "restore_capability": next_restore_capability,
         },
+        request,
         diagram_id,
-        principal_marker=_principal_marker(request),
-    ), diagram_id, image_present=diagram_id in IMAGE_STORE, session_present=True)
+    )
+    return _attach_lifecycle_receipt(
+        capability_payload,
+        diagram_id,
+        image_present=diagram_id in IMAGE_STORE,
+        session_present=True,
+    )
 
 
 @router.delete(
@@ -949,18 +965,21 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         elif api_key_principal_id:
             result["_owner_api_key_id"] = api_key_principal_id
         if user:
-            await run_in_threadpool(partial(
-                _persist_authenticated_analysis_in_worker,
+            await run_in_threadpool(
+                partial(
+                    _persist_authenticated_analysis_in_worker,
                     user_id=principal["owner_user_id"],
                     tenant_id=user.tenant_id,
                     diagram_id=diagram_id,
                     session=result,
                     cache_required=True,
                     require_project_membership=True,
-            ))
+                )
+            )
         elif api_key_principal_id:
-            await run_in_threadpool(partial(
-                _persist_authenticated_analysis_in_worker,
+            await run_in_threadpool(
+                partial(
+                    _persist_authenticated_analysis_in_worker,
                     user_id=api_key_principal_id,
                     tenant_id=f"service:{api_key_principal_id.split(':', 1)[-1]}",
                     diagram_id=diagram_id,
@@ -968,16 +987,20 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
                     owner_api_key_id=api_key_principal_id,
                     cache_required=True,
                     require_project_membership=True,
-            ))
+                )
+            )
         else:
             SESSION_STORE[diagram_id] = result
-        record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
+        record_event(
+            "analyses_run",
+            {"diagram_id": diagram_id, "services": result["services_detected"]},
+        )
         record_funnel_step(diagram_id, "analyze")
         return _attach_lifecycle_receipt(
-            attach_export_capability(
+            await attach_export_capability_for_request(
                 result,
+                request,
                 diagram_id,
-                principal_marker=_principal_marker(request),
             ),
             diagram_id,
             image_present=True,
@@ -1088,10 +1111,10 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     record_funnel_step(diagram_id, "analyze")
 
     return _attach_lifecycle_receipt(
-        attach_export_capability(
+        await attach_export_capability_for_request(
             result,
+            request,
             diagram_id,
-            principal_marker=_principal_marker(request),
         ),
         diagram_id,
         image_present=True,
@@ -1129,7 +1152,7 @@ async def analyze_diagram_async(
 
     # Admission control: enforce per-user/per-tenant active-job limits.
     owner_user_id = principal["owner_user_id"] if user else None
-    tenant_id = user.tenant_id if user else None
+    tenant_id = principal["tenant_id"] if principal else None
     owner_api_key_id = api_key_principal_id if not user else None
     image_b64, content_type = IMAGE_STORE[diagram_id]
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
@@ -1311,7 +1334,7 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         if job_api_principal_id:
             logger.debug(
                 "Skipping user history persistence for API principal-owned async analysis %s",
-                str(diagram_id).replace('\n', '').replace('\r', ''),
+                str(diagram_id).replace("\n", "").replace("\r", ""),
             )
 
         job_manager.update_progress(job_id, 95, "Finalizing...", phase="saving")
@@ -1325,13 +1348,22 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
                 else None
             ),
         }
-        job_manager.complete(job_id, result=_attach_lifecycle_receipt(
-            attach_export_capability(result, diagram_id),
+        completion_result = await attach_export_capability_for_persisted_job(
+            result,
+            job_manager,
+            job_id,
             diagram_id,
-            image_present=diagram_id in IMAGE_STORE,
-            session_present=True,
-            principal=job_principal,
-        ))
+        )
+        job_manager.complete(
+            job_id,
+            result=_attach_lifecycle_receipt(
+                completion_result,
+                diagram_id,
+                image_present=diagram_id in IMAGE_STORE,
+                session_present=True,
+                principal=job_principal,
+            ),
+        )
 
     except Exception as exc:
         logger.error(

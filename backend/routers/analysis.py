@@ -16,17 +16,34 @@ from routers.shared import (
     authorize_diagram_access_async,
     limiter,
     persist_diagram_mutation_async,
+    require_api_write_or_user_session,
     require_diagram_access,
     verify_api_key_or_user_session,
 )
 from usage_metrics import record_event, record_funnel_step
-from guided_questions import generate_questions, apply_answers, get_question_constraints, build_adaptive_question_set
+from guided_questions import (
+    generate_questions,
+    apply_answers,
+    get_question_constraints,
+    build_adaptive_question_set,
+)
 from mcp_diagram_generator import mcp_client
-from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text
+from service_builder import (
+    deduplicate_questions,
+    get_smart_defaults_from_analysis,
+    add_services_from_text,
+)
 from architecture_package import generate_architecture_package
 from error_envelope import ArchmorphException
-from export_capabilities import _principal_marker, attach_export_capability, consume_export_capability, verify_export_capability
-from analysis_payload_bounds import AnalysisPayloadTooLarge, validate_analysis_payload_bounds
+from export_capabilities import (
+    attach_export_capability_for_request,
+    consume_export_capability,
+    verify_export_capability,
+)
+from analysis_payload_bounds import (
+    AnalysisPayloadTooLarge,
+    validate_analysis_payload_bounds,
+)
 from export_artifacts import persist_generated_export_async
 
 logger = logging.getLogger(__name__)
@@ -190,7 +207,7 @@ async def export_architecture_diagram(
     format: str = "excalidraw",
     multi_page: bool = False,
     dr_variant: str = "primary",
-    _auth=Depends(verify_api_key_or_user_session),
+    _auth=Depends(require_api_write_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Generate an architecture diagram in Excalidraw, Draw.io, Visio, or
@@ -259,7 +276,7 @@ async def export_architecture_diagram(
             result["artifact_id"] = artifact.id
             result["version_id"] = artifact.version_id
         consume_export_capability(capability)
-        return attach_export_capability(result, diagram_id, principal_marker=_principal_marker(request))
+        return await attach_export_capability_for_request(result, request, diagram_id)
 
     try:
         content = await mcp_client.generate_diagram(format, analysis)
@@ -296,20 +313,23 @@ async def export_architecture_diagram(
         result["artifact_id"] = artifact.id
         result["version_id"] = artifact.version_id
     consume_export_capability(capability)
-    return attach_export_capability(result, diagram_id, principal_marker=_principal_marker(request))
+    return await attach_export_capability_for_request(result, request, diagram_id)
 
 
 # ─────────────────────────────────────────────────────────────
 # Architecture Package Export (HTML / SVG)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/export-architecture-package", dependencies=[Depends(require_diagram_access)])
+@router.post(
+    "/api/diagrams/{diagram_id}/export-architecture-package",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("10/minute")
 async def export_architecture_package(
     request: Request,
     diagram_id: str,
     format: str = "html",
     diagram: str = "primary",
-    _auth=Depends(verify_api_key_or_user_session),
+    _auth=Depends(require_api_write_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Generate the customer-facing Architecture Package.
@@ -364,4 +384,4 @@ async def export_architecture_package(
         result["artifact_id"] = artifact.id
         result["version_id"] = artifact.version_id
     consume_export_capability(capability)
-    return attach_export_capability(result, diagram_id, principal_marker=_principal_marker(request))
+    return await attach_export_capability_for_request(result, request, diagram_id)
