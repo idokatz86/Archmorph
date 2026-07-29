@@ -296,7 +296,31 @@ def database_readiness() -> dict[str, object]:
                     if "manifest" not in purge_columns:
                         missing_schema_objects.append("column:purge_operations.manifest")
                     if "workspace_id" not in purge_columns:
-                        missing_schema_objects.append("column:purge_operations.workspace_id")
+                        missing_schema_objects.append(
+                            "column:purge_operations.workspace_id"
+                        )
+                if "restore_grants" in present_tables and not bridge_on_013:
+                    grant_columns = {
+                        column["name"]
+                        for column in inspector.get_columns("restore_grants")
+                    }
+                    if "cleanup_at" not in grant_columns:
+                        missing_schema_objects.append(
+                            "column:restore_grants.cleanup_at"
+                        )
+                    grant_indexes = {
+                        index.get("name")
+                        for index in inspector.get_indexes("restore_grants")
+                    }
+                    if "ix_restore_grants_cleanup" not in grant_indexes:
+                        missing_schema_objects.append("index:restore_grants.cleanup_at")
+                if "decisions" in present_tables and not bridge_on_013:
+                    decision_checks = {
+                        constraint.get("name")
+                        for constraint in inspector.get_check_constraints("decisions")
+                    }
+                    if "ck_decisions_status" not in decision_checks:
+                        missing_schema_objects.append("constraint:decisions.status")
                 if "cost_records" in present_tables and not bridge_on_013:
                     cost_columns = {
                         column["name"] for column in inspector.get_columns("cost_records")

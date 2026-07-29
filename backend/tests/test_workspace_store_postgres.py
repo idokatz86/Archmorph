@@ -5,10 +5,12 @@ Set ``ARCHMORPH_TEST_POSTGRES_URL`` to an isolated migrated database to enable.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import threading
 import uuid
+from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -49,6 +51,7 @@ from routers import shared
 from routers.api_keys_routes import create_api_key, rotate_api_key
 from workspace_store import (
     AnalysisVersionConflictError,
+    CanonicalWriteDeniedError,
     MAX_VERSIONS_PER_ANALYSIS,
     _trim_old_versions,
     add_migration_replay_event,
@@ -59,6 +62,7 @@ from workspace_store import (
     issue_restore_grant,
     list_migration_replays,
     load_analysis_state,
+    persist_analysis_mutation,
     persist_analysis_state,
     rehome_legacy_analysis_scope,
     restore_analysis_version,
@@ -66,6 +70,9 @@ from workspace_store import (
     snapshot_payload_hash,
     update_workspace,
 )
+from purge_service import purge_diagram
+from restore_grant_cleanup import run_restore_grant_cleanup
+import usage_metrics
 
 
 POSTGRES_URL = os.getenv("ARCHMORPH_TEST_POSTGRES_URL")
@@ -1201,3 +1208,226 @@ def test_real_postgres_and_redis_report_ready(monkeypatch, postgres_factory):
     assert readiness["backend"] == "redis"
     assert readiness["redis_reachable"] is True
     assert readiness["ready_for_horizontal_scale"] is True
+
+
+def test_archive_wins_concurrent_race_before_analysis_append(postgres_factory):
+    suffix = uuid.uuid4().hex
+    owner = f"archive-race-owner-{suffix}"
+    tenant = f"archive-race-tenant-{suffix}"
+    diagram_id = f"archive-race-diagram-{suffix}"
+    seed_db = postgres_factory()
+    try:
+        seeded = persist_analysis_state(
+            seed_db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id=diagram_id,
+            snapshot={"diagram_id": diagram_id, "mappings": []},
+        )
+        workspace_id = seeded.analysis.workspace_id
+        analysis_id = seeded.analysis.id
+    finally:
+        seed_db.close()
+
+    archive_db = postgres_factory()
+    workspace = (
+        archive_db.query(Workspace).filter_by(id=workspace_id).with_for_update().one()
+    )
+    workspace.status = "archived"
+    archive_db.flush()
+    writer_started = threading.Event()
+
+    def append_after_archive_lock():
+        db = postgres_factory()
+        try:
+            writer_started.set()
+            snapshot = {
+                "diagram_id": diagram_id,
+                "mappings": [],
+                "_analysis_version": 1,
+                "late": True,
+            }
+            return persist_analysis_mutation(
+                db,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram_id,
+                snapshot=snapshot,
+                expected_version=1,
+                operation="archive-race",
+                request_hash=hashlib.sha256(b"archive-race").hexdigest(),
+            )
+        finally:
+            db.close()
+
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(append_after_archive_lock)
+        assert writer_started.wait(timeout=2)
+        archive_db.commit()
+        with pytest.raises(CanonicalWriteDeniedError):
+            future.result(timeout=5)
+    archive_db.close()
+
+    db = postgres_factory()
+    try:
+        assert db.query(AnalysisVersion).filter_by(analysis_id=analysis_id).count() == 1
+        assert db.query(Workspace).filter_by(id=workspace_id).one().status == "archived"
+    finally:
+        db.close()
+
+
+def test_concurrent_usage_event_cannot_reappear_after_postgres_purge(
+    postgres_factory,
+    tmp_path,
+    monkeypatch,
+):
+    import database
+    import purge_service as purge_module
+
+    suffix = uuid.uuid4().hex
+    owner = f"usage-race-owner-{suffix}"
+    tenant = f"usage-race-tenant-{suffix}"
+    diagram_id = f"usage-race-diagram-{suffix}"
+    db = postgres_factory()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id=diagram_id,
+            snapshot={"diagram_id": diagram_id, "mappings": []},
+        )
+    finally:
+        db.close()
+
+    monkeypatch.setattr(database, "SessionLocal", postgres_factory)
+    monkeypatch.setattr(usage_metrics, "METRICS_FILE", str(tmp_path / "usage.json"))
+    monkeypatch.setattr(usage_metrics, "AZURE_STORAGE_ACCOUNT_URL", "")
+    monkeypatch.setattr(usage_metrics, "AZURE_STORAGE_CONNECTION_STRING", "")
+    original_metrics = usage_metrics._metrics
+    usage_metrics._metrics = json.loads(json.dumps(usage_metrics._DEFAULT_METRICS))
+    original_fence = usage_metrics._subject_write_fence
+    original_begin = purge_module.begin_diagram_purge
+    fence_acquired = threading.Event()
+    release_event = threading.Event()
+    purge_started = threading.Event()
+
+    @contextmanager
+    def signaled_fence(**kwargs):
+        with original_fence(**kwargs) as allowed:
+            fence_acquired.set()
+            assert release_event.wait(timeout=5)
+            yield allowed
+
+    def signaled_begin(*args, **kwargs):
+        purge_started.set()
+        return original_begin(*args, **kwargs)
+
+    monkeypatch.setattr(usage_metrics, "_subject_write_fence", signaled_fence)
+    monkeypatch.setattr(purge_module, "begin_diagram_purge", signaled_begin)
+    try:
+        with ThreadPoolExecutor(max_workers=2) as executor:
+            event_future = executor.submit(
+                usage_metrics.record_event,
+                "analyses_run",
+                {"diagram_id": diagram_id, "filename": "racing-private.png"},
+            )
+            assert fence_acquired.wait(timeout=2)
+            purge_future = executor.submit(
+                purge_diagram,
+                diagram_id=diagram_id,
+                owner_user_id=owner,
+                tenant_id=tenant,
+            )
+            assert purge_started.wait(timeout=2)
+            assert not purge_future.done()
+            release_event.set()
+            event_future.result(timeout=5)
+            result = purge_future.result(timeout=10)
+        assert result.status == "completed"
+        assert usage_metrics.usage_telemetry_absent(
+            diagram_id=diagram_id,
+            owner_user_id=owner,
+            tenant_id=tenant,
+        )
+        usage_metrics.record_event(
+            "analyses_run",
+            {"diagram_id": diagram_id, "filename": "stale-private.png"},
+        )
+        assert usage_metrics.get_recent_events() == []
+    finally:
+        release_event.set()
+        usage_metrics._metrics = original_metrics
+
+
+def test_restore_grant_cleanup_is_safe_during_concurrent_consumption(postgres_factory):
+    suffix = uuid.uuid4().hex
+    owner = f"grant-race-owner-{suffix}"
+    tenant = f"grant-race-tenant-{suffix}"
+    diagram_id = f"grant-race-diagram-{suffix}"
+    payload_hash = hashlib.sha256(b"grant-race-payload").hexdigest()
+    db = postgres_factory()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id=diagram_id,
+            snapshot={"diagram_id": diagram_id, "mappings": []},
+        )
+        nonce, generation, expected_version = issue_restore_grant(
+            db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id=diagram_id,
+            ttl_seconds=300,
+            payload_hash=payload_hash,
+        )
+    finally:
+        db.close()
+    barrier = threading.Barrier(2)
+
+    def consume():
+        consume_db = postgres_factory()
+        try:
+            barrier.wait(timeout=2)
+            return consume_restore_grant(
+                consume_db,
+                nonce=nonce,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram_id,
+                generation=generation,
+                expected_version=expected_version,
+                payload_hash=payload_hash,
+            )
+        finally:
+            consume_db.close()
+
+    def cleanup():
+        barrier.wait(timeout=2)
+        return run_restore_grant_cleanup(
+            session_factory=postgres_factory,
+            batch_size=10,
+            max_batches=2,
+            time_budget_seconds=5,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        consumed_future = executor.submit(consume)
+        cleanup_future = executor.submit(cleanup)
+        assert consumed_future.result(timeout=5) is True
+        cleanup_future.result(timeout=5)
+
+    final = run_restore_grant_cleanup(
+        session_factory=postgres_factory,
+        batch_size=10,
+        max_batches=2,
+        time_budget_seconds=5,
+    )
+    assert final.backlog == 0
+    db = postgres_factory()
+    try:
+        assert db.query(RestoreGrant).count() == 0
+    finally:
+        db.close()

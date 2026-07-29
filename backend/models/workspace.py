@@ -68,6 +68,12 @@ class DecisionSeverity(str, Enum):
     CRITICAL = "critical"
 
 
+class DecisionStatus(str, Enum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+    ACCEPTED = "accepted"
+
+
 # ─────────────────────────────────────────────────────────────
 # Workspace
 # ─────────────────────────────────────────────────────────────
@@ -566,8 +572,12 @@ class Decision(Base):
     decision_type = Column(String(50), nullable=False)  # risk | decision | note
     title = Column(String(300), nullable=False)
     description = Column(Text, nullable=True)
-    severity = Column(String(20), nullable=True)        # low | medium | high | critical
-    status = Column(String(20), nullable=False, server_default="open")  # open | resolved | accepted
+    severity = Column(String(20), nullable=True)  # low | medium | high | critical
+    status = Column(
+        String(20),
+        nullable=False,
+        server_default=DecisionStatus.OPEN.value,
+    )
     extra_data = Column(Text, nullable=True)              # JSON-serialized extras
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
@@ -586,6 +596,10 @@ class Decision(Base):
         CheckConstraint(
             "severity IS NULL OR severity IN ('low', 'medium', 'high', 'critical')",
             name="ck_decisions_severity",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'resolved', 'accepted')",
+            name="ck_decisions_status",
         ),
         Index("ix_decisions_analysis_type", "analysis_id", "decision_type"),
         Index("ix_decisions_owner_tenant", "owner_user_id", "tenant_id"),
@@ -780,6 +794,7 @@ class RestoreGrant(Base):
     expected_version = Column(Integer, nullable=False, server_default="0")
     payload_hash = Column(String(64), nullable=True)
     expires_at = Column(DateTime(timezone=True), nullable=False)
+    cleanup_at = Column(DateTime(timezone=True), nullable=False)
     consumed_at = Column(DateTime(timezone=True), nullable=True)
     revoked_at = Column(DateTime(timezone=True), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
@@ -792,6 +807,7 @@ class RestoreGrant(Base):
             "diagram_id",
             "generation",
         ),
+        Index("ix_restore_grants_cleanup", "cleanup_at", "id"),
     )
 
 

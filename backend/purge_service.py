@@ -7,6 +7,7 @@ from typing import Any, Callable
 
 import analysis_history
 import openai_client
+import usage_metrics
 from artifact_blob_store import artifact_blob_absent, delete_artifact_blob
 import database
 from iac_chat import clear_iac_chat, has_iac_chat
@@ -294,7 +295,9 @@ def diagram_fixed_point_checks(
         "image": IMAGE_STORE.peek(diagram_id) is None,
         "vision_cache": vision_analyzer.diagram_cache_absent(diagram_id),
         "gpt_response_cache": openai_client.diagram_response_cache_absent(diagram_id),
-        "export_capabilities": not _store_records_for_diagram(EXPORT_CAPABILITY_STORE, diagram_id),
+        "export_capabilities": not _store_records_for_diagram(
+            EXPORT_CAPABILITY_STORE, diagram_id
+        ),
         "share_store": not _store_records_for_diagram(SHARE_STORE, diagram_id),
         "share_links": shareable_reports.diagram_shares_absent(diagram_id),
         "jobs": job_manager.diagram_absent(
@@ -308,6 +311,11 @@ def diagram_fixed_point_checks(
         "replays": replay_routes.diagram_replays_absent(diagram_id),
         "history": analysis_history.diagram_absent(diagram_id, owner_user_id),
         "version_history": versioning.diagram_versions_absent(diagram_id),
+        "usage_telemetry": usage_metrics.usage_telemetry_absent(
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        ),
         "restore_grants": live_grant is None,
         "project_membership": _project_diagram_absent(workspace_id, diagram_id),
         "blob_objects": _manifested_blobs_absent(manifest, owner_user_id, tenant_id),
@@ -462,6 +470,15 @@ def purge_diagram(
         "version_history",
         lambda: versioning.purge_diagram_versions(diagram_id),
     )
+    deleted["usage_telemetry"] = _run_stage(
+        operation_id,
+        "usage_telemetry",
+        lambda: usage_metrics.purge_usage_telemetry(
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        ),
+    )
     deleted["project_membership"] = _run_stage(
         operation_id,
         "project_membership",
@@ -559,6 +576,11 @@ def _workspace_fixed_point(
         and state_absent
         and PROJECT_STORE.peek(workspace_id) is None
         and credential_manager.scope_credentials_absent(owner_user_id, tenant_id)
+        and usage_metrics.usage_telemetry_absent(
+            project_id=workspace_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
         and all(
             diagram_fixed_point(
                 diagram_id,
@@ -652,6 +674,15 @@ def purge_workspace(*, workspace_id: str, owner_user_id: str, tenant_id: str) ->
         operation_id,
         "credentials",
         lambda: credential_manager.purge_scope_credentials(owner_user_id, tenant_id),
+    )
+    _run_stage(
+        operation_id,
+        "usage_telemetry",
+        lambda: usage_metrics.purge_usage_telemetry(
+            project_id=workspace_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        ),
     )
     _run_stage(operation_id, "workspace_graph", lambda: _complete_workspace(operation_id))
     try:

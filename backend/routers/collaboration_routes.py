@@ -6,12 +6,13 @@ participation (architect, devops, manager, security) and submit changes
 (annotations, comments, approvals, answer updates).
 """
 
+import copy
 import logging
 import secrets
 import time
 import uuid
 from functools import partial
-from typing import Literal, Optional
+from typing import Any, Callable, Literal, Optional
 
 from fastapi import APIRouter, Depends, Request, Security
 from fastapi.security import APIKeyHeader
@@ -280,6 +281,55 @@ def _validate_session_durable_scope(session: dict) -> None:
         db.close()
 
 
+def _commit_collaboration_write(
+    session: dict,
+    mutation: Callable[[], Any],
+) -> Any:
+    """Apply one cache write while active SQL project authority remains locked."""
+    from database import SessionLocal
+    from models.workspace import DiagramLifecycle
+    from project_store import PROJECT_EDIT_ROLES, resolve_diagram_access
+
+    db = SessionLocal()
+    try:
+        resolved = resolve_diagram_access(
+            db,
+            session.get("analysis_id"),
+            caller_user_id=session.get("owner"),
+            tenant_id=session.get("tenant_id"),
+            allowed_roles=PROJECT_EDIT_ROLES,
+            lock_authorization=True,
+        )
+        if (
+            resolved is None
+            or resolved[0].id != session.get("durable_analysis_id")
+            or resolved[1].id != session.get("project_id")
+            or resolved[1].owner_user_id != session.get("project_owner_user_id")
+        ):
+            raise _session_access_not_found()
+        lifecycle_query = db.query(DiagramLifecycle).filter(
+            DiagramLifecycle.diagram_id == session.get("analysis_id"),
+            DiagramLifecycle.owner_user_id == resolved[1].owner_user_id,
+            DiagramLifecycle.tenant_id == session.get("tenant_id"),
+            DiagramLifecycle.workspace_id == resolved[1].id,
+        )
+        if db.get_bind().dialect.name == "postgresql":
+            lifecycle_query = lifecycle_query.with_for_update(read=True)
+        lifecycle = lifecycle_query.one_or_none()
+        if lifecycle is None or lifecycle.state != "active":
+            raise _session_access_not_found()
+        result = mutation()
+        if resolved[1].status != "active" or lifecycle.state != "active":
+            raise _session_access_not_found()
+        db.commit()
+        return result
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
+
 def _migrate_session_principal_aliases(
     session: dict, principal: Optional[dict]
 ) -> bool:
@@ -307,8 +357,15 @@ def _migrate_session_principal_aliases(
 def _prepare_session_scope(request: Request, session: dict) -> Optional[dict]:
     principal = get_request_durable_principal(request)
     if _migrate_session_principal_aliases(session, principal):
-        if not _session_store.set(session["session_id"], session):
-            raise _session_access_not_found()
+        _commit_collaboration_write(
+            session,
+            lambda: (
+                _session_store.set(session["session_id"], session)
+                or (_ for _ in ()).throw(
+                    RuntimeError("Collaboration persistence failed")
+                )
+            ),
+        )
     _validate_session_durable_scope(session)
     return principal
 
@@ -476,8 +533,24 @@ async def create_session(
         owner_participant,
         intent="collaboration:participant",
     )
-    _session_store[session_id] = session
-    _change_store[session_id] = []
+
+    def _store_new_session() -> None:
+        if not _session_store.set(session_id, session):
+            raise RuntimeError("Collaboration session persistence failed")
+        if not _change_store.set(session_id, []):
+            _session_store.delete(session_id)
+            raise RuntimeError("Collaboration change persistence failed")
+
+    try:
+        await run_in_threadpool(
+            partial(_commit_collaboration_write, session, _store_new_session)
+        )
+    except ArchmorphException:
+        raise
+    except Exception as exc:
+        raise ArchmorphException(
+            503, "Collaboration persistence is unavailable"
+        ) from exc
 
     logger.info(
         "Collab session created: %s for analysis %s", session_id, safe(body.analysis_id)
@@ -554,6 +627,12 @@ async def join_session(
         None,
     )
     if existing_participant:
+        updated_session = copy.deepcopy(session)
+        existing_participant = next(
+            item
+            for item in updated_session.get("participants", [])
+            if item.get("user_id") in accepted_ids
+        )
         if not existing_participant.get("participant_token"):
             logger.warning(
                 "Participant missing collaboration token; regenerating token"
@@ -562,12 +641,22 @@ async def join_session(
         existing_participant["user_id"] = canonical_user_id
         existing_participant["tenant_id"] = principal["tenant_id"]
         existing_participant["participant_capability"] = _participant_capability_record(
-            session,
+            updated_session,
             existing_participant,
             intent="collaboration:participant",
         )
-        if not _session_store.set(session_id, session):
-            raise _session_access_not_found()
+        await run_in_threadpool(
+            partial(
+                _commit_collaboration_write,
+                updated_session,
+                lambda: (
+                    _session_store.set(session_id, updated_session)
+                    or (_ for _ in ()).throw(
+                        RuntimeError("Collaboration persistence failed")
+                    )
+                ),
+            )
+        )
         return {
             "status": "already_joined",
             "session_id": session_id,
@@ -585,8 +674,20 @@ async def join_session(
         participant,
         intent="collaboration:participant",
     )
-    session["participants"].append(participant)
-    _session_store[session_id] = session
+    updated_session = copy.deepcopy(session)
+    updated_session["participants"].append(participant)
+    await run_in_threadpool(
+        partial(
+            _commit_collaboration_write,
+            updated_session,
+            lambda: (
+                _session_store.set(session_id, updated_session)
+                or (_ for _ in ()).throw(
+                    RuntimeError("Collaboration persistence failed")
+                )
+            ),
+        )
+    )
 
     logger.info("Collaboration participant joined session")
     return {
@@ -636,7 +737,7 @@ async def submit_change(
     if body.user_id not in accepted_body_ids:
         raise _session_access_not_found()
 
-    changes: list = _change_store.get(session_id, [])
+    changes: list = list(_change_store.get(session_id, []))
     change = {
         "change_id": str(uuid.uuid4()),
         "user_id": participant["user_id"],
@@ -645,7 +746,25 @@ async def submit_change(
         "timestamp": time.time(),
     }
     changes.append(change)
-    _change_store[session_id] = changes
+    try:
+        await run_in_threadpool(
+            partial(
+                _commit_collaboration_write,
+                session,
+                lambda: (
+                    _change_store.set(session_id, changes)
+                    or (_ for _ in ()).throw(
+                        RuntimeError("Collaboration persistence failed")
+                    )
+                ),
+            )
+        )
+    except ArchmorphException:
+        raise
+    except Exception as exc:
+        raise ArchmorphException(
+            503, "Collaboration persistence is unavailable"
+        ) from exc
 
     return {"status": "recorded", "change_id": change["change_id"]}
 

@@ -1536,6 +1536,10 @@
               }
             ]
           },
+          "status": {
+            "$ref": "#/components/schemas/DecisionStatus",
+            "default": "open"
+          },
           "title": {
             "maxLength": 300,
             "minLength": 1,
@@ -1851,6 +1855,15 @@
           "critical"
         ],
         "title": "DecisionSeverity",
+        "type": "string"
+      },
+      "DecisionStatus": {
+        "enum": [
+          "open",
+          "resolved",
+          "accepted"
+        ],
+        "title": "DecisionStatus",
         "type": "string"
       },
       "DecisionType": {

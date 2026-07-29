@@ -10252,6 +10252,8 @@ export interface components {
             /** Description */
             description?: string | null;
             severity?: components["schemas"]["DecisionSeverity"] | null;
+            /** @default open */
+            status: components["schemas"]["DecisionStatus"];
             /** Title */
             title: string;
             /** Version Id */
@@ -10391,6 +10393,11 @@ export interface components {
          * @enum {string}
          */
         DecisionSeverity: "low" | "medium" | "high" | "critical";
+        /**
+         * DecisionStatus
+         * @enum {string}
+         */
+        DecisionStatus: "open" | "resolved" | "accepted";
         /**
          * DecisionType
          * @enum {string}

@@ -387,6 +387,8 @@ async def schema_compatibility(response: Response) -> SchemaCompatibilityRespons
 
 @router.get("/api/health")
 async def health(_auth=Depends(verify_api_key)):
+    from restore_grant_cleanup import restore_grant_cleanup_lifecycle
+
     update_status, freshness = await _catalog_health()
     scheduled_jobs = get_scheduled_jobs()
     checks, degraded, unhealthy = _run_dependency_checks()
@@ -441,6 +443,7 @@ async def health(_auth=Depends(verify_api_key)):
         "service_catalog_refresh": freshness,
         "scheduled_jobs": scheduled_jobs,
         "scheduler_running": update_status.get("scheduler_running", False),
+        "restore_grant_cleanup": restore_grant_cleanup_lifecycle.status(),
     }
 
     return JSONResponse(content=body, status_code=http_status)

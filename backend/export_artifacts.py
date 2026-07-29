@@ -110,6 +110,7 @@ def persist_generated_export(
 
     from database import SessionLocal
     from workspace_store import (
+        CanonicalWriteDeniedError,
         create_export_artifact,
         find_export_artifact,
         get_current_analysis_version,
@@ -206,6 +207,8 @@ def persist_generated_export(
             content_hash=artifact.content_hash,
             size_bytes=artifact.size_bytes,
         )
+    except CanonicalWriteDeniedError as exc:
+        raise ArchmorphException(404, "Diagram not found") from exc
     except ValueError as exc:
         raise ArchmorphException(
             409,

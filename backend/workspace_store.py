@@ -47,7 +47,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, or_
+from sqlalchemy import func, or_, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -60,6 +60,7 @@ from models.workspace import (
     Artifact,
     Decision,
     DecisionSeverity,
+    DecisionStatus,
     DecisionType,
     DiagramLifecycle,
     MigrationReplay,
@@ -85,6 +86,7 @@ MAX_WORKSPACES_PER_USER = 500
 WORKSPACE_STATUSES = frozenset(status.value for status in WorkspaceStatus)
 DECISION_TYPES = frozenset(value.value for value in DecisionType)
 DECISION_SEVERITIES = frozenset(value.value for value in DecisionSeverity)
+DECISION_STATUSES = frozenset(value.value for value in DecisionStatus)
 
 
 class DurableAnalysisPersistenceError(RuntimeError):
@@ -97,6 +99,10 @@ class AnalysisCacheWriteError(RuntimeError):
 
 class AnalysisVersionConflictError(RuntimeError):
     """Raised when an optimistic mutation targets an obsolete durable version."""
+
+
+class CanonicalWriteDeniedError(ValueError):
+    """Raised when canonical state is absent, inactive, or outside caller scope."""
 
 
 @dataclass(frozen=True)
@@ -157,6 +163,96 @@ def _require_durable_identity(owner_user_id: str, tenant_id: Optional[str]) -> N
     """Reject implicit or incomplete identity on authenticated durable writes."""
     if not owner_user_id or not tenant_id:
         raise ValueError("Authenticated durable analysis records require owner_user_id and tenant_id")
+
+
+def _lock_workspace_mutation(db: Session, workspace_id: str) -> None:
+    """Serialize lifecycle transitions and writes for one canonical workspace."""
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:material, 0))"),
+            {"material": f"workspace-mutation:{workspace_id}"},
+        )
+
+
+def _lock_workspace_mutations(db: Session, workspace_ids: List[str]) -> None:
+    """Acquire multi-workspace advisory locks in deterministic order."""
+    for workspace_id in sorted(set(workspace_ids)):
+        _lock_workspace_mutation(db, workspace_id)
+
+
+def _lock_active_workspace(
+    db: Session,
+    workspace_id: str,
+    *,
+    owner_user_id: str,
+    tenant_id: Optional[str],
+) -> Workspace:
+    """Lock and reload the authoritative workspace, denying every inactive state."""
+    _lock_workspace_mutation(db, workspace_id)
+    query = db.query(Workspace).filter(
+        Workspace.id == workspace_id,
+        Workspace.owner_user_id == owner_user_id,
+        _tenant_matches(Workspace.tenant_id, tenant_id),
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        query = query.with_for_update()
+    workspace = query.one_or_none()
+    if workspace is None or workspace.status != WorkspaceStatus.ACTIVE.value:
+        raise CanonicalWriteDeniedError("Canonical state not found")
+    return workspace
+
+
+def _lock_active_analysis(
+    db: Session,
+    analysis_id: str,
+    *,
+    owner_user_id: str,
+    tenant_id: Optional[str],
+) -> tuple[Analysis, Workspace]:
+    """Lock workspace first, then analysis and lifecycle, for one write unit."""
+    identity = (
+        db.query(Analysis.workspace_id)
+        .filter(
+            Analysis.id == analysis_id,
+            Analysis.owner_user_id == owner_user_id,
+            _tenant_matches(Analysis.tenant_id, tenant_id),
+        )
+        .one_or_none()
+    )
+    if identity is None:
+        raise CanonicalWriteDeniedError("Canonical state not found")
+    workspace = _lock_active_workspace(
+        db,
+        identity.workspace_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    query = db.query(Analysis).filter(
+        Analysis.id == analysis_id,
+        Analysis.workspace_id == workspace.id,
+        Analysis.owner_user_id == owner_user_id,
+        _tenant_matches(Analysis.tenant_id, tenant_id),
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        query = query.with_for_update()
+    analysis = query.one_or_none()
+    if analysis is None:
+        raise CanonicalWriteDeniedError("Canonical state not found")
+    if analysis.diagram_id is not None and tenant_id is not None:
+        _ensure_active_lifecycle(
+            db,
+            diagram_id=analysis.diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            workspace_id=workspace.id,
+        )
+    return analysis, workspace
+
+
+def _assert_active_workspace(workspace: Workspace) -> None:
+    """Final transaction-boundary assertion while the workspace row remains locked."""
+    if workspace.status != WorkspaceStatus.ACTIVE.value:
+        raise CanonicalWriteDeniedError("Canonical state not found")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -299,8 +395,14 @@ def update_workspace(
     """Update allowed fields on a workspace. Returns None when not found/forbidden."""
     requested_status = fields.get("status")
     if requested_status is not None:
-        if requested_status not in {WorkspaceStatus.ACTIVE.value, WorkspaceStatus.ARCHIVED.value}:
-            raise ValueError(f"Unsupported workspace status transition: {requested_status}")
+        if requested_status not in {
+            WorkspaceStatus.ACTIVE.value,
+            WorkspaceStatus.ARCHIVED.value,
+        }:
+            raise ValueError(
+                f"Unsupported workspace status transition: {requested_status}"
+            )
+    _lock_workspace_mutation(db, workspace_id)
     query = db.query(Workspace).filter(
         Workspace.id == workspace_id,
         Workspace.owner_user_id == owner_user_id,
@@ -375,11 +477,12 @@ def create_source_asset(
     source_cloud: Optional[str] = None,
 ) -> SourceAsset:
     """Record metadata for an uploaded source asset."""
-    workspace = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
-    if workspace is None:
-        raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
-    if workspace.status != WorkspaceStatus.ACTIVE.value:
-        raise ValueError("Workspace is not active")
+    workspace = _lock_active_workspace(
+        db,
+        workspace_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
 
     asset = SourceAsset(
         workspace_id=workspace_id,
@@ -393,6 +496,7 @@ def create_source_asset(
         source_cloud=source_cloud,
     )
     db.add(asset)
+    _assert_active_workspace(workspace)
     db.commit()
     db.refresh(asset)
     logger.debug("source_asset_created asset_id=%s workspace=%s", asset.id, workspace_id)
@@ -463,11 +567,12 @@ def create_analysis(
     confidence_avg: Optional[float] = None,
 ) -> Analysis:
     """Create and persist an Analysis record."""
-    workspace = get_workspace(db, workspace_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
-    if workspace is None:
-        raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
-    if workspace.status != WorkspaceStatus.ACTIVE.value:
-        raise ValueError("Workspace is not active")
+    workspace = _lock_active_workspace(
+        db,
+        workspace_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
 
     if source_asset_id is not None:
         source_asset = get_source_asset(db, source_asset_id, owner_user_id=owner_user_id, tenant_id=tenant_id)
@@ -509,6 +614,7 @@ def create_analysis(
             lifecycle.workspace_id = workspace_id
         else:
             raise ValueError("Diagram has been purged")
+    _assert_active_workspace(workspace)
     db.commit()
     db.refresh(analysis)
     logger.info(
@@ -614,20 +720,12 @@ def save_analysis_version(
 
     last_integrity_error: Optional[IntegrityError] = None
     for _attempt in range(3):
-        query = db.query(Analysis)
-        if db.get_bind().dialect.name == "postgresql":
-            query = query.with_for_update()
-        analysis = (
-            query
-            .filter(
-                Analysis.id == analysis_id,
-                Analysis.owner_user_id == owner_user_id,
-                _tenant_matches(Analysis.tenant_id, tenant_id),
-            )
-            .first()
+        analysis, workspace = _lock_active_analysis(
+            db,
+            analysis_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
         )
-        if analysis is None:
-            raise ValueError(f"Analysis {analysis_id!r} not found or access denied")
 
         max_version = (
             db.query(func.max(AnalysisVersion.version_number))
@@ -652,6 +750,7 @@ def save_analysis_version(
             analysis.confidence_avg = confidence_avg
 
         try:
+            _assert_active_workspace(workspace)
             db.commit()
         except IntegrityError as exc:
             db.rollback()
@@ -674,6 +773,23 @@ def save_analysis_version(
 
 def _trim_old_versions(db: Session, analysis_id: str) -> None:
     """Delete oldest versions while preserving every transitive lineage ancestor."""
+    analysis_identity = (
+        db.query(Analysis.owner_user_id, Analysis.tenant_id)
+        .filter(Analysis.id == analysis_id)
+        .one_or_none()
+    )
+    if analysis_identity is None:
+        return
+    try:
+        _analysis, workspace = _lock_active_analysis(
+            db,
+            analysis_id,
+            owner_user_id=analysis_identity.owner_user_id,
+            tenant_id=analysis_identity.tenant_id,
+        )
+    except CanonicalWriteDeniedError:
+        db.rollback()
+        return
     query = db.query(AnalysisVersion).filter(AnalysisVersion.analysis_id == analysis_id)
     if db.get_bind().dialect.name == "postgresql":
         query = query.with_for_update()
@@ -728,6 +844,7 @@ def _trim_old_versions(db: Session, analysis_id: str) -> None:
             continue
         db.delete(version)
         deleted += 1
+    _assert_active_workspace(workspace)
     db.commit()
 
 
@@ -829,30 +946,13 @@ def restore_analysis_version(
         ).encode("utf-8")
     ).hexdigest()
 
-    existing_receipt = db.query(AnalysisRestoreReceipt).filter(
-        AnalysisRestoreReceipt.owner_user_id == owner_user_id,
-        AnalysisRestoreReceipt.tenant_id == receipt_tenant_id,
-        AnalysisRestoreReceipt.analysis_id == analysis_id,
-        AnalysisRestoreReceipt.idempotency_key_hash == key_hash,
-    ).first()
-    if existing_receipt is not None:
-        if existing_receipt.intent_hash != intent_hash:
-            raise AnalysisVersionConflictError("Idempotency-Key was already used for a different restore intent")
-        return db.query(AnalysisVersion).filter(
-            AnalysisVersion.id == existing_receipt.restored_version_id,
-            AnalysisVersion.analysis_id == analysis_id,
-        ).one()
+    analysis, workspace = _lock_active_analysis(
+        db,
+        analysis_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
 
-    analysis_query = db.query(Analysis)
-    if db.get_bind().dialect.name == "postgresql":
-        analysis_query = analysis_query.with_for_update()
-    analysis = analysis_query.filter(
-        Analysis.id == analysis_id,
-        Analysis.owner_user_id == owner_user_id,
-        _tenant_matches(Analysis.tenant_id, tenant_id),
-    ).first()
-    if analysis is None:
-        return None
     existing_receipt = db.query(AnalysisRestoreReceipt).filter(
         AnalysisRestoreReceipt.owner_user_id == owner_user_id,
         AnalysisRestoreReceipt.tenant_id == receipt_tenant_id,
@@ -899,9 +999,16 @@ def restore_analysis_version(
         restored_version_number=new_version.version_number,
     ))
     try:
+        _assert_active_workspace(workspace)
         db.commit()
     except IntegrityError:
         db.rollback()
+        _analysis, workspace = _lock_active_analysis(
+            db,
+            analysis_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
         receipt = db.query(AnalysisRestoreReceipt).filter(
             AnalysisRestoreReceipt.owner_user_id == owner_user_id,
             AnalysisRestoreReceipt.tenant_id == receipt_tenant_id,
@@ -911,11 +1018,19 @@ def restore_analysis_version(
         if receipt is None:
             raise
         if receipt.intent_hash != intent_hash:
-            raise AnalysisVersionConflictError("Idempotency-Key was already used for a different restore intent")
-        return db.query(AnalysisVersion).filter(
-            AnalysisVersion.id == receipt.restored_version_id,
-            AnalysisVersion.analysis_id == analysis_id,
-        ).one()
+            raise AnalysisVersionConflictError(
+                "Idempotency-Key was already used for a different restore intent"
+            )
+        _assert_active_workspace(workspace)
+        db.commit()
+        return (
+            db.query(AnalysisVersion)
+            .filter(
+                AnalysisVersion.id == receipt.restored_version_id,
+                AnalysisVersion.analysis_id == analysis_id,
+            )
+            .one()
+        )
     db.refresh(new_version)
     if session_store is not None and analysis.diagram_id:
         try:
@@ -950,14 +1065,12 @@ def create_artifact(
     commit: bool = True,
 ) -> Artifact:
     """Record a generated artifact."""
-    analysis = get_analysis_record(
+    analysis, workspace = _lock_active_analysis(
         db,
         analysis_id,
         owner_user_id=owner_user_id,
         tenant_id=tenant_id,
     )
-    if analysis is None:
-        raise ValueError(f"Analysis {analysis_id!r} not found or access denied")
     if version_id is not None:
         version = (
             db.query(AnalysisVersion)
@@ -986,6 +1099,9 @@ def create_artifact(
             .first()
         )
         if existing is not None:
+            if commit:
+                _assert_active_workspace(workspace)
+                db.commit()
             return existing
 
     artifact = Artifact(
@@ -1003,6 +1119,7 @@ def create_artifact(
     )
     db.add(artifact)
     if commit:
+        _assert_active_workspace(workspace)
         db.commit()
         db.refresh(artifact)
     else:
@@ -1090,22 +1207,23 @@ def create_decision(
     title: str,
     description: Optional[str] = None,
     severity: Optional[str] = None,
+    status: str = DecisionStatus.OPEN.value,
     version_id: Optional[str] = None,
     metadata: Optional[Dict[str, Any]] = None,
 ) -> Decision:
     """Record a risk or architectural decision."""
-    analysis = get_analysis_record(
+    analysis, workspace = _lock_active_analysis(
         db,
         analysis_id,
         owner_user_id=owner_user_id,
         tenant_id=tenant_id,
     )
-    if analysis is None:
-        raise ValueError(f"Analysis {analysis_id!r} not found or access denied")
     if decision_type not in DECISION_TYPES:
         raise ValueError("Unsupported decision type")
     if severity is not None and severity not in DECISION_SEVERITIES:
         raise ValueError("Unsupported decision severity")
+    if status not in DECISION_STATUSES:
+        raise ValueError("Unsupported decision status")
     if version_id is not None:
         version = db.query(AnalysisVersion.id).filter(
             AnalysisVersion.id == version_id,
@@ -1122,9 +1240,11 @@ def create_decision(
         title=title,
         description=description,
         severity=severity,
+        status=status,
         extra_data=_json.dumps(metadata or {}),
     )
     db.add(decision)
+    _assert_active_workspace(workspace)
     db.commit()
     db.refresh(decision)
     return decision
@@ -1185,7 +1305,7 @@ def _get_analysis_by_diagram(
             Analysis.diagram_id == diagram_id,
             Analysis.owner_user_id == owner_user_id,
             Analysis.tenant_id == tenant_id,
-            Workspace.status != "deleting",
+            Workspace.status == WorkspaceStatus.ACTIVE.value,
             or_(DiagramLifecycle.id.is_(None), DiagramLifecycle.state == "active"),
         )
     )
@@ -1254,30 +1374,55 @@ def _resolve_workspace_id(
     workspace_id: Optional[str],
 ) -> str:
     if workspace_id is not None:
-        workspace = get_workspace(
+        workspace = _lock_active_workspace(
             db,
             workspace_id,
             owner_user_id=owner_user_id,
             tenant_id=tenant_id,
         )
-        if workspace is None:
-            raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
-        if workspace.status != WorkspaceStatus.ACTIVE.value:
-            raise ValueError("Workspace is not active")
         return workspace.id
 
-    workspace = (
+    workspace_id = (
         db.query(Workspace)
+        .with_entities(Workspace.id)
         .filter(
             Workspace.owner_user_id == owner_user_id,
             Workspace.tenant_id == tenant_id,
             Workspace.is_default.is_(True),
-            Workspace.status == "active",
+            Workspace.status == WorkspaceStatus.ACTIVE.value,
         )
-        .first()
+        .scalar()
     )
-    if workspace is not None:
-        return workspace.id
+    if workspace_id is not None:
+        return _lock_active_workspace(
+            db,
+            workspace_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        ).id
+
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(hashtextextended(:material, 0))"),
+            {"material": f"workspace-default:{owner_user_id}:{tenant_id}"},
+        )
+        workspace_id = (
+            db.query(Workspace.id)
+            .filter(
+                Workspace.owner_user_id == owner_user_id,
+                Workspace.tenant_id == tenant_id,
+                Workspace.is_default.is_(True),
+                Workspace.status == WorkspaceStatus.ACTIVE.value,
+            )
+            .scalar()
+        )
+        if workspace_id is not None:
+            return _lock_active_workspace(
+                db,
+                workspace_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+            ).id
 
     values = {
         "id": str(uuid.uuid4()),
@@ -1300,7 +1445,7 @@ def _resolve_workspace_id(
                 Workspace.owner_user_id == owner_user_id,
                 Workspace.tenant_id == tenant_id,
                 Workspace.is_default.is_(True),
-                Workspace.status == "active",
+                Workspace.status == WorkspaceStatus.ACTIVE.value,
             )
             .first()
         )
@@ -1548,13 +1693,35 @@ def persist_analysis_state(
     artifact: Optional[Artifact] = None
     for attempt in range(5):
         try:
-            analysis = _get_analysis_by_diagram(
-                db,
-                diagram_id=diagram_id,
-                owner_user_id=owner_user_id,
-                tenant_id=tenant_id,
-                for_update=True,
+            locked_workspaces: list[Workspace] = []
+            analysis_identity = (
+                db.query(Analysis.id, Analysis.workspace_id)
+                .filter(
+                    Analysis.diagram_id == diagram_id,
+                    Analysis.owner_user_id == owner_user_id,
+                    Analysis.tenant_id == tenant_id,
+                )
+                .one_or_none()
             )
+            if analysis_identity is not None:
+                if (
+                    workspace_id is not None
+                    and analysis_identity.workspace_id != workspace_id
+                ):
+                    _lock_workspace_mutations(
+                        db,
+                        [analysis_identity.workspace_id, workspace_id],
+                    )
+                analysis, source_workspace = _lock_active_analysis(
+                    db,
+                    analysis_identity.id,
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                )
+                locked_workspaces.append(source_workspace)
+            else:
+                analysis = None
+
             if analysis is None:
                 tombstone = _get_lifecycle(
                     db,
@@ -1566,7 +1733,13 @@ def persist_analysis_state(
                 if tombstone is not None and tombstone.state != "active":
                     raise ValueError("Diagram has been purged")
                 if tombstone is not None and tombstone.workspace_id:
-                    resolved_workspace_id = tombstone.workspace_id
+                    resolved_workspace = _lock_active_workspace(
+                        db,
+                        tombstone.workspace_id,
+                        owner_user_id=owner_user_id,
+                        tenant_id=tenant_id,
+                    )
+                    resolved_workspace_id = resolved_workspace.id
                 else:
                     resolved_workspace_id = _resolve_workspace_id(
                         db,
@@ -1575,6 +1748,13 @@ def persist_analysis_state(
                         snapshot=snapshot,
                         workspace_id=workspace_id,
                     )
+                    resolved_workspace = _lock_active_workspace(
+                        db,
+                        resolved_workspace_id,
+                        owner_user_id=owner_user_id,
+                        tenant_id=tenant_id,
+                    )
+                locked_workspaces.append(resolved_workspace)
                 mappings = snapshot.get("mappings", [])
                 confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
                 analysis = Analysis(
@@ -1610,14 +1790,13 @@ def persist_analysis_state(
                     workspace_id=analysis.workspace_id,
                 )
                 if workspace_id is not None and analysis.workspace_id != workspace_id:
-                    requested_workspace = get_workspace(
+                    requested_workspace = _lock_active_workspace(
                         db,
                         workspace_id,
                         owner_user_id=owner_user_id,
                         tenant_id=tenant_id,
                     )
-                    if requested_workspace is None or requested_workspace.status != "active":
-                        raise ValueError(f"Workspace {workspace_id!r} not found or access denied")
+                    locked_workspaces.append(requested_workspace)
                     analysis.workspace_id = requested_workspace.id
                     lifecycle = _get_lifecycle(
                         db,
@@ -1649,11 +1828,18 @@ def persist_analysis_state(
                     ).one()
                     artifact = None
                     if artifact_type and artifact_content is not None:
-                        artifact = db.query(Artifact).filter(
-                            Artifact.version_id == version.id,
-                            Artifact.artifact_type == artifact_type,
-                            Artifact.content_hash == _full_hash(artifact_content.encode("utf-8")),
-                        ).first()
+                        artifact = (
+                            db.query(Artifact)
+                            .filter(
+                                Artifact.version_id == version.id,
+                                Artifact.artifact_type == artifact_type,
+                                Artifact.content_hash
+                                == _full_hash(artifact_content.encode("utf-8")),
+                            )
+                            .first()
+                        )
+                    for locked_workspace in locked_workspaces:
+                        _assert_active_workspace(locked_workspace)
                     db.commit()
                     version_created = False
                     idempotent_replay = True
@@ -1724,6 +1910,8 @@ def persist_analysis_state(
                 ))
             if precommit_hook is not None:
                 precommit_hook(db)
+            for locked_workspace in locked_workspaces:
+                _assert_active_workspace(locked_workspace)
             db.commit()
             idempotent_replay = False
             break
@@ -1827,13 +2015,24 @@ def issue_restore_grant(
 ) -> tuple[str, int, int]:
     """Persist and return a one-time opaque restore nonce."""
     cleanup_restore_grants(db, limit=200)
-    analysis = _get_analysis_by_diagram(
-        db,
-        diagram_id=diagram_id,
-        owner_user_id=owner_user_id,
-        tenant_id=tenant_id,
-        for_update=True,
+    analysis_identity = (
+        db.query(Analysis.id)
+        .filter(
+            Analysis.diagram_id == diagram_id,
+            Analysis.owner_user_id == owner_user_id,
+            Analysis.tenant_id == tenant_id,
+        )
+        .one_or_none()
     )
+    analysis = None
+    workspace = None
+    if analysis_identity is not None:
+        analysis, workspace = _lock_active_analysis(
+            db,
+            analysis_identity.id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
     lifecycle = _get_lifecycle(
         db,
         diagram_id=diagram_id,
@@ -1851,21 +2050,34 @@ def issue_restore_grant(
             tenant_id=tenant_id,
             workspace_id=analysis.workspace_id,
         )
+    elif workspace is None and lifecycle.workspace_id is not None:
+        workspace = _lock_active_workspace(
+            db,
+            lifecycle.workspace_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
     if lifecycle.state != "active":
         raise ValueError("Diagram not found")
     expected_version = int(analysis.current_version or 0) if analysis is not None else 0
     nonce = secrets.token_urlsafe(32)
     nonce_digest = hashlib.sha256(nonce.encode("utf-8")).hexdigest()
-    db.add(RestoreGrant(
-        nonce_digest=nonce_digest,
-        owner_user_id=owner_user_id,
-        tenant_id=tenant_id,
-        diagram_id=diagram_id,
-        generation=int(lifecycle.generation or 1),
-        expected_version=expected_version,
-        payload_hash=payload_hash,
-        expires_at=datetime.fromtimestamp(time.time() + ttl_seconds, tz=timezone.utc),
-    ))
+    expires_at = datetime.fromtimestamp(time.time() + ttl_seconds, tz=timezone.utc)
+    db.add(
+        RestoreGrant(
+            nonce_digest=nonce_digest,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            diagram_id=diagram_id,
+            generation=int(lifecycle.generation or 1),
+            expected_version=expected_version,
+            payload_hash=payload_hash,
+            expires_at=expires_at,
+            cleanup_at=expires_at,
+        )
+    )
+    if workspace is not None:
+        _assert_active_workspace(workspace)
     db.commit()
     return nonce, int(lifecycle.generation or 1), expected_version
 
@@ -1873,22 +2085,15 @@ def issue_restore_grant(
 def cleanup_restore_grants(db: Session, *, limit: int = 200) -> int:
     """Delete a bounded oldest page of expired, consumed, or revoked grants."""
     now = datetime.now(timezone.utc)
-    stale_ids = [
-        grant_id
-        for (grant_id,) in (
-            db.query(RestoreGrant.id)
-            .filter(
-                or_(
-                    RestoreGrant.expires_at < now,
-                    RestoreGrant.consumed_at.is_not(None),
-                    RestoreGrant.revoked_at.is_not(None),
-                )
-            )
-            .order_by(RestoreGrant.created_at.asc(), RestoreGrant.id.asc())
-            .limit(max(1, min(limit, 1000)))
-            .all()
-        )
-    ]
+    query = (
+        db.query(RestoreGrant.id)
+        .filter(RestoreGrant.cleanup_at <= now)
+        .order_by(RestoreGrant.cleanup_at.asc(), RestoreGrant.id.asc())
+        .limit(max(1, min(limit, 1000)))
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        query = query.with_for_update(skip_locked=True)
+    stale_ids = [grant_id for (grant_id,) in query.all()]
     if not stale_ids:
         return 0
     deleted = db.query(RestoreGrant).filter(RestoreGrant.id.in_(stale_ids)).delete(
@@ -1916,6 +2121,27 @@ def consume_restore_grant(
     if db.get_bind().dialect.name == "postgresql":
         query = query.with_for_update()
     grant = query.first()
+    workspace = None
+    analysis_identity = (
+        db.query(Analysis.id)
+        .filter(
+            Analysis.diagram_id == diagram_id,
+            Analysis.owner_user_id == owner_user_id,
+            Analysis.tenant_id == tenant_id,
+        )
+        .one_or_none()
+    )
+    try:
+        if analysis_identity is not None:
+            _analysis, workspace = _lock_active_analysis(
+                db,
+                analysis_identity.id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+            )
+    except CanonicalWriteDeniedError:
+        db.rollback()
+        return False
     lifecycle = _get_lifecycle(
         db,
         diagram_id=diagram_id,
@@ -1923,6 +2149,21 @@ def consume_restore_grant(
         tenant_id=tenant_id,
         for_update=True,
     )
+    if (
+        workspace is None
+        and lifecycle is not None
+        and lifecycle.workspace_id is not None
+    ):
+        try:
+            workspace = _lock_active_workspace(
+                db,
+                lifecycle.workspace_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+            )
+        except CanonicalWriteDeniedError:
+            db.rollback()
+            return False
     now = datetime.now(timezone.utc)
     expires_at = grant.expires_at if grant is not None else None
     if expires_at is not None and expires_at.tzinfo is None:
@@ -1947,6 +2188,9 @@ def consume_restore_grant(
         return False
     grant.payload_hash = payload_hash
     grant.consumed_at = now
+    grant.cleanup_at = now
+    if workspace is not None:
+        _assert_active_workspace(workspace)
     if commit:
         db.commit()
     else:
@@ -1974,14 +2218,28 @@ def rehome_legacy_analysis_scope(
         return "not_found"
     target_owner_user_id = target_owner_user_id or owner_user_id
 
-    query = db.query(Analysis).filter(
-        Analysis.diagram_id == diagram_id,
-        Analysis.owner_user_id == owner_user_id,
-        Analysis.tenant_id == source_tenant_id,
+    legacy_ids = (
+        db.query(Analysis.id)
+        .filter(
+            Analysis.diagram_id == diagram_id,
+            Analysis.owner_user_id == owner_user_id,
+            Analysis.tenant_id == source_tenant_id,
+        )
+        .all()
     )
-    if db.get_bind().dialect.name == "postgresql":
-        query = query.with_for_update()
-    legacy_rows = query.all()
+    legacy_rows = []
+    for (legacy_id,) in legacy_ids:
+        try:
+            legacy_analysis, _workspace = _lock_active_analysis(
+                db,
+                legacy_id,
+                owner_user_id=owner_user_id,
+                tenant_id=source_tenant_id,
+            )
+        except CanonicalWriteDeniedError:
+            db.rollback()
+            return "not_found"
+        legacy_rows.append(legacy_analysis)
     if len(legacy_rows) != 1:
         if legacy_rows:
             db.add(TenantRehomeAudit(
@@ -1999,17 +2257,12 @@ def rehome_legacy_analysis_scope(
         return "not_found"
 
     analysis = legacy_rows[0]
-    workspace = (
-        db.query(Workspace)
-        .filter(
-            Workspace.id == analysis.workspace_id,
-            Workspace.owner_user_id == owner_user_id,
-            Workspace.tenant_id == source_tenant_id,
-        )
-        .first()
+    workspace = _lock_active_workspace(
+        db,
+        analysis.workspace_id,
+        owner_user_id=owner_user_id,
+        tenant_id=source_tenant_id,
     )
-    if workspace is None:
-        return "not_found"
 
     workspace_analysis_query = db.query(Analysis).filter(
         Analysis.workspace_id == workspace.id,
@@ -2162,35 +2415,43 @@ def rehome_legacy_analysis_scope(
         },
         synchronize_session=False,
     )
-    db.add(TenantRehomeAudit(
-        owner_user_id=owner_user_id,
-        source_tenant_id=source_tenant_id,
-        target_tenant_id=target_tenant_id,
-        status="access_rehome_completed",
-        details=_json.dumps(
-            {
-                "analysis_ids": analysis_ids,
-                "diagram_id": diagram_id,
-                "target_owner_user_id": target_owner_user_id,
-                "workspace_id": workspace.id,
-            },
-            sort_keys=True,
-        ),
-    ))
-    try:
-        db.commit()
-    except IntegrityError:
-        db.rollback()
-        db.add(TenantRehomeAudit(
+    db.add(
+        TenantRehomeAudit(
             owner_user_id=owner_user_id,
             source_tenant_id=source_tenant_id,
             target_tenant_id=target_tenant_id,
-            status="conflict_denied",
+            status="access_rehome_completed",
             details=_json.dumps(
-                {"diagram_id": diagram_id, "reason": "concurrent_integrity_conflict"},
+                {
+                    "analysis_ids": analysis_ids,
+                    "diagram_id": diagram_id,
+                    "target_owner_user_id": target_owner_user_id,
+                    "workspace_id": workspace.id,
+                },
                 sort_keys=True,
             ),
-        ))
+        )
+    )
+    try:
+        _assert_active_workspace(workspace)
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        db.add(
+            TenantRehomeAudit(
+                owner_user_id=owner_user_id,
+                source_tenant_id=source_tenant_id,
+                target_tenant_id=target_tenant_id,
+                status="conflict_denied",
+                details=_json.dumps(
+                    {
+                        "diagram_id": diagram_id,
+                        "reason": "concurrent_integrity_conflict",
+                    },
+                    sort_keys=True,
+                ),
+            )
+        )
         db.commit()
         return "conflict"
     return "rehomed"
@@ -2214,6 +2475,7 @@ def rehome_legacy_owner_scope(
         workspace_query = db.query(Workspace).filter(
             Workspace.owner_user_id == source_owner_user_id,
             Workspace.tenant_id == source_tenant_id,
+            Workspace.status == WorkspaceStatus.ACTIVE.value,
         )
         if db.get_bind().dialect.name == "postgresql":
             workspace_query = workspace_query.with_for_update()
@@ -2466,6 +2728,7 @@ def rehome_legacy_owner_scope(
                 ),
             ))
             summary["rehomed"] += 1
+            _assert_active_workspace(workspace)
         try:
             db.commit()
         except IntegrityError:
@@ -2554,6 +2817,7 @@ def resolve_quarantined_legacy_graph(
         Workspace.id == alias.source_entity_id,
         Workspace.owner_user_id == alias.source_owner_user_id,
         Workspace.tenant_id == alias.source_tenant_id,
+        Workspace.status == WorkspaceStatus.ACTIVE.value,
     )
     if db.get_bind().dialect.name == "postgresql":
         workspace_query = workspace_query.with_for_update()
@@ -2684,20 +2948,23 @@ def resolve_quarantined_legacy_graph(
         child_alias.target_tenant_id = alias.target_tenant_id
         child_alias.target_entity_id = child_alias.source_entity_id
         child_alias.reason = "operator_reconciled"
-    db.add(TenantRehomeAudit(
-        owner_user_id=alias.source_owner_user_id,
-        source_tenant_id=alias.source_tenant_id,
-        target_tenant_id=alias.target_tenant_id,
-        status="quarantine_resolved",
-        details=_json.dumps(
-            {
-                "alias_id": alias.id,
-                "workspace_id": workspace.id,
-                "analysis_ids": sorted(analysis_ids),
-            },
-            sort_keys=True,
-        ),
-    ))
+    db.add(
+        TenantRehomeAudit(
+            owner_user_id=alias.source_owner_user_id,
+            source_tenant_id=alias.source_tenant_id,
+            target_tenant_id=alias.target_tenant_id,
+            status="quarantine_resolved",
+            details=_json.dumps(
+                {
+                    "alias_id": alias.id,
+                    "workspace_id": workspace.id,
+                    "analysis_ids": sorted(analysis_ids),
+                },
+                sort_keys=True,
+            ),
+        )
+    )
+    _assert_active_workspace(workspace)
     db.commit()
     return {"alias_id": alias.id, "status": "resolved", "idempotent": False}
 
@@ -2710,14 +2977,24 @@ def get_current_analysis_version(
     tenant_id: str,
 ) -> tuple[Analysis, AnalysisVersion]:
     """Return the locked current immutable version for a canonical diagram."""
-    analysis = _get_analysis_by_diagram(
+    analysis_identity = (
+        db.query(Analysis.id)
+        .filter(
+            Analysis.diagram_id == diagram_id,
+            Analysis.owner_user_id == owner_user_id,
+            Analysis.tenant_id == tenant_id,
+        )
+        .one_or_none()
+    )
+    if analysis_identity is None:
+        raise ValueError("Canonical analysis version is required")
+    analysis, _workspace = _lock_active_analysis(
         db,
-        diagram_id=diagram_id,
+        analysis_identity.id,
         owner_user_id=owner_user_id,
         tenant_id=tenant_id,
-        for_update=True,
     )
-    if analysis is None or int(analysis.current_version or 0) <= 0:
+    if int(analysis.current_version or 0) <= 0:
         raise ValueError("Canonical analysis version is required")
     version = db.query(AnalysisVersion).filter(
         AnalysisVersion.analysis_id == analysis.id,
@@ -2748,6 +3025,12 @@ def create_export_artifact(
         owner_user_id=owner_user_id,
         tenant_id=tenant_id,
     )
+    workspace = _lock_active_workspace(
+        db,
+        analysis.workspace_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
     if expected_version_id is not None:
         version = db.query(AnalysisVersion).filter(
             AnalysisVersion.id == expected_version_id,
@@ -2765,6 +3048,7 @@ def create_export_artifact(
         Artifact.content_hash == content_hash,
     ).one_or_none()
     if existing is not None:
+        _assert_active_workspace(workspace)
         db.commit()
         return existing
     if inline_content is None and storage_url is None:
@@ -2783,14 +3067,28 @@ def create_export_artifact(
     )
     db.add(artifact)
     try:
+        _assert_active_workspace(workspace)
         db.commit()
     except IntegrityError:
         db.rollback()
-        return db.query(Artifact).filter(
-            Artifact.version_id == version.id,
-            Artifact.artifact_type == artifact_type,
-            Artifact.content_hash == content_hash,
-        ).one()
+        analysis, _version = get_current_analysis_version(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        existing = (
+            db.query(Artifact)
+            .filter(
+                Artifact.analysis_id == analysis.id,
+                Artifact.version_id == version.id,
+                Artifact.artifact_type == artifact_type,
+                Artifact.content_hash == content_hash,
+            )
+            .one()
+        )
+        db.commit()
+        return existing
     db.refresh(artifact)
     return artifact
 
@@ -2839,6 +3137,13 @@ def create_migration_replay(
         title=title,
     )
     db.add(replay)
+    workspace = _lock_active_workspace(
+        db,
+        analysis.workspace_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    _assert_active_workspace(workspace)
     db.commit()
     db.refresh(replay)
     return replay
@@ -2880,6 +3185,12 @@ def add_migration_replay_event(
     )
     if replay is None:
         raise ValueError("Replay not found")
+    _analysis, workspace = _lock_active_analysis(
+        db,
+        replay.analysis_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
     sequence = int(
         db.query(func.max(MigrationReplayEvent.sequence)).filter(
             MigrationReplayEvent.replay_id == replay_id
@@ -2893,6 +3204,7 @@ def add_migration_replay_event(
         data=_json.dumps(data, sort_keys=True, default=str),
     )
     db.add(event)
+    _assert_active_workspace(workspace)
     db.commit()
     db.refresh(event)
     return event
@@ -3132,31 +3444,40 @@ def link_analysis_to_workspace(
     PostgreSQL metadata is authoritative even when ``current_version == 0``;
     no browser/session payload is read or persisted by this operation.
     """
-    workspace_query = db.query(Workspace).filter(
-        Workspace.id == workspace_id,
-        Workspace.owner_user_id == owner_user_id,
-        Workspace.tenant_id == tenant_id,
-        Workspace.status == WorkspaceStatus.ACTIVE.value,
+    analysis_identity = (
+        db.query(Analysis.id, Analysis.workspace_id)
+        .filter(
+            Analysis.diagram_id == diagram_id,
+            Analysis.owner_user_id == owner_user_id,
+            Analysis.tenant_id == tenant_id,
+        )
+        .one_or_none()
     )
-    analysis_query = db.query(Analysis).filter(
-        Analysis.diagram_id == diagram_id,
-        Analysis.owner_user_id == owner_user_id,
-        Analysis.tenant_id == tenant_id,
+    if analysis_identity is None:
+        raise CanonicalWriteDeniedError("Canonical state not found")
+    _lock_workspace_mutations(
+        db,
+        [analysis_identity.workspace_id, workspace_id],
     )
-    lifecycle_query = db.query(DiagramLifecycle).filter(
-        DiagramLifecycle.diagram_id == diagram_id,
-        DiagramLifecycle.owner_user_id == owner_user_id,
-        DiagramLifecycle.tenant_id == tenant_id,
+    analysis, source_workspace = _lock_active_analysis(
+        db,
+        analysis_identity.id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
     )
-    if db.get_bind().dialect.name == "postgresql":
-        workspace_query = workspace_query.with_for_update()
-        analysis_query = analysis_query.with_for_update()
-        lifecycle_query = lifecycle_query.with_for_update()
-    workspace = workspace_query.one_or_none()
-    analysis = analysis_query.one_or_none()
-    lifecycle = lifecycle_query.one_or_none()
-    if workspace is None or analysis is None:
-        raise ValueError("Workspace or analysis not found")
+    workspace = _lock_active_workspace(
+        db,
+        workspace_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    lifecycle = _get_lifecycle(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        for_update=True,
+    )
     if lifecycle is not None and lifecycle.state != "active":
         raise ValueError("Diagram has been purged")
     previous_workspace_id = analysis.workspace_id
@@ -3199,6 +3520,8 @@ def link_analysis_to_workspace(
         db.add(lifecycle)
     else:
         lifecycle.workspace_id = workspace.id
+    _assert_active_workspace(source_workspace)
+    _assert_active_workspace(workspace)
     db.commit()
     db.refresh(analysis)
     return analysis, previous_workspace_id
@@ -3466,7 +3789,10 @@ def begin_diagram_purge(
         RestoreGrant.tenant_id == tenant_id,
         RestoreGrant.diagram_id == diagram_id,
         RestoreGrant.revoked_at.is_(None),
-    ).update({RestoreGrant.revoked_at: now}, synchronize_session=False)
+    ).update(
+        {RestoreGrant.revoked_at: now, RestoreGrant.cleanup_at: now},
+        synchronize_session=False,
+    )
     db.commit()
     db.refresh(operation)
     return operation
@@ -3490,11 +3816,14 @@ def begin_workspace_purge(
     if db.get_bind().dialect.name == "postgresql":
         query = query.with_for_update()
     operation = query.first()
-    workspace = db.query(Workspace).filter(
+    workspace_query = db.query(Workspace).filter(
         Workspace.id == workspace_id,
         Workspace.owner_user_id == owner_user_id,
         Workspace.tenant_id == tenant_id,
-    ).first()
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        workspace_query = workspace_query.with_for_update()
+    workspace = workspace_query.first()
     if workspace is None:
         if operation is None:
             raise ValueError("Workspace not found")
@@ -3584,7 +3913,10 @@ def begin_workspace_purge(
         RestoreGrant.tenant_id == tenant_id,
         RestoreGrant.diagram_id.in_(diagram_ids),
         RestoreGrant.revoked_at.is_(None),
-    ).update({RestoreGrant.revoked_at: now}, synchronize_session=False)
+    ).update(
+        {RestoreGrant.revoked_at: now, RestoreGrant.cleanup_at: now},
+        synchronize_session=False,
+    )
     db.commit()
     db.refresh(operation)
     return operation, diagram_ids

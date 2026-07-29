@@ -30,6 +30,7 @@ from models.workspace import (  # noqa: F401
     Artifact,
     Decision,
     DecisionSeverity,
+    DecisionStatus,
     DecisionType,
     AnalysisMutationReceipt,
     DiagramLifecycle,

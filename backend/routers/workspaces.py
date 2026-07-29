@@ -48,6 +48,7 @@ from routers.shared import (
 from strict_models import StrictBaseModel
 from workspace_store import (
     AnalysisVersionConflictError,
+    CanonicalWriteDeniedError,
     create_analysis,
     create_decision,
     create_workspace,
@@ -67,7 +68,12 @@ from workspace_store import (
     rehome_legacy_owner_scope,
     update_workspace,
 )
-from models.workspace import DecisionSeverity, DecisionType, WorkspaceStatus
+from models.workspace import (
+    DecisionSeverity,
+    DecisionStatus,
+    DecisionType,
+    WorkspaceStatus,
+)
 
 router = APIRouter(prefix="/api", tags=["Workspaces"])
 
@@ -109,6 +115,7 @@ class CreateDecisionRequest(StrictBaseModel):
     title: str = Field(..., min_length=1, max_length=300)
     description: Optional[str] = Field(default=None, max_length=5000)
     severity: Optional[DecisionSeverity] = Field(default=None)
+    status: DecisionStatus = DecisionStatus.OPEN
     version_id: Optional[str] = Field(default=None, max_length=36)
 
 
@@ -396,17 +403,20 @@ async def create_analysis_endpoint(
             )
         return result
 
-    analysis = await _db_call(
-        lambda db, **kwargs: create_analysis(db, **kwargs).to_dict(),
-        workspace_id=workspace_id,
-        owner_user_id=owner_user_id,
-        tenant_id=_tenant_id(user),
-        diagram_id=body.diagram_id,
-        source_asset_id=body.source_asset_id,
-        title=body.title,
-        source_cloud=body.source_cloud,
-        target_cloud=body.target_cloud,
-    )
+    try:
+        analysis = await _db_call(
+            lambda db, **kwargs: create_analysis(db, **kwargs).to_dict(),
+            workspace_id=workspace_id,
+            owner_user_id=owner_user_id,
+            tenant_id=_tenant_id(user),
+            diagram_id=body.diagram_id,
+            source_asset_id=body.source_asset_id,
+            title=body.title,
+            source_cloud=body.source_cloud,
+            target_cloud=body.target_cloud,
+        )
+    except CanonicalWriteDeniedError as exc:
+        raise ArchmorphException(404, "Workspace not found") from exc
     return analysis
 
 
@@ -553,6 +563,8 @@ async def restore_version_endpoint(
         )
     except AnalysisVersionConflictError as exc:
         raise ArchmorphException(409, str(exc)) from exc
+    except CanonicalWriteDeniedError as exc:
+        raise ArchmorphException(404, "Version not found") from exc
     except ValueError as exc:
         raise ArchmorphException(400, str(exc)) from exc
     if new_version is None:
@@ -697,8 +709,11 @@ async def create_decision_endpoint(
             title=body.title,
             description=body.description,
             severity=body.severity.value if body.severity is not None else None,
+            status=body.status.value,
             version_id=body.version_id,
         )
+    except CanonicalWriteDeniedError as exc:
+        raise ArchmorphException(404, "Analysis not found") from exc
     except ValueError as exc:
         raise ArchmorphException(422, str(exc)) from exc
     return decision

@@ -325,12 +325,15 @@ def register_diagram(
     content_hash: Optional[str] = None,
 ) -> Analysis:
     """Register durable project membership after authorizing its project."""
-    project = _project_query(
+    project_query = _project_query(
         db,
         project_id=project_id,
         owner_user_id=owner_user_id,
         tenant_id=tenant_id,
-    ).first()
+    )
+    if db.get_bind().dialect.name == "postgresql":
+        project_query = project_query.with_for_update()
+    project = project_query.first()
     if project is None:
         raise ValueError("Project not found")
     if db.query(Analysis.id).filter(Analysis.diagram_id == diagram_id).first() is not None:
@@ -376,6 +379,8 @@ def register_diagram(
         lifecycle.workspace_id = project.id
     else:
         raise ValueError("Diagram identity has been purged")
+    if project.status != "active":
+        raise ValueError("Project not found")
     db.commit()
     db.refresh(analysis)
     return analysis
@@ -403,17 +408,25 @@ def resolve_diagram_access(
     caller_user_id: str,
     tenant_id: str,
     allowed_roles: frozenset[str],
+    lock_authorization: bool = False,
 ) -> Optional[tuple[Analysis, Workspace, str]]:
     """Resolve a diagram through its current canonical project membership."""
-    row = db.query(Analysis, Workspace).join(
-        Workspace,
-        Workspace.id == Analysis.workspace_id,
-    ).filter(
-        Analysis.diagram_id == diagram_id,
-        Analysis.tenant_id == tenant_id,
-        Workspace.tenant_id == tenant_id,
-        Workspace.status == "active",
-    ).first()
+    query = (
+        db.query(Analysis, Workspace)
+        .join(
+            Workspace,
+            Workspace.id == Analysis.workspace_id,
+        )
+        .filter(
+            Analysis.diagram_id == diagram_id,
+            Analysis.tenant_id == tenant_id,
+            Workspace.tenant_id == tenant_id,
+            Workspace.status == "active",
+        )
+    )
+    if lock_authorization:
+        query = query.with_for_update(read=True)
+    row = query.first()
     if row is None:
         return None
     analysis, project = row
@@ -428,6 +441,7 @@ def resolve_diagram_access(
             caller_user_id=caller_user_id,
             tenant_id=tenant_id,
             allowed_roles=allowed_roles,
+            lock_authorization=lock_authorization,
         )
         if resolved is None:
             return None
@@ -444,6 +458,7 @@ def resolve_diagram_principal(
     caller_user_id: str,
     tenant_id: str,
     allowed_roles: frozenset[str],
+    lock_authorization: bool = False,
 ) -> Optional[Dict[str, str]]:
     resolved = resolve_diagram_access(
         db,
@@ -451,6 +466,7 @@ def resolve_diagram_principal(
         caller_user_id=caller_user_id,
         tenant_id=tenant_id,
         allowed_roles=allowed_roles,
+        lock_authorization=lock_authorization,
     )
     if resolved is None:
         return None
@@ -514,6 +530,7 @@ def list_project_members(
         caller_user_id=owner_user_id,
         tenant_id=tenant_id,
         allowed_roles=PROJECT_MANAGE_ROLES,
+        lock_authorization=True,
     )
     if resolved is None:
         return None
@@ -582,6 +599,8 @@ def add_project_member(
         ):
             raise ValueError("Foreign project member")
         member.role = role
+    if project.status != "active":
+        return None
     db.commit()
     db.refresh(member)
     return member
@@ -601,6 +620,7 @@ def remove_project_member(
         caller_user_id=owner_user_id,
         tenant_id=tenant_id,
         allowed_roles=PROJECT_MANAGE_ROLES,
+        lock_authorization=True,
     )
     if resolved is None:
         return None
@@ -614,6 +634,8 @@ def remove_project_member(
     if member is None:
         return False
     db.delete(member)
+    if project.status != "active":
+        return None
     db.commit()
     return True
 

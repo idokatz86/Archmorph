@@ -161,7 +161,8 @@ configure_auto_instrumentation()
 from database import init_db  # noqa: E402
 from version import __version__  # noqa: E402
 from service_updater import start_scheduler, stop_scheduler  # noqa: E402
-from usage_metrics import flush_metrics  # noqa: E402
+from usage_metrics import apply_durable_purge_fences, flush_metrics  # noqa: E402
+from restore_grant_cleanup import restore_grant_cleanup_lifecycle  # noqa: E402
 from analytics import track_request_latency  # noqa: E402
 from observability import (  # noqa: E402
     increment_counter as obs_increment_counter,
@@ -329,6 +330,7 @@ async def lifespan(app: FastAPI):
             logger.warning("Icon auto-load skipped: %s", exc)
 
     await asyncio.gather(_init_database(), _init_icons())
+    await asyncio.to_thread(apply_durable_purge_fences)
 
     from session_store import session_store_readiness
 
@@ -362,13 +364,17 @@ async def lifespan(app: FastAPI):
         len(reconciliation["recovered"]),
         len(reconciliation["failed"]),
     )
+    await restore_grant_cleanup_lifecycle.start()
 
-    yield
-    logger.info("Shutting down Archmorph API")
-    await durable_job_worker.stop()
-    stop_scheduler()
-    flush_metrics()
-    _executor.shutdown(wait=False)
+    try:
+        yield
+    finally:
+        logger.info("Shutting down Archmorph API")
+        await durable_job_worker.stop()
+        await restore_grant_cleanup_lifecycle.stop()
+        stop_scheduler()
+        flush_metrics()
+        _executor.shutdown(wait=False)
 
 
 app = FastAPI(

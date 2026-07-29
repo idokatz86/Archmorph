@@ -12,6 +12,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError
 
 
 POSTGRES_URL = os.getenv("ARCHMORPH_TEST_POSTGRES_URL")
@@ -762,67 +763,92 @@ def _seed_every_014_only_table(engine) -> dict[str, str]:
         )
     }
     with engine.begin() as connection:
-        connection.execute(text("""
+        connection.execute(
+            text("""
             INSERT INTO workspaces
                 (id, owner_user_id, tenant_id, name, source_cloud, target_cloud,
                  status, is_public, is_default)
             VALUES
                 (:workspace, 'downgrade-owner', 'downgrade-tenant', 'Rollback guard',
                  'aws', 'azure', 'active', false, true)
-        """), ids)
-        connection.execute(text("""
+        """),
+            ids,
+        )
+        connection.execute(
+            text("""
             INSERT INTO analyses
                 (id, workspace_id, owner_user_id, tenant_id, diagram_id, source_cloud,
                  target_cloud, status, services_detected, current_version)
             VALUES
                 (:analysis, :workspace, 'downgrade-owner', 'downgrade-tenant',
                  'downgrade-diagram', 'aws', 'azure', 'completed', 0, 1)
-        """), ids)
-        connection.execute(text("""
+        """),
+            ids,
+        )
+        connection.execute(
+            text("""
             INSERT INTO analysis_versions
                 (id, analysis_id, version_number, snapshot, content_hash, created_by)
             VALUES
                 (:version, :analysis, 1, '{"mappings": []}', 'rollback-guard',
                  'downgrade-owner')
-        """), ids)
-        connection.execute(text("""
+        """),
+            ids,
+        )
+        connection.execute(
+            text("""
             INSERT INTO api_key_credentials
                 (id, principal_id, name, key_hash, key_prefix, scopes, rate_limit,
                  revoked)
             VALUES
                 (:api_key, 'rollback-principal', 'rollback guard', repeat('a', 64),
                  'arch_guard', '["read"]', 100, false)
-        """), ids)
-        connection.execute(text("""
+        """),
+            ids,
+        )
+        connection.execute(
+            text("""
             INSERT INTO project_members
                 (id, project_id, project_owner_user_id, tenant_id, member_user_id, role)
             VALUES
                 (:member, :workspace, 'downgrade-owner', 'downgrade-tenant',
                  'downgrade-member', 'viewer')
-        """), ids)
-        connection.execute(text("""
+        """),
+            ids,
+        )
+        connection.execute(
+            text("""
             INSERT INTO diagram_lifecycle
                 (id, diagram_id, owner_user_id, tenant_id, workspace_id, generation, state)
             VALUES
                 (:lifecycle, 'downgrade-diagram', 'downgrade-owner',
                  'downgrade-tenant', :workspace, 1, 'active')
-        """), ids)
-        connection.execute(text("""
+        """),
+            ids,
+        )
+        connection.execute(
+            text("""
             INSERT INTO restore_grants
                 (id, nonce_digest, owner_user_id, tenant_id, diagram_id, generation,
-                 expected_version, payload_hash, expires_at)
+                 expected_version, payload_hash, expires_at, cleanup_at)
             VALUES
                 (:grant, repeat('b', 64), 'downgrade-owner', 'downgrade-tenant',
-                 'downgrade-diagram', 1, 1, repeat('c', 64), now() + interval '1 hour')
-        """), ids)
-        connection.execute(text("""
+                 'downgrade-diagram', 1, 1, repeat('c', 64),
+                 now() + interval '1 hour', now() + interval '1 hour')
+        """),
+            ids,
+        )
+        connection.execute(
+            text("""
             INSERT INTO purge_operations
                 (id, scope_type, scope_id, workspace_id, owner_user_id, tenant_id,
                  status, manifest, stages, attempts)
             VALUES
                 (:purge, 'diagram', 'downgrade-diagram', :workspace,
                  'downgrade-owner', 'downgrade-tenant', 'pending', '{}', '{}', 0)
-        """), ids)
+        """),
+            ids,
+        )
         connection.execute(text("""
             INSERT INTO analysis_mutation_receipts
                 (id, owner_user_id, tenant_id, diagram_id, operation, request_hash,
@@ -1165,6 +1191,162 @@ def test_empty_014_schema_can_downgrade_and_reupgrade():
         with engine.connect() as connection:
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
             assert "api_key_credentials" in inspect(connection).get_table_names()
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def _seed_013_decision_statuses(engine, statuses: list[str]) -> list[str]:
+    workspace_id = str(uuid.uuid4())
+    analysis_id = str(uuid.uuid4())
+    decision_ids = [str(uuid.uuid4()) for _status in statuses]
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                """
+                INSERT INTO workspaces
+                    (id, owner_user_id, tenant_id, name, source_cloud, target_cloud,
+                     status, is_public)
+                VALUES
+                    (:workspace_id, 'decision-migration-owner', 'decision-tenant',
+                     'Decision migration', 'aws', 'azure', 'active', false)
+                """
+            ),
+            {"workspace_id": workspace_id},
+        )
+        connection.execute(
+            text(
+                """
+                INSERT INTO analyses
+                    (id, workspace_id, owner_user_id, tenant_id, source_cloud,
+                     target_cloud, status, services_detected, current_version)
+                VALUES
+                    (:analysis_id, :workspace_id, 'decision-migration-owner',
+                     'decision-tenant', 'aws', 'azure', 'completed', 0, 0)
+                """
+            ),
+            {"analysis_id": analysis_id, "workspace_id": workspace_id},
+        )
+        for decision_id, status in zip(decision_ids, statuses, strict=True):
+            connection.execute(
+                text(
+                    """
+                    INSERT INTO decisions
+                        (id, analysis_id, owner_user_id, tenant_id, decision_type,
+                         title, status)
+                    VALUES
+                        (:decision_id, :analysis_id, 'decision-migration-owner',
+                         'decision-tenant', 'decision', 'Legacy status', :status)
+                    """
+                ),
+                {
+                    "decision_id": decision_id,
+                    "analysis_id": analysis_id,
+                    "status": status,
+                },
+            )
+    return decision_ids
+
+
+def test_decision_status_reconciliation_constraint_and_013_014_cycle():
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    try:
+        _reset_database(engine)
+        _upgrade(config, engine, "013")
+        decision_ids = _seed_013_decision_statuses(
+            engine,
+            [" OPEN ", "Resolved", "accepted", ""],
+        )
+
+        _upgrade(config, engine, "014")
+        with engine.connect() as connection:
+            statuses = (
+                connection.execute(
+                    text(
+                        "SELECT status FROM decisions WHERE id = ANY(:ids) ORDER BY id"
+                    ),
+                    {"ids": decision_ids},
+                )
+                .scalars()
+                .all()
+            )
+            assert sorted(statuses) == ["accepted", "open", "open", "resolved"]
+            assert "ck_decisions_status" in {
+                constraint["name"]
+                for constraint in inspect(connection).get_check_constraints("decisions")
+            }
+        with pytest.raises(IntegrityError):
+            with engine.begin() as connection:
+                connection.execute(
+                    text(
+                        "UPDATE decisions SET status = 'pending-review' WHERE id = :id"
+                    ),
+                    {"id": decision_ids[0]},
+                )
+
+        _downgrade(config, engine, "013")
+        with engine.connect() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT count(*) FROM decisions WHERE id = ANY(:ids)"),
+                    {"ids": decision_ids},
+                ).scalar_one()
+                == 4
+            )
+            assert "ck_decisions_status" not in {
+                constraint["name"]
+                for constraint in inspect(connection).get_check_constraints("decisions")
+            }
+        _upgrade(config, engine, "014")
+        with engine.connect() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar_one()
+                == "014"
+            )
+            assert sorted(
+                connection.execute(
+                    text("SELECT status FROM decisions WHERE id = ANY(:ids)"),
+                    {"ids": decision_ids},
+                ).scalars()
+            ) == ["accepted", "open", "open", "resolved"]
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def test_unknown_nonempty_decision_status_aborts_014_without_coercion_or_leak():
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    config = _alembic_config()
+    try:
+        _reset_database(engine)
+        _upgrade(config, engine, "013")
+        decision_ids = _seed_013_decision_statuses(engine, ["pending-review"])
+
+        with pytest.raises(RuntimeError) as raised:
+            _upgrade(config, engine, "014")
+        assert "unsupported nonempty status" in str(raised.value)
+        assert "pending-review" not in str(raised.value)
+        with engine.connect() as connection:
+            assert (
+                connection.execute(
+                    text("SELECT version_num FROM alembic_version")
+                ).scalar_one()
+                == "013"
+            )
+            assert (
+                connection.execute(
+                    text("SELECT status FROM decisions WHERE id = :id"),
+                    {"id": decision_ids[0]},
+                ).scalar_one()
+                == "pending-review"
+            )
+            assert "is_default" not in {
+                column["name"]
+                for column in inspect(connection).get_columns("workspaces")
+            }
     finally:
         _reset_database(engine)
         engine.dispose()

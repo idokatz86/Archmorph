@@ -20,6 +20,7 @@ import os
 import logging
 import signal
 import threading
+from contextlib import contextmanager
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timedelta, timezone
 from threading import Lock
@@ -154,6 +155,9 @@ def _load_metrics(*, prefer_blob: bool = True):
             data = blob_breaker.call(lambda: blob.download_blob().readall())
             _metrics = json.loads(data)
             _ensure_keys(_metrics)
+            scrubber = globals().get("_scrub_durable_purges_locked")
+            if scrubber is not None:
+                scrubber()
             logger.info("Loaded usage metrics from Azure Blob Storage")
             return
         except Exception as exc:
@@ -165,20 +169,31 @@ def _load_metrics(*, prefer_blob: bool = True):
             with open(METRICS_FILE, "r") as f:
                 _metrics = json.load(f)
             _ensure_keys(_metrics)
+            scrubber = globals().get("_scrub_durable_purges_locked")
+            if scrubber is not None:
+                scrubber()
             logger.info("Loaded usage metrics from local disk")
         except Exception as exc:
             logger.warning("Failed to load metrics from disk: %s", exc)
             _metrics = json.loads(json.dumps(_DEFAULT_METRICS))
     else:
         _metrics = json.loads(json.dumps(_DEFAULT_METRICS))
+    scrubber = globals().get("_scrub_durable_purges_locked")
+    if scrubber is not None:
+        scrubber()
 
 
-def _save_metrics():
+def _save_metrics(*, require_all: bool = False) -> bool:
     """Persist metrics to Azure Blob Storage (primary) and local disk (fallback)."""
     global _dirty
+    scrubber = globals().get("_scrub_durable_purges_locked")
+    if scrubber is not None:
+        scrubber()
     payload = json.dumps(_metrics, indent=2, default=str)
 
-    saved = False
+    blob_required = bool(AZURE_STORAGE_ACCOUNT_URL or AZURE_STORAGE_CONNECTION_STRING)
+    blob_saved = not blob_required
+    disk_saved = False
 
     # 1. Try Azure Blob Storage
     blob = _get_blob_client()
@@ -187,7 +202,7 @@ def _save_metrics():
             from circuit_breakers import blob_breaker
             blob_breaker.call(blob.upload_blob, payload, overwrite=True)
             logger.debug("Saved usage metrics to Azure Blob Storage")
-            saved = True
+            blob_saved = True
         except Exception as exc:
             logger.warning("Blob save failed (%s) — falling back to disk", exc)
 
@@ -196,12 +211,16 @@ def _save_metrics():
         os.makedirs(DATA_DIR, exist_ok=True)
         with open(METRICS_FILE, "w") as f:
             f.write(payload)
-        saved = True
+        disk_saved = True
     except Exception as exc:
         logger.warning("Failed to save metrics to disk: %s", exc)
 
+    if require_all and not (blob_saved and disk_saved):
+        raise RuntimeError("Usage telemetry purge persistence could not be confirmed")
+    saved = blob_saved or disk_saved
     if saved:
         _dirty = False
+    return saved
 
 
 def _mark_dirty():
@@ -277,13 +296,301 @@ def _retained_identifier(value: object) -> str:
 def _sanitize_event_details(details: Optional[Dict]) -> Dict:
     sanitized: Dict[str, Any] = {}
     for key, value in (details or {}).items():
-        if key in {"diagram_id", "project_id", "session_id", "owner_user_id"}:
+        if key in {
+            "diagram_id",
+            "project_id",
+            "session_id",
+            "owner_user_id",
+            "tenant_id",
+        }:
             sanitized[f"{key}_hash"] = _retained_identifier(value)
         elif key in {"filename", "prompt", "message", "content", "reason"}:
             sanitized[f"{key}_sha256"] = _retained_identifier(value)
         else:
             sanitized[key] = value
     return sanitized
+
+
+def _subject_targets(
+    *,
+    diagram_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    owner_user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+) -> Dict[str, set[str]]:
+    raw_values = {
+        str(value)
+        for value in (diagram_id, project_id, owner_user_id, tenant_id)
+        if value
+    }
+    hashed_values = {_retained_identifier(value) for value in raw_values}
+    session_values: set[str] = set()
+    if diagram_id:
+        session_values.update({diagram_id, _retained_identifier(diagram_id)})
+    if project_id:
+        project_session = f"project-{project_id}"
+        session_values.update(
+            {
+                project_id,
+                project_session,
+                _retained_identifier(project_id),
+                _retained_identifier(project_session),
+            }
+        )
+    return {
+        "raw": raw_values,
+        "hashed": hashed_values,
+        "sessions": session_values,
+        "diagram": (
+            {diagram_id, _retained_identifier(diagram_id)} if diagram_id else set()
+        ),
+        "project": (
+            {project_id, _retained_identifier(project_id)} if project_id else set()
+        ),
+        "owner": (
+            {owner_user_id, _retained_identifier(owner_user_id)}
+            if owner_user_id
+            else set()
+        ),
+        "tenant": (
+            {tenant_id, _retained_identifier(tenant_id)} if tenant_id else set()
+        ),
+    }
+
+
+def _event_matches_targets(event: object, targets: Dict[str, set[str]]) -> bool:
+    if not isinstance(event, dict):
+        return False
+    details = event.get("details")
+    if not isinstance(details, dict):
+        return False
+    key_targets = {
+        "diagram_id": targets["diagram"],
+        "diagram_id_hash": targets["diagram"],
+        "project_id": targets["project"],
+        "project_id_hash": targets["project"],
+        "session_id": targets["sessions"],
+        "session_id_hash": targets["sessions"],
+        "owner_user_id": targets["owner"],
+        "owner_user_id_hash": targets["owner"],
+        "tenant_id": targets["tenant"],
+        "tenant_id_hash": targets["tenant"],
+    }
+    primary_keys = {
+        "diagram_id",
+        "diagram_id_hash",
+        "project_id",
+        "project_id_hash",
+        "session_id",
+        "session_id_hash",
+    }
+    primary_match = any(
+        str(details.get(key)) in values
+        for key, values in key_targets.items()
+        if key in primary_keys and values and details.get(key) is not None
+    )
+    if targets["diagram"] or targets["project"] or targets["sessions"]:
+        return primary_match
+    return any(
+        str(details.get(key)) in values
+        for key, values in key_targets.items()
+        if key not in primary_keys and values and details.get(key) is not None
+    )
+
+
+def _scrub_subject_locked(
+    *,
+    diagram_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    owner_user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+) -> Dict[str, int]:
+    """Remove reconstructable subject telemetry while retaining aggregates."""
+    targets = _subject_targets(
+        diagram_id=diagram_id,
+        project_id=project_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    sessions = _metrics.get("sessions", {})
+    removed_sessions = 0
+    if isinstance(sessions, dict):
+        for session_id in list(sessions):
+            if str(session_id) in targets["sessions"]:
+                del sessions[session_id]
+                removed_sessions += 1
+    events = _metrics.get("recent_events", [])
+    retained_events = [
+        event for event in events if not _event_matches_targets(event, targets)
+    ]
+    removed_events = len(events) - len(retained_events)
+    _metrics["recent_events"] = retained_events
+    if removed_sessions or removed_events:
+        _mark_dirty()
+    return {"sessions": removed_sessions, "events": removed_events}
+
+
+def _durable_purge_scopes() -> tuple[list[Dict[str, str]], bool]:
+    """Load durable purge tombstones without retaining identifiers in telemetry."""
+    try:
+        from database import SessionLocal, _PRODUCTION_LIKE
+        from models.workspace import PurgeOperation
+
+        db = SessionLocal()
+        try:
+            operations = (
+                db.query(PurgeOperation)
+                .filter(
+                    PurgeOperation.status.in_(("in_progress", "failed", "completed"))
+                )
+                .all()
+            )
+            scopes: list[Dict[str, str]] = []
+            for operation in operations:
+                scope = {
+                    "owner_user_id": operation.owner_user_id,
+                    "tenant_id": operation.tenant_id,
+                }
+                if operation.scope_type == "diagram":
+                    scope["diagram_id"] = operation.scope_id
+                else:
+                    scope["project_id"] = operation.scope_id
+                    try:
+                        manifest = json.loads(operation.manifest or "{}")
+                    except (TypeError, ValueError):
+                        manifest = {}
+                    for diagram_id in manifest.get("diagram_ids", []):
+                        scopes.append({**scope, "diagram_id": str(diagram_id)})
+                scopes.append(scope)
+            return scopes, True
+        finally:
+            db.close()
+    except Exception:
+        try:
+            from database import _PRODUCTION_LIKE
+        except Exception:
+            _PRODUCTION_LIKE = False
+        return [], not _PRODUCTION_LIKE
+
+
+def _scrub_durable_purges_locked() -> bool:
+    scopes, authoritative = _durable_purge_scopes()
+    if not authoritative:
+        # In production, loss of the tombstone authority must not republish
+        # pseudonymous sessions or event details from stale process memory.
+        removed = bool(_metrics.get("sessions") or _metrics.get("recent_events"))
+        _metrics["sessions"] = {}
+        _metrics["recent_events"] = []
+        if removed:
+            _mark_dirty()
+        return removed
+    changed = False
+    for scope in scopes:
+        counts = _scrub_subject_locked(**scope)
+        changed = changed or bool(counts["sessions"] or counts["events"])
+    return changed
+
+
+@contextmanager
+def _subject_write_fence(
+    *,
+    diagram_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+):
+    """Hold SQL lifecycle authority through one in-process telemetry write."""
+    if not diagram_id and not project_id:
+        yield True
+        return
+    db = None
+    allowed = True
+    try:
+        from database import SessionLocal, _PRODUCTION_LIKE
+        from models.workspace import DiagramLifecycle, PurgeOperation, Workspace
+
+        db = SessionLocal()
+        operation_query = db.query(PurgeOperation.id).filter(
+            PurgeOperation.status.in_(("in_progress", "failed", "completed"))
+        )
+        if diagram_id:
+            operation_query = operation_query.filter(
+                PurgeOperation.scope_type == "diagram",
+                PurgeOperation.scope_id == diagram_id,
+            )
+        elif project_id:
+            operation_query = operation_query.filter(
+                PurgeOperation.scope_type == "workspace",
+                PurgeOperation.scope_id == project_id,
+            )
+        if db.get_bind().dialect.name == "postgresql":
+            operation_query = operation_query.with_for_update(read=True)
+        if operation_query.first() is not None:
+            allowed = False
+        elif project_id:
+            workspace_query = db.query(Workspace).filter(Workspace.id == project_id)
+            if db.get_bind().dialect.name == "postgresql":
+                workspace_query = workspace_query.with_for_update(read=True)
+            workspace = workspace_query.one_or_none()
+            allowed = workspace is None or workspace.status == "active"
+        else:
+            lifecycle_identity = (
+                db.query(DiagramLifecycle.workspace_id)
+                .filter(DiagramLifecycle.diagram_id == diagram_id)
+                .first()
+            )
+            workspace = None
+            if lifecycle_identity is not None and lifecycle_identity.workspace_id:
+                workspace_query = db.query(Workspace).filter(
+                    Workspace.id == lifecycle_identity.workspace_id
+                )
+                if db.get_bind().dialect.name == "postgresql":
+                    workspace_query = workspace_query.with_for_update(read=True)
+                workspace = workspace_query.one_or_none()
+            lifecycle_query = db.query(DiagramLifecycle).filter(
+                DiagramLifecycle.diagram_id == diagram_id
+            )
+            if db.get_bind().dialect.name == "postgresql":
+                lifecycle_query = lifecycle_query.with_for_update(read=True)
+            lifecycles = lifecycle_query.all()
+            allowed = bool(
+                all(lifecycle.state == "active" for lifecycle in lifecycles)
+                and (workspace is None or workspace.status == "active")
+            )
+    except Exception:
+        if db is not None:
+            db.rollback()
+        try:
+            production_like = _PRODUCTION_LIKE
+        except NameError:
+            production_like = False
+        allowed = not production_like
+
+    try:
+        yield allowed
+        if db is not None:
+            db.commit()
+    except Exception:
+        if db is not None:
+            db.rollback()
+        raise
+    finally:
+        if db is not None:
+            db.close()
+
+
+def _record_aggregate_locked(event_type: str, now: datetime) -> None:
+    today = now.strftime("%Y-%m-%d")
+    if event_type in _metrics["counters"]:
+        _metrics["counters"][event_type] += 1
+    else:
+        _metrics["counters"][event_type] = 1
+    if today not in _metrics["daily"]:
+        _metrics["daily"][today] = {}
+    daily = _metrics["daily"][today]
+    daily[event_type] = daily.get(event_type, 0) + 1
+    _prune_daily_metrics()
+    if not _metrics["first_event"]:
+        _metrics["first_event"] = now.isoformat()
+    _mark_dirty()
 
 
 def _prune_daily_metrics():
@@ -308,40 +615,26 @@ def record_event(event_type: str, details: Optional[Dict] = None):
     event_type: One of the counter keys (e.g. 'analyses_run', 'chat_messages')
     details: Optional metadata (diagram_id, format, etc.)
     """
-    with _lock:
-        now = datetime.now(timezone.utc)
-        today = now.strftime("%Y-%m-%d")
-
-        # Increment counter
-        if event_type in _metrics["counters"]:
-            _metrics["counters"][event_type] += 1
-        else:
-            _metrics["counters"][event_type] = 1
-
-        # Increment daily counter
-        if today not in _metrics["daily"]:
-            _metrics["daily"][today] = {}
-        daily = _metrics["daily"][today]
-        daily[event_type] = daily.get(event_type, 0) + 1
-
-        # Prune daily metrics to last 90 days (#103 — S-020 fix)
-        _prune_daily_metrics()
-
-        # Add to recent events (keep last 200)
-        event = {
-            "type": event_type,
-            "timestamp": now.isoformat(),
-            "details": _sanitize_event_details(details),
-        }
-        _metrics["recent_events"].append(event)
-        if len(_metrics["recent_events"]) > 200:
-            _metrics["recent_events"] = _metrics["recent_events"][-200:]
-
-        # Track first event
-        if not _metrics["first_event"]:
-            _metrics["first_event"] = now.isoformat()
-
-        _mark_dirty()
+    raw_details = details or {}
+    diagram_id = raw_details.get("diagram_id")
+    project_id = raw_details.get("project_id")
+    with _subject_write_fence(
+        diagram_id=str(diagram_id) if diagram_id else None,
+        project_id=str(project_id) if project_id else None,
+    ) as details_allowed:
+        with _lock:
+            now = datetime.now(timezone.utc)
+            _record_aggregate_locked(event_type, now)
+            if not details_allowed:
+                return
+            event = {
+                "type": event_type,
+                "timestamp": now.isoformat(),
+                "details": _sanitize_event_details(details),
+            }
+            _metrics["recent_events"].append(event)
+            if len(_metrics["recent_events"]) > 200:
+                _metrics["recent_events"] = _metrics["recent_events"][-200:]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -356,32 +649,235 @@ def record_funnel_step(diagram_id: str, step: str):
     if step not in FUNNEL_STEPS:
         return
 
-    retained_diagram_id = _retained_identifier(diagram_id)
+    project_id = (
+        diagram_id.removeprefix("project-")
+        if diagram_id.startswith("project-")
+        else None
+    )
+    with _subject_write_fence(
+        diagram_id=None if project_id else diagram_id,
+        project_id=project_id,
+    ) as session_allowed:
+        if not session_allowed:
+            return
+        retained_diagram_id = _retained_identifier(diagram_id)
+        with _lock:
+            now = datetime.now(timezone.utc).isoformat()
+            sessions = _metrics["sessions"]
+
+            if retained_diagram_id not in sessions:
+                sessions[retained_diagram_id] = {
+                    "steps": [],
+                    "started": now,
+                    "last": now,
+                }
+
+            session = sessions[retained_diagram_id]
+
+            # Only record each step once per session
+            if step not in session["steps"]:
+                session["steps"].append(step)
+                session["last"] = now
+                _metrics["funnel_totals"][step] = (
+                    _metrics["funnel_totals"].get(step, 0) + 1
+                )
+                _mark_dirty()
+
+            # Prune old sessions (keep last 500)
+            if len(sessions) > 500:
+                sorted_ids = sorted(sessions, key=lambda k: sessions[k]["last"])
+                for old_id in sorted_ids[: len(sessions) - 500]:
+                    del sessions[old_id]
+
+
+def _payload_subject_absent(
+    payload: Dict[str, Any],
+    *,
+    diagram_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+    owner_user_id: Optional[str] = None,
+    tenant_id: Optional[str] = None,
+) -> bool:
+    targets = _subject_targets(
+        diagram_id=diagram_id,
+        project_id=project_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    subject_values = set().union(
+        targets["diagram"],
+        targets["project"],
+        targets["sessions"],
+    )
+    if not subject_values:
+        subject_values.update(targets["owner"])
+        subject_values.update(targets["tenant"])
+    serialized = json.dumps(payload, sort_keys=True, default=str)
+    return all(value not in serialized for value in subject_values if value)
+
+
+def purge_usage_telemetry(
+    *,
+    owner_user_id: str,
+    tenant_id: str,
+    diagram_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+) -> Dict[str, int]:
+    """Erase subject telemetry and persist only non-identifying aggregates."""
+    if not diagram_id and not project_id:
+        raise ValueError("A diagram or project scope is required")
+    from database import SessionLocal
+    from models.usage import FunnelStepRecord, UsageCounterRecord
+    from sqlalchemy import and_, or_
+
+    targets = _subject_targets(diagram_id=diagram_id, project_id=project_id)
+    scope_ids = targets["sessions"]
+    db = SessionLocal()
+    try:
+        funnel_deleted = (
+            db.query(FunnelStepRecord)
+            .filter(
+                FunnelStepRecord.diagram_id.in_(scope_ids),
+                or_(
+                    and_(
+                        FunnelStepRecord.owner_user_id == owner_user_id,
+                        FunnelStepRecord.tenant_id == tenant_id,
+                    ),
+                    and_(
+                        FunnelStepRecord.owner_user_id.is_(None),
+                        FunnelStepRecord.tenant_id.is_(None),
+                    ),
+                ),
+            )
+            .delete(synchronize_session=False)
+        )
+        counters_unscoped = (
+            db.query(UsageCounterRecord)
+            .filter(
+                UsageCounterRecord.owner_user_id == owner_user_id,
+                UsageCounterRecord.tenant_id == tenant_id,
+            )
+            .update(
+                {
+                    UsageCounterRecord.owner_user_id: None,
+                    UsageCounterRecord.tenant_id: None,
+                },
+                synchronize_session=False,
+            )
+        )
+        db.commit()
+    except Exception:
+        db.rollback()
+        raise
+    finally:
+        db.close()
+
     with _lock:
-        now = datetime.now(timezone.utc).isoformat()
-        sessions = _metrics["sessions"]
+        removed = _scrub_subject_locked(
+            diagram_id=diagram_id,
+            project_id=project_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        _save_metrics(require_all=True)
+    return {
+        "sessions": removed["sessions"],
+        "events": removed["events"],
+        "funnel_rows": int(funnel_deleted or 0),
+        "counter_scopes_removed": int(counters_unscoped or 0),
+    }
 
-        if retained_diagram_id not in sessions:
-            sessions[retained_diagram_id] = {
-                "steps": [],
-                "started": now,
-                "last": now,
-            }
 
-        session = sessions[retained_diagram_id]
+def usage_telemetry_absent(
+    *,
+    owner_user_id: str,
+    tenant_id: str,
+    diagram_id: Optional[str] = None,
+    project_id: Optional[str] = None,
+) -> bool:
+    """Confirm absence in SQL, process memory, and configured persistence."""
+    from database import SessionLocal
+    from models.usage import FunnelStepRecord, UsageCounterRecord
+    from sqlalchemy import and_, or_
 
-        # Only record each step once per session
-        if step not in session["steps"]:
-            session["steps"].append(step)
-            session["last"] = now
-            _metrics["funnel_totals"][step] = _metrics["funnel_totals"].get(step, 0) + 1
-            _mark_dirty()
+    targets = _subject_targets(diagram_id=diagram_id, project_id=project_id)
+    db = SessionLocal()
+    try:
+        scoped_funnel = (
+            db.query(FunnelStepRecord.id)
+            .filter(
+                FunnelStepRecord.diagram_id.in_(targets["sessions"]),
+                or_(
+                    and_(
+                        FunnelStepRecord.owner_user_id == owner_user_id,
+                        FunnelStepRecord.tenant_id == tenant_id,
+                    ),
+                    and_(
+                        FunnelStepRecord.owner_user_id.is_(None),
+                        FunnelStepRecord.tenant_id.is_(None),
+                    ),
+                ),
+            )
+            .first()
+        )
+        scoped_counter = (
+            db.query(UsageCounterRecord.id)
+            .filter(
+                UsageCounterRecord.owner_user_id == owner_user_id,
+                UsageCounterRecord.tenant_id == tenant_id,
+            )
+            .first()
+        )
+        if scoped_funnel is not None or scoped_counter is not None:
+            return False
+    finally:
+        db.close()
 
-        # Prune old sessions (keep last 500)
-        if len(sessions) > 500:
-            sorted_ids = sorted(sessions, key=lambda k: sessions[k]["last"])
-            for old_id in sorted_ids[:len(sessions) - 500]:
-                del sessions[old_id]
+    with _lock:
+        if not _payload_subject_absent(
+            _metrics,
+            diagram_id=diagram_id,
+            project_id=project_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        ):
+            return False
+
+    payloads: list[Dict[str, Any]] = []
+    if os.path.exists(METRICS_FILE):
+        try:
+            with open(METRICS_FILE, "r") as file_handle:
+                payloads.append(json.load(file_handle))
+        except Exception:
+            return False
+    if AZURE_STORAGE_ACCOUNT_URL or AZURE_STORAGE_CONNECTION_STRING:
+        blob = _get_blob_client()
+        if blob is None:
+            return False
+        try:
+            from circuit_breakers import blob_breaker
+
+            payloads.append(
+                json.loads(blob_breaker.call(lambda: blob.download_blob().readall()))
+            )
+        except Exception:
+            return False
+    return all(
+        _payload_subject_absent(
+            payload,
+            diagram_id=diagram_id,
+            project_id=project_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        for payload in payloads
+    )
+
+
+def apply_durable_purge_fences() -> bool:
+    """Scrub stale loaded process state after database startup/restart."""
+    with _lock:
+        return _scrub_durable_purges_locked()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -390,6 +886,7 @@ def record_funnel_step(diagram_id: str, step: str):
 def get_metrics_summary() -> Dict[str, Any]:
     """Return aggregate usage metrics."""
     with _lock:
+        _scrub_durable_purges_locked()
         now = datetime.now(timezone.utc)
         today = now.strftime("%Y-%m-%d")
         total_events = sum(_metrics["counters"].values())
@@ -421,6 +918,7 @@ def get_funnel_metrics() -> Dict[str, Any]:
     Shows how many sessions reached each step and drop-off between steps.
     """
     with _lock:
+        _scrub_durable_purges_locked()
         sessions = _metrics["sessions"]
         total_sessions = len(sessions)
 
@@ -499,6 +997,7 @@ def get_funnel_metrics() -> Dict[str, Any]:
 def get_daily_metrics(days: int = 30) -> List[Dict[str, Any]]:
     """Return daily metrics for the last N days."""
     with _lock:
+        _scrub_durable_purges_locked()
         now = datetime.now(timezone.utc)
         result = []
         for i in range(days):
@@ -515,6 +1014,7 @@ def get_daily_metrics(days: int = 30) -> List[Dict[str, Any]]:
 def get_recent_events(limit: int = 50) -> List[Dict[str, Any]]:
     """Return the most recent events."""
     with _lock:
+        _scrub_durable_purges_locked()
         return list(reversed(_metrics["recent_events"][-limit:]))
 
 

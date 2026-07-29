@@ -688,6 +688,37 @@ def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional
     db = SessionLocal()
     try:
         from workspace_store import diagram_is_tombstoned, rehome_legacy_owner_scope
+        from models.workspace import Analysis, DiagramLifecycle, SourceAsset, Workspace
+
+        candidate_scopes = {
+            (principal["owner_user_id"], principal["tenant_id"]),
+            *(
+                (owner_user_id, "default_tenant")
+                for owner_user_id in principal.get("legacy_owner_user_ids", [])
+            ),
+            *(
+                (scope["owner_user_id"], scope["tenant_id"])
+                for scope in principal.get("legacy_owner_scopes", [])
+            ),
+        }
+        for candidate_owner, candidate_tenant in candidate_scopes:
+            for model in (Analysis, SourceAsset, DiagramLifecycle):
+                inactive = (
+                    db.query(model.id)
+                    .join(
+                        Workspace,
+                        Workspace.id == model.workspace_id,
+                    )
+                    .filter(
+                        model.diagram_id == diagram_id,
+                        model.owner_user_id == candidate_owner,
+                        model.tenant_id == candidate_tenant,
+                        Workspace.status != "active",
+                    )
+                    .first()
+                )
+                if inactive is not None:
+                    return {"_durable_tombstone": True}
 
         legacy_scope_rehomed = False
         for legacy_scope in principal.get("legacy_owner_scopes", []):
@@ -707,6 +738,12 @@ def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional
             tenant_id=principal["tenant_id"],
         ):
             return {"_durable_tombstone": True}
+        direct_analysis = get_analysis_by_diagram(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+        )
         legacy_owner_user_id = next(
             (
                 owner_user_id
@@ -746,8 +783,12 @@ def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional
             ),
             cache_legacy_owner_user_ids=principal.get("legacy_owner_user_ids", []),
         )
-        if durable is not None or principal["owner_api_key_id"] is not None:
+        if durable is not None:
             return durable
+        if direct_analysis is not None:
+            return {"_durable_active_no_snapshot": True}
+        if principal["owner_api_key_id"] is not None:
+            return None
 
         from project_store import PROJECT_READ_ROLES, resolve_diagram_access
 
@@ -760,13 +801,18 @@ def _load_durable_diagram_session(request: Request, diagram_id: str) -> Optional
         )
         if member_access is None:
             return None
-        _analysis, project, _role = member_access
-        return load_analysis_state(
+        member_analysis, project, _role = member_access
+        durable = load_analysis_state(
             db,
             diagram_id=diagram_id,
             owner_user_id=project.owner_user_id,
             tenant_id=principal["tenant_id"],
             session_store=SESSION_STORE,
+        )
+        return durable or (
+            {"_durable_active_no_snapshot": True}
+            if int(member_analysis.current_version or 0) == 0
+            else None
         )
     except Exception as exc:
         logger.warning(
@@ -840,9 +886,12 @@ def authorize_diagram_access(
     if has_canonical_durable_principal(request):
         cached_version = session.get("_analysis_version") if isinstance(session, dict) else None
         durable_session = _load_durable_diagram_session(request, diagram_id)
-        if durable_session is not None:
-            if durable_session.get("_durable_tombstone"):
+        if durable_session is None:
+            if session is None:
                 raise ArchmorphException(404, "Diagram not found")
+        elif durable_session.get("_durable_tombstone"):
+            raise ArchmorphException(404, "Diagram not found")
+        elif not durable_session.get("_durable_active_no_snapshot"):
             durable_version = durable_session.get("_analysis_version")
             try:
                 cache_is_current = (
@@ -853,6 +902,8 @@ def authorize_diagram_access(
                 cache_is_current = False
             if not cache_is_current:
                 session = durable_session
+        elif session is None:
+            raise ArchmorphException(404, "Diagram not found")
     elif session is None:
         session = _load_durable_diagram_session(request, diagram_id)
     if _is_public_diagram_session(diagram_id, session):
@@ -1052,19 +1103,43 @@ def require_diagram_or_purge_access(request: Request, diagram_id: str) -> dict:
     if principal is None or not principal.get("tenant_id"):
         raise ArchmorphException(404, "Diagram not found")
     from database import SessionLocal
-    from models.workspace import PurgeOperation
+    from models.workspace import DiagramLifecycle, PurgeOperation, SourceAsset
 
     db = SessionLocal()
     try:
-        operation = db.query(PurgeOperation).filter(
-            PurgeOperation.scope_type == "diagram",
-            PurgeOperation.scope_id == diagram_id,
-            PurgeOperation.owner_user_id == principal["owner_user_id"],
-            PurgeOperation.tenant_id == principal["tenant_id"],
-        ).first()
-        if operation is None:
+        operation = (
+            db.query(PurgeOperation)
+            .filter(
+                PurgeOperation.scope_type == "diagram",
+                PurgeOperation.scope_id == diagram_id,
+                PurgeOperation.owner_user_id == principal["owner_user_id"],
+                PurgeOperation.tenant_id == principal["tenant_id"],
+            )
+            .first()
+        )
+        if operation is not None:
+            return {"purge_operation_id": operation.id, "status": operation.status}
+        source = (
+            db.query(SourceAsset.id)
+            .filter(
+                SourceAsset.diagram_id == diagram_id,
+                SourceAsset.owner_user_id == principal["owner_user_id"],
+                SourceAsset.tenant_id == principal["tenant_id"],
+            )
+            .first()
+        )
+        lifecycle = (
+            db.query(DiagramLifecycle.id)
+            .filter(
+                DiagramLifecycle.diagram_id == diagram_id,
+                DiagramLifecycle.owner_user_id == principal["owner_user_id"],
+                DiagramLifecycle.tenant_id == principal["tenant_id"],
+            )
+            .first()
+        )
+        if source is None and lifecycle is None:
             raise ArchmorphException(404, "Diagram not found")
-        return {"purge_operation_id": operation.id, "status": operation.status}
+        return {"diagram_id": diagram_id, "status": "purgeable"}
     finally:
         db.close()
 
@@ -1140,6 +1215,7 @@ def persist_diagram_mutation(
     from workspace_store import (
         AnalysisCacheWriteError,
         AnalysisVersionConflictError,
+        CanonicalWriteDeniedError,
         DurableAnalysisPersistenceError,
         persist_analysis_mutation,
     )
@@ -1217,7 +1293,10 @@ def persist_diagram_mutation(
                 cache_legacy_owner_user_ids=principal.get("legacy_owner_user_ids", []),
             )
         except Exception:
-            logger.warning("analysis_cache_rehydrate_after_conflict_failed diagram_id=%s", _safe_log_value(diagram_id))
+            logger.warning(
+                "analysis_cache_rehydrate_after_conflict_failed diagram_id=%s",
+                _safe_log_value(diagram_id),
+            )
         raise ArchmorphException(
             409,
             "Analysis changed while this operation was running.",
@@ -1230,6 +1309,8 @@ def persist_diagram_mutation(
             details={"error": "analysis_cache_unavailable", "durable_saved": True},
             headers={"Retry-After": "5"},
         ) from exc
+    except CanonicalWriteDeniedError as exc:
+        raise ArchmorphException(404, "Diagram not found") from exc
     except (DurableAnalysisPersistenceError, ValueError) as exc:
         raise ArchmorphException(
             503,

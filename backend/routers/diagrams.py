@@ -66,6 +66,7 @@ from analysis_payload_bounds import (
 )
 from workspace_store import (
     AnalysisCacheWriteError,
+    CanonicalWriteDeniedError,
     DurableAnalysisPersistenceError,
     persist_analysis_state,
 )
@@ -335,6 +336,8 @@ def _persist_authenticated_analysis(
         )
         session["_analysis_version"] = result.version.version_number
         return result
+    except CanonicalWriteDeniedError as exc:
+        raise ArchmorphException(404, "Diagram not found") from exc
     except ValueError as exc:
         if not tenant_id:
             raise ArchmorphException(
@@ -405,7 +408,22 @@ def _persist_project_upload(
                 tenant_id=tenant_id,
                 allowed_roles=PROJECT_EDIT_ROLES,
             )
-            if resolved is not None:
+            if resolved is None:
+                from models.workspace import Workspace
+                from workspace_store import CanonicalWriteDeniedError
+
+                same_scope_project = (
+                    db.query(Workspace.id)
+                    .filter(
+                        Workspace.id == requested_project_id,
+                        Workspace.owner_user_id == caller_owner_user_id,
+                        Workspace.tenant_id == tenant_id,
+                    )
+                    .first()
+                )
+                if same_scope_project is not None:
+                    raise CanonicalWriteDeniedError("Canonical state not found")
+            else:
                 project, _role = resolved
                 authorized_project_id = project.id
                 canonical_owner_user_id = project.owner_user_id
@@ -533,6 +551,10 @@ async def upload_diagram(
         }
     except Exception as exc:
         IMAGE_STORE.delete(diagram_id)
+        from workspace_store import CanonicalWriteDeniedError
+
+        if isinstance(exc, CanonicalWriteDeniedError):
+            raise ArchmorphException(404, "Project not found") from exc
         raise ArchmorphException(503, "Project persistence is temporarily unavailable") from exc
     namespace_claim = {"diagram_id": diagram_id, "status": "uploaded"}
     if upload_user:
@@ -852,12 +874,9 @@ async def purge_diagram_session(
             headers={"Retry-After": "5"},
         ) from exc
 
-    record_event("diagram_data_purged", {
-        "diagram_id": diagram_id,
-        "project_id": project_id,
-        "operation_id": result.operation_id,
-        "status": result.status,
-    })
+    # Preserve only the irreversible aggregate counter. Emitting the diagram,
+    # project, operation, or a derived hash here would recreate purgeable data.
+    record_event("diagram_data_purged")
     purge_confirmation = {
         "status": "purged",
         "operation_id": result.operation_id,

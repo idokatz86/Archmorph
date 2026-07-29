@@ -52,6 +52,7 @@ _DOWNGRADE_DATA_CATEGORIES = {
 
 _CANONICAL_STATE_ENVIRONMENTS = frozenset({"dev", "staging", "prod"})
 _STATE_ENVIRONMENT_ALIASES = {"production": "prod"}
+_DECISION_STATUSES = frozenset({"open", "resolved", "accepted"})
 
 
 def _legacy_scope(owner_user_id: str) -> str:
@@ -98,6 +99,42 @@ def _normalize_state_environment(environment: object) -> str | None:
     normalized = environment.strip().lower()
     normalized = _STATE_ENVIRONMENT_ALIASES.get(normalized, normalized)
     return normalized if normalized in _CANONICAL_STATE_ENVIRONMENTS else None
+
+
+def _reconcile_decision_statuses(bind) -> None:
+    """Normalize supported legacy spellings and reject unknown nonempty values."""
+    metadata = sa.MetaData()
+    decisions = sa.Table("decisions", metadata, autoload_with=bind)
+    normalized = sa.func.lower(sa.func.trim(decisions.c.status))
+    unknown_count = bind.execute(
+        sa.select(sa.func.count())
+        .select_from(decisions)
+        .where(
+            decisions.c.status.is_not(None),
+            sa.func.trim(decisions.c.status) != "",
+            normalized.not_in(_DECISION_STATUSES),
+        )
+    ).scalar_one()
+    if unknown_count:
+        raise RuntimeError(
+            "Migration refused: decisions contain unsupported nonempty status "
+            f"values ({unknown_count} rows); no values or identifiers were emitted"
+        )
+    bind.execute(
+        decisions.update()
+        .where(
+            sa.or_(
+                decisions.c.status.is_(None),
+                sa.func.trim(decisions.c.status) == "",
+            )
+        )
+        .values(status="open")
+    )
+    bind.execute(
+        decisions.update()
+        .where(normalized.in_(_DECISION_STATUSES))
+        .values(status=normalized)
+    )
 
 
 def _deployment_state_row_is_empty(row) -> bool:
@@ -1058,11 +1095,21 @@ def upgrade() -> None:
         sa.Column("expected_version", sa.Integer(), nullable=False, server_default="0"),
         sa.Column("payload_hash", sa.String(64), nullable=True),
         sa.Column("expires_at", sa.DateTime(timezone=True), nullable=False),
+        sa.Column("cleanup_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("consumed_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("revoked_at", sa.DateTime(timezone=True), nullable=True),
-        sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now()),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now()
+        ),
     )
-    op.create_index("ux_restore_grants_nonce", "restore_grants", ["nonce_digest"], unique=True)
+    op.create_index(
+        "ux_restore_grants_nonce", "restore_grants", ["nonce_digest"], unique=True
+    )
+    op.create_index(
+        "ix_restore_grants_cleanup",
+        "restore_grants",
+        ["cleanup_at", "id"],
+    )
     op.create_index(
         "ix_restore_grants_scope",
         "restore_grants",
@@ -1175,6 +1222,9 @@ def upgrade() -> None:
         ["analysis_id"],
     )
 
+    if not context.is_offline_mode():
+        _reconcile_decision_statuses(op.get_bind())
+
     dialect_name = context.get_context().dialect.name
     if dialect_name == "postgresql":
         op.create_unique_constraint(
@@ -1196,6 +1246,11 @@ def upgrade() -> None:
             "ck_decisions_severity",
             "decisions",
             "severity IS NULL OR severity IN ('low', 'medium', 'high', 'critical')",
+        )
+        op.create_check_constraint(
+            "ck_decisions_status",
+            "decisions",
+            "status IN ('open', 'resolved', 'accepted')",
         )
 
     op.create_table(
@@ -1478,6 +1533,7 @@ def downgrade() -> None:
     op.drop_table("migration_replays")
     if dialect_name == "postgresql":
         op.drop_constraint("ck_workspaces_status", "workspaces", type_="check")
+        op.drop_constraint("ck_decisions_status", "decisions", type_="check")
         op.drop_constraint("ck_decisions_severity", "decisions", type_="check")
         op.drop_constraint("ck_decisions_type", "decisions", type_="check")
         op.drop_constraint("fk_decisions_analysis_version", "decisions", type_="foreignkey")
@@ -1518,6 +1574,7 @@ def downgrade() -> None:
     op.drop_index("ix_purge_operations_workspace_id", table_name="purge_operations")
     op.drop_table("purge_operations")
     op.drop_index("ix_restore_grants_scope", table_name="restore_grants")
+    op.drop_index("ix_restore_grants_cleanup", table_name="restore_grants")
     op.drop_index("ux_restore_grants_nonce", table_name="restore_grants")
     op.drop_table("restore_grants")
     op.drop_index("ux_diagram_lifecycle_scope", table_name="diagram_lifecycle")

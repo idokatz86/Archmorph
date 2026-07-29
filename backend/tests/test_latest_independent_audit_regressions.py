@@ -423,7 +423,7 @@ def test_archived_workspace_rejects_new_canonical_analysis(db):
         tenant_id="archive-tenant",
         status="archived",
     )
-    with pytest.raises(ValueError, match="not active"):
+    with pytest.raises(ValueError, match="Canonical state not found"):
         persist_analysis_state(
             db,
             owner_user_id="archive-owner",
