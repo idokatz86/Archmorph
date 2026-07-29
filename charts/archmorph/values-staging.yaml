@@ -89,3 +89,7 @@ requiredSecretKeys:
   - secretKey: JWT_SECRET
 
 optionalSecretKeys: []
+
+migrations:
+  # Pre-provisioned by the staging platform with no Kubernetes API RBAC.
+  serviceAccountName: "archmorph-staging-migration"

@@ -32,7 +32,41 @@ set_release_bridge = rollout.set_release_bridge
 supervise_migration_execution = rollout.supervise_migration_execution
 traffic_command = rollout.traffic_command
 verify_manifest = rollout.verify_manifest
+verify_revision_target = rollout.verify_revision_target
+verify_runtime_compatibility = rollout.verify_runtime_compatibility
 write_manifest = rollout.write_manifest
+
+
+def _schema_contract(*accepted: str) -> dict:
+    return {
+        "contract_version": 1,
+        "migration_target_revision": "014",
+        "minimum_revision": accepted[0],
+        "maximum_revision": accepted[-1],
+        "accepted_revisions": list(accepted),
+        "alias_read_through_until": "014",
+    }
+
+
+def _write_release_manifest(path: Path, *, role: str = "final") -> None:
+    contract = (
+        _schema_contract("014")
+        if role == "final"
+        else _schema_contract("013", "014")
+    )
+    write_manifest(
+        path,
+        role=role,
+        revision=f"api-{role}",
+        image="registry.example/archmorph-api@sha256:" + "a" * 64,
+        source_sha="b" * 40,
+        schema_contract=contract,
+        observed_schema="014" if role == "final" else "013",
+        repository="example/archmorph",
+        workflow="CI/CD",
+        run_id="12345",
+        run_attempt=2,
+    )
 
 
 def test_latest_traffic_becomes_explicit_without_changing_multi_revision_weights():
@@ -1086,19 +1120,39 @@ def test_quiescence_blocks_unrelated_nonterminal_execution_without_stopping_it(
 def test_signed_bridge_manifest_is_immutable_and_role_bound(tmp_path, monkeypatch):
     monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
     path = tmp_path / "bridge.json"
-    image = "registry.example/archmorph-api@sha256:" + "a" * 64
-    write_manifest(
-        path,
-        role="bridge",
-        revision="api-bridge",
-        image=image,
-        source_sha="b" * 40,
-        accepted_revisions=["014", "013"],
-    )
+    _write_release_manifest(path, role="bridge")
 
-    assert verify_manifest(path, required_role="bridge")["accepted_revisions"] == ["013", "014"]
+    payload = verify_manifest(
+        path,
+        required_role="bridge",
+        expected_run_id="12345",
+        expected_run_attempt=2,
+    )
+    assert payload["schema_version"] == 2
+    assert payload["schema_contract"]["accepted_revisions"] == ["013", "014"]
+    assert payload["image_digest"] == "sha256:" + "a" * 64
+    assert payload["observed_schema"] == "013"
     with pytest.raises(ValueError, match="role"):
         verify_manifest(path, required_role="final")
+    with pytest.raises(ValueError, match="run attempt"):
+        verify_manifest(
+            path,
+            required_role="bridge",
+            expected_run_id="12345",
+            expected_run_attempt=1,
+        )
+    with pytest.raises(ValueError, match="repository"):
+        verify_manifest(
+            path,
+            required_role="bridge",
+            expected_repository="other/archmorph",
+        )
+    with pytest.raises(ValueError, match="workflow"):
+        verify_manifest(
+            path,
+            required_role="bridge",
+            expected_workflow="Other Workflow",
+        )
 
     payload = json.loads(path.read_text())
     payload["revision"] = "api-arbitrary"
@@ -1107,23 +1161,117 @@ def test_signed_bridge_manifest_is_immutable_and_role_bound(tmp_path, monkeypatc
         verify_manifest(path, required_role="bridge")
 
 
-def test_signed_manifest_rejects_invalid_source_or_schema_contract(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    ("field", "value", "message"),
+    [
+        ("source_sha", "short", "source SHA"),
+        ("schema_version", 1, "schema version"),
+        ("schema_contract_digest", "sha256:" + "0" * 64, "contract digest"),
+    ],
+)
+def test_signed_manifest_rejects_resigned_invalid_required_field(
+    tmp_path, monkeypatch, field, value, message
+):
     monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
-    path = tmp_path / "bridge.json"
-    image = "registry.example/archmorph-api@sha256:" + "a" * 64
-    write_manifest(
-        path,
-        role="bridge",
-        revision="api-bridge",
-        image=image,
-        source_sha="b" * 40,
-        accepted_revisions=["013", "014"],
-    )
+    path = tmp_path / "final.json"
+    _write_release_manifest(path)
     payload = json.loads(path.read_text())
-    payload["source_sha"] = "short"
+    payload[field] = value
     unsigned = {key: value for key, value in payload.items() if key != "signature"}
     canonical = json.dumps(unsigned, separators=(",", ":"), sort_keys=True).encode()
     payload["signature"] = "sha256=" + hmac.new(b"x" * 32, canonical, hashlib.sha256).hexdigest()
     path.write_text(json.dumps(payload))
-    with pytest.raises(ValueError, match="source SHA"):
-        verify_manifest(path, required_role="bridge")
+    with pytest.raises(ValueError, match=message):
+        verify_manifest(path, required_role="final")
+
+
+def test_signed_final_runtime_comparison_is_not_tautological(tmp_path, monkeypatch):
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
+    path = tmp_path / "final.json"
+    _write_release_manifest(path)
+    manifest = verify_manifest(path, required_role="final")
+    runtime = {
+        "status": "compatible",
+        "current_revision": "014",
+        "minimum_revision": "013",
+        "maximum_revision": "014",
+        "accepted_revisions": ["013", "014"],
+        "migration_target_revision": "014",
+        "alias_read_through_until": "014",
+        "release_role": "final",
+    }
+
+    with pytest.raises(ValueError, match="minimum_revision"):
+        verify_runtime_compatibility(manifest, runtime)
+
+    runtime.update(minimum_revision="014", accepted_revisions=["014"])
+    assert verify_runtime_compatibility(manifest, runtime) == "014"
+
+
+def test_signed_final_binds_revision_image_source_contract_and_zero_traffic(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
+    path = tmp_path / "final.json"
+    _write_release_manifest(path)
+    manifest = verify_manifest(path, required_role="final")
+    revision = {
+        "name": "api-final",
+        "properties": {
+            "active": True,
+            "trafficWeight": 0,
+            "fqdn": "api-final.example.internal",
+            "template": {
+                "containers": [
+                    {
+                        "image": manifest["image"],
+                        "env": [
+                            {"name": "ARCHMORPH_RELEASE_ROLE", "value": "final"},
+                            {"name": "ARCHMORPH_SOURCE_SHA", "value": "b" * 40},
+                            {
+                                "name": "ARCHMORPH_SCHEMA_CONTRACT_DIGEST",
+                                "value": manifest["schema_contract_digest"],
+                            },
+                            {"name": "APP_SCHEMA_MIN_REVISION", "value": "014"},
+                            {"name": "APP_SCHEMA_MAX_REVISION", "value": "014"},
+                        ],
+                    }
+                ]
+            },
+        },
+    }
+    assert (
+        verify_revision_target(manifest, revision, require_zero_traffic=True)
+        == "api-final.example.internal"
+    )
+    revision["properties"]["template"]["containers"][0]["env"][1]["value"] = (
+        "c" * 40
+    )
+    with pytest.raises(ValueError, match="ARCHMORPH_SOURCE_SHA"):
+        verify_revision_target(manifest, revision, require_zero_traffic=True)
+
+
+def test_release_manifest_rejects_duplicate_json_keys(tmp_path, monkeypatch):
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
+    path = tmp_path / "duplicate.json"
+    path.write_text('{"schema_version":2,"schema_version":2,"signature":"invalid"}')
+    with pytest.raises(ValueError, match="duplicate key"):
+        verify_manifest(path, required_role="final")
+
+
+def test_release_manifest_rejects_resigned_unexpected_field(tmp_path, monkeypatch):
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
+    path = tmp_path / "final.json"
+    _write_release_manifest(path)
+    payload = json.loads(path.read_text())
+    payload["unreviewed"] = "smuggled"
+    unsigned = {key: value for key, value in payload.items() if key != "signature"}
+    canonical = json.dumps(unsigned, separators=(",", ":"), sort_keys=True).encode()
+    payload["signature"] = (
+        "sha256="
+        + hmac.new(b"x" * 32, canonical, hashlib.sha256).hexdigest()
+    )
+    path.write_text(json.dumps(payload))
+
+    with pytest.raises(ValueError, match="incomplete or unexpected"):
+        verify_manifest(path, required_role="final")

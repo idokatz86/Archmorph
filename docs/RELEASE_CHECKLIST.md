@@ -33,7 +33,8 @@ Core deployment secrets:
 - `MIGRATION_KEY_VAULT_NAME`
 - `MIGRATION_DATABASE_SECRET_NAME`
 - `MIGRATION_TFSTATE_KEY`
-- `RELEASE_MANIFEST_HMAC_KEY` — at least 32 bytes; signs bridge evidence
+- `RELEASE_MANIFEST_HMAC_KEY` — at least 32 bytes; signs final release evidence
+	and migration recovery state
 - `APPLICATIONINSIGHTS_CONNECTION_STRING` — provides the instrumentation key for secret-free migration lifecycle evidence
 
 Required production repository variables before any Terraform apply:
@@ -146,9 +147,13 @@ Before enabling any scaffolded feature, confirm:
 ## 6. Rollback
 
 - Follow the [rollback runbook](runbooks/rollback.md) during production incidents; target a verified rollback in under 10 minutes.
-- Prefer `rollback.yml` and supply the successful release run containing the
-	signed bridge manifest. The workflow refuses arbitrary revisions, verifies the
-	retained image/schema contract, shifts traffic, and verifies health.
+- Prefer `rollback.yml` and supply the exact successful release run **and
+	attempt** containing the signed final manifest, or a retained signed manifest
+	after artifact expiry. The workflow refuses arbitrary revisions and historical
+	fallback, verifies image/source/schema contract at zero traffic, shifts, and
+	proves normal authenticated health.
+- Use bridge manifests only for supervised migration recovery; never select one
+	as a routine manual rollback target.
 - Never select the first active or previous-created revision after migration `014`.
 - Use direct `az containerapp` traffic commands only as the fallback path documented in the runbook.
 - If frontend release is bad, redeploy the previous Static Web Apps artifact or revert and let CI/CD redeploy.
@@ -161,7 +166,10 @@ Before enabling any scaffolded feature, confirm:
 - GitHub Actions run URL.
 - Smoke-test output summary and Architecture Package smoke artifact manifest.
 - Enabled feature flags and tenant scope.
-- Signed bridge manifest plus exact blue and pre-shift traffic manifests.
+- Signed final manifest for every successful routine or migration release,
+  including exact revision, immutable image digest, source SHA, observed schema,
+  schema-contract digest, and run identity. Retain migration bridge evidence only
+  with its migration recovery record.
 - Migration preflight/migration execution names, immutable image, schema
 	current/target values, statuses, and success evidence markers.
 - Any known optional dependency warnings accepted for release, including the Redis `disabled_optional` mode when `checks.redis_readiness.require_redis=false` and `checks.redis_readiness.scale_blocked=false`. Required `degraded`, `unhealthy`, `missing_required`, or `scale_blocked=true` production health is release-blocking.

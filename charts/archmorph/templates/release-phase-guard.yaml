@@ -1,0 +1,20 @@
+{{- $phase := .Values.migrations.phase -}}
+{{- if not (has $phase (list "disabled" "preflight" "migrate")) -}}
+{{- fail "migrations.phase must be disabled, preflight, or migrate" -}}
+{{- end -}}
+{{- $environment := lower .Values.env.ENVIRONMENT -}}
+{{- if and (or (eq $environment "prod") (eq $environment "production") (eq $environment "staging")) .Values.migrations.enabled (eq $phase "disabled") -}}
+{{- fail "production/staging workload phase must set migrations.enabled=false; run serialized preflight and migrate phases first" -}}
+{{- end -}}
+{{- if and (or (eq $environment "prod") (eq $environment "production") (eq $environment "staging")) (eq .Values.migrations.serviceAccountName "default") -}}
+{{- fail "production/staging migration phases require a dedicated pre-provisioned ServiceAccount" -}}
+{{- end -}}
+{{- if or (and .Values.releaseEvidence.sourceSha (not .Values.releaseEvidence.schemaContractDigest)) (and .Values.releaseEvidence.schemaContractDigest (not .Values.releaseEvidence.sourceSha)) -}}
+{{- fail "releaseEvidence source SHA and schema contract digest must be configured together" -}}
+{{- end -}}
+{{- if and (or (eq $environment "prod") (eq $environment "production") (eq $environment "staging")) (not (regexMatch "^[0-9a-f]{40}$" .Values.releaseEvidence.sourceSha)) -}}
+{{- fail "releaseEvidence.sourceSha must be a full Git commit SHA" -}}
+{{- end -}}
+{{- if and (or (eq $environment "prod") (eq $environment "production") (eq $environment "staging")) (not (regexMatch "^sha256:[0-9a-f]{64}$" .Values.releaseEvidence.schemaContractDigest)) -}}
+{{- fail "releaseEvidence.schemaContractDigest must be a canonical sha256 digest" -}}
+{{- end -}}

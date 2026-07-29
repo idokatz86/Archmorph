@@ -94,6 +94,10 @@ requiredSecretKeys:
 
 optionalSecretKeys: []
 
+migrations:
+  # Pre-provisioned by the production platform with no Kubernetes API RBAC.
+  serviceAccountName: "archmorph-production-migration"
+
 podAnnotations:
   prometheus.io/scrape: "true"
   prometheus.io/port: "8000"

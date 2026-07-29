@@ -15,11 +15,23 @@ ROOT = Path(__file__).resolve().parents[2]
 CHART = ROOT / "charts" / "archmorph"
 pytestmark = pytest.mark.skipif(shutil.which("helm") is None, reason="helm is not installed")
 IMMUTABLE_DIGEST = "sha256:" + "a" * 64
+SOURCE_SHA = "b" * 40
+CONTRACT_DIGEST = "sha256:" + "c" * 64
 
 
 def _render(*args: str, expect_success: bool = True) -> subprocess.CompletedProcess[str]:
     result = subprocess.run(
-        ["helm", "template", "contract", str(CHART), *args],
+        [
+            "helm",
+            "template",
+            "contract",
+            str(CHART),
+            "--set-string",
+            f"releaseEvidence.sourceSha={SOURCE_SHA}",
+            "--set-string",
+            f"releaseEvidence.schemaContractDigest={CONTRACT_DIGEST}",
+            *args,
+        ],
         check=False,
         capture_output=True,
         text=True,
@@ -34,12 +46,31 @@ def _documents(output: str) -> list[dict]:
 
 
 def _render_environment(values_file: str, *args: str) -> subprocess.CompletedProcess[str]:
-    return _render(
-        "-f",
-        str(CHART / values_file),
-        "--set-string",
-        f"image.digest={IMMUTABLE_DIGEST}",
-        *args,
+    outputs: list[str] = []
+    errors: list[str] = []
+    for phase in ("disabled", "preflight", "migrate"):
+        phase_args = ["--set-string", f"migrations.phase={phase}"]
+        if phase == "disabled":
+            phase_args.extend(["--set", "migrations.enabled=false"])
+        else:
+            phase_args.extend(
+                ["--set-string", "migrations.executionId=contract-run"]
+            )
+        result = _render(
+            "-f",
+            str(CHART / values_file),
+            "--set-string",
+            f"image.digest={IMMUTABLE_DIGEST}",
+            *phase_args,
+            *args,
+        )
+        outputs.append(result.stdout)
+        errors.append(result.stderr)
+    return subprocess.CompletedProcess(
+        args=[],
+        returncode=0,
+        stdout="\n---\n".join(outputs),
+        stderr="\n".join(errors),
     )
 
 
@@ -62,9 +93,20 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     assert remote_keys["ARCHMORPH_API_KEY_PRINCIPAL_ID"] == "api-key-principal-id"
     assert remote_keys["JWT_SECRET"] == "jwt-secret"
     env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+    plain_env = {
+        item["name"]: item["value"]
+        for item in env
+        if "value" in item
+    }
+    assert plain_env == {
+        "ARCHMORPH_RELEASE_ROLE": "final",
+        "ARCHMORPH_SOURCE_SHA": SOURCE_SHA,
+        "ARCHMORPH_SCHEMA_CONTRACT_DIGEST": CONTRACT_DIGEST,
+    }
     refs = {
         item["name"]: item["valueFrom"]["secretKeyRef"]
         for item in env
+        if "valueFrom" in item
     }
     assert refs["DATABASE_URL"] == {"name": "contract-archmorph-secrets", "key": "DATABASE_URL"}
     assert refs["REDIS_URL"] == {"name": "contract-archmorph-secrets", "key": "REDIS_URL"}
@@ -86,10 +128,20 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     }
     assert config_map["data"]["ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"] == "false"
 
-    migration = next(document for document in documents if document["kind"] == "Job")
-    assert migration["metadata"]["annotations"]["helm.sh/hook"] == "pre-install,pre-upgrade"
-    assert migration["metadata"]["name"].endswith("-migrate-1")
-    assert migration["metadata"]["annotations"]["helm.sh/hook-delete-policy"] == "hook-succeeded"
+    migration = next(
+        document
+        for document in documents
+        if document["kind"] == "Job"
+        and document["metadata"]["labels"]["app.kubernetes.io/component"] == "migration"
+    )
+    assert "helm.sh/hook" not in migration["metadata"]["annotations"]
+    assert migration["metadata"]["name"].endswith("-migrate-contract-run")
+    assert migration["metadata"]["annotations"]["archmorph.io/release-phase"] == "migrate"
+    assert migration["spec"]["ttlSecondsAfterFinished"] == 3600
+    assert migration["spec"]["template"]["spec"]["automountServiceAccountToken"] is False
+    assert migration["spec"]["template"]["spec"]["serviceAccountName"] == (
+        f"archmorph-{'production' if values_file == 'values-production.yaml' else 'staging'}-migration"
+    )
     container = migration["spec"]["template"]["spec"]["containers"][0]
     assert container["command"] == ["python", "run_migrations.py"]
     assert container["args"] == ["--expect-head", "014"]
@@ -102,11 +154,12 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     preflight = next(
         document
         for document in documents
-        if document["kind"] == "Job" and document["metadata"]["name"].endswith("-secret-preflight-1")
+        if document["kind"] == "Job" and "-preflight-" in document["metadata"]["name"]
     )
-    assert preflight["metadata"]["annotations"]["helm.sh/hook"] == "pre-install,pre-upgrade"
-    assert preflight["metadata"]["annotations"]["helm.sh/hook-weight"] == "-20"
-    assert preflight["metadata"]["annotations"]["helm.sh/hook-delete-policy"] == "hook-succeeded"
+    assert "helm.sh/hook" not in preflight["metadata"]["annotations"]
+    assert preflight["metadata"]["annotations"]["archmorph.io/release-phase"] == "preflight"
+    assert preflight["spec"]["ttlSecondsAfterFinished"] == 3600
+    assert preflight["spec"]["template"]["spec"]["automountServiceAccountToken"] is False
     assert preflight["spec"]["template"]["spec"]["containers"][0]["image"] == (
         f"example.azurecr.io/archmorph-api@{IMMUTABLE_DIGEST}"
     )
@@ -138,6 +191,7 @@ def test_existing_secret_contract_renders_without_external_secret():
     refs = {
         item["name"]: item["valueFrom"]["secretKeyRef"]
         for item in deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+        if "valueFrom" in item
     }
     assert refs["DATABASE_URL"]["name"] == "runtime-secrets"
     assert refs["REDIS_URL"]["name"] == "runtime-secrets"
@@ -239,6 +293,7 @@ def test_render_fails_when_external_secret_omits_auth_key(required_key):
     rendered = _render(
         "-f", str(CHART / "values-production.yaml"),
         "--set-string", f"image.digest={IMMUTABLE_DIGEST}",
+        "--set", "migrations.enabled=false",
         "--set-json",
         f"externalSecrets.data={json.dumps(data)}",
         expect_success=False,
@@ -249,9 +304,45 @@ def test_render_fails_when_external_secret_omits_auth_key(required_key):
 
 @pytest.mark.parametrize("values_file", ["values-production.yaml", "values-staging.yaml"])
 def test_production_like_render_requires_immutable_digest(values_file):
-    rendered = _render("-f", str(CHART / values_file), expect_success=False)
+    rendered = _render(
+        "-f",
+        str(CHART / values_file),
+        "--set",
+        "migrations.enabled=false",
+        expect_success=False,
+    )
     assert rendered.returncode != 0
     assert "image.digest must be an immutable sha256 digest" in rendered.stderr
+
+
+@pytest.mark.parametrize("values_file", ["values-production.yaml", "values-staging.yaml"])
+def test_production_like_workload_phase_requires_migrations_explicitly_disabled(
+    values_file,
+):
+    rendered = _render(
+        "-f",
+        str(CHART / values_file),
+        "--set-string",
+        f"image.digest={IMMUTABLE_DIGEST}",
+        expect_success=False,
+    )
+    assert rendered.returncode != 0
+    assert "run serialized preflight and migrate phases first" in rendered.stderr
+
+
+def test_production_rejects_default_migration_service_account():
+    rendered = _render(
+        "-f",
+        str(CHART / "values-production.yaml"),
+        "--set-string",
+        f"image.digest={IMMUTABLE_DIGEST}",
+        "--set",
+        "migrations.enabled=false",
+        "--set-string",
+        "migrations.serviceAccountName=default",
+        expect_success=False,
+    )
+    assert "dedicated pre-provisioned ServiceAccount" in rendered.stderr
 
 
 def test_first_install_external_secret_requires_pre_materialized_runtime_secret():
@@ -260,7 +351,7 @@ def test_first_install_external_secret_requires_pre_materialized_runtime_secret(
     preflight = next(
         document
         for document in documents
-        if document["kind"] == "Job" and "secret-preflight" in document["metadata"]["name"]
+        if document["kind"] == "Job" and "-preflight-" in document["metadata"]["name"]
     )
     migration = next(
         document
@@ -269,8 +360,8 @@ def test_first_install_external_secret_requires_pre_materialized_runtime_secret(
     )
 
     assert "helm.sh/hook" not in external_secret["metadata"].get("annotations", {})
-    assert preflight["metadata"]["annotations"]["helm.sh/hook-weight"] == "-20"
-    assert migration["metadata"]["annotations"]["helm.sh/hook-weight"] == "-10"
+    assert preflight["metadata"]["annotations"]["archmorph.io/release-phase"] == "preflight"
+    assert migration["metadata"]["annotations"]["archmorph.io/release-phase"] == "migrate"
     assert preflight["spec"]["template"]["spec"]["containers"][0]["args"] == [
         "--preflight-only",
         "--accept-current",
@@ -294,7 +385,7 @@ def test_empty_database_bootstrap_requires_explicit_first_provisioning_value():
     preflight = next(
         document
         for document in documents
-        if document["kind"] == "Job" and "secret-preflight" in document["metadata"]["name"]
+        if document["kind"] == "Job" and "-preflight-" in document["metadata"]["name"]
     )
     migration = next(
         document
@@ -311,18 +402,21 @@ def test_empty_database_bootstrap_requires_explicit_first_provisioning_value():
     ]
 
 
-def test_revisioned_hooks_do_not_delete_an_active_prior_migration():
+def test_phase_jobs_use_unique_names_and_gc_only_after_completion():
     first = _documents(_render_environment("values-production.yaml").stdout)
-    first_jobs = [document for document in first if document["kind"] == "Job"]
-
-    assert all(
-        "before-hook-creation" not in job["metadata"]["annotations"].get("helm.sh/hook-delete-policy", "")
-        for job in first_jobs
-    )
-    assert {job["metadata"]["name"] for job in first_jobs} == {
-        "contract-archmorph-secret-preflight-1",
-        "contract-archmorph-migrate-1",
+    first_jobs = {
+        document["metadata"]["name"]: document
+        for document in first
+        if document["kind"] == "Job"
     }
+
+    assert set(first_jobs) == {
+        "contract-archmorph-preflight-contract-run",
+        "contract-archmorph-migrate-contract-run",
+    }
+    assert all("helm.sh/hook" not in job["metadata"]["annotations"] for job in first_jobs.values())
+    assert all(job["spec"]["ttlSecondsAfterFinished"] == 3600 for job in first_jobs.values())
+    assert all(job["spec"]["activeDeadlineSeconds"] > 0 for job in first_jobs.values())
 
 
 def test_render_rejects_schema_contract_that_omits_head_or_has_duplicates():
@@ -331,6 +425,10 @@ def test_render_rejects_schema_contract_that_omits_head_or_has_duplicates():
         str(CHART / "values-production.yaml"),
         "--set-string",
         f"image.digest={IMMUTABLE_DIGEST}",
+        "--set-string",
+        "migrations.phase=preflight",
+        "--set-string",
+        "migrations.executionId=invalid-contract",
         "--set-json",
         'migrations.acceptedCurrentAlembicRevisions=["013"]',
         expect_success=False,
@@ -342,6 +440,10 @@ def test_render_rejects_schema_contract_that_omits_head_or_has_duplicates():
         str(CHART / "values-production.yaml"),
         "--set-string",
         f"image.digest={IMMUTABLE_DIGEST}",
+        "--set-string",
+        "migrations.phase=preflight",
+        "--set-string",
+        "migrations.executionId=invalid-contract",
         "--set-json",
         'migrations.acceptedCurrentAlembicRevisions=["014","014"]',
         expect_success=False,
@@ -356,7 +458,11 @@ def test_chart_documents_external_secret_controller_bootstrap_limitation():
     assert "External Secrets controller integration limitation" in readme
     assert "materialized before" in readme
     assert "running `helm install` or `helm upgrade`" in readme
-    assert "`--atomic --wait`" in readme
+    assert "does **not** use" in readme
+    assert "workload-only `helm upgrade --install --wait`" in readme
+    assert "ttlSecondsAfterFinished" in readme
+    assert "releases only the currently owned" in readme
+    assert "live holder cannot be\nstolen" in readme
     assert "serialize" in readme.lower()
     assert "migrations.bootstrapEmptyDatabase=true" in readme
     assert "no application" in readme

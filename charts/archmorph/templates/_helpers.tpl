@@ -31,6 +31,15 @@ Expand the name of the chart.
 {{- end -}}
 {{- end }}
 
+{{/* Unique CI/GitOps identity for separately applied preflight and migration Jobs. */}}
+{{- define "archmorph.migrationExecutionId" -}}
+{{- $executionId := required "migrations.executionId is required for migration phases" .Values.migrations.executionId -}}
+{{- if not (regexMatch "^[a-z0-9][a-z0-9-]{0,39}$" $executionId) -}}
+{{- fail "migrations.executionId must be a lowercase DNS-safe identity of at most 40 characters" -}}
+{{- end -}}
+{{- $executionId -}}
+{{- end }}
+
 {{/* Immutable image shared by the application and migration hook. */}}
 {{- define "archmorph.image" -}}
 {{- $environment := lower .Values.env.ENVIRONMENT -}}

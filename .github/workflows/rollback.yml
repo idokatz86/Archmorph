@@ -4,11 +4,23 @@ on:
   workflow_dispatch:
     inputs:
       release_run_id:
-        description: 'Successful release workflow run containing the signed bridge manifest'
-        required: true
+        description: 'Exact successful release run ID (use with release_run_attempt)'
+        required: false
+        default: ''
+        type: string
+      release_run_attempt:
+        description: 'Exact successful release run attempt containing immutable final evidence'
+        required: false
+        default: ''
+        type: string
+      signed_final_manifest_base64:
+        description: 'Base64 signed final manifest for retained evidence after artifact expiry (exclusive with run inputs)'
+        required: false
+        default: ''
         type: string
 
 permissions:
+  actions: read
   id-token: write
   contents: read
 
@@ -23,6 +35,7 @@ env:
   ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY }}
   ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
   RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
+  RELEASE_WORKFLOW_NAME: CI/CD
 
 jobs:
   rollback:
@@ -72,37 +85,102 @@ jobs:
             fi
           fi
 
-      - name: Resolve explicit signed bridge rollback target
+      - name: Resolve explicit signed final rollback target
         id: revision
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_RUN_ID: ${{ github.event.inputs.release_run_id }}
+          RELEASE_RUN_ATTEMPT: ${{ github.event.inputs.release_run_attempt }}
+          SIGNED_FINAL_MANIFEST_BASE64: ${{ github.event.inputs.signed_final_manifest_base64 }}
         run: |
           set -euo pipefail
           if [ "${#RELEASE_MANIFEST_HMAC_KEY}" -lt 32 ]; then
             echo "::error::RELEASE_MANIFEST_HMAC_KEY must contain at least 32 bytes"
             exit 1
           fi
-          gh run download "$RELEASE_RUN_ID" \
-            --name backend-release-evidence \
-            --dir release-evidence
+          RUN_SOURCE=0
+          MANIFEST_SOURCE=0
+          if [ -n "$RELEASE_RUN_ID" ] || [ -n "$RELEASE_RUN_ATTEMPT" ]; then
+            RUN_SOURCE=1
+          fi
+          if [ -n "$SIGNED_FINAL_MANIFEST_BASE64" ]; then
+            MANIFEST_SOURCE=1
+          fi
+          if [ $((RUN_SOURCE + MANIFEST_SOURCE)) -ne 1 ]; then
+            echo "::error::Select exactly one signed final source: run ID+attempt or base64 manifest"
+            exit 1
+          fi
+          mkdir -p release-evidence
+          VERIFY_SELECTION=()
+          if [ "$RUN_SOURCE" -eq 1 ]; then
+            if ! [[ "$RELEASE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || \
+              ! [[ "$RELEASE_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Both release_run_id and release_run_attempt must be positive integers"
+              exit 1
+            fi
+            ARTIFACT_NAME="backend-release-evidence-${RELEASE_RUN_ID}-${RELEASE_RUN_ATTEMPT}"
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RELEASE_RUN_ID}/attempts/${RELEASE_RUN_ATTEMPT}" \
+              > release-evidence/selected-release-run.json
+            if ! jq -e \
+              --arg workflow "$RELEASE_WORKFLOW_NAME" \
+              --argjson attempt "$RELEASE_RUN_ATTEMPT" '
+                .name == $workflow
+                and .run_attempt == $attempt
+                and .conclusion == "success"
+                and (.head_sha | type == "string" and test("^[0-9a-f]{40}$"))
+              ' release-evidence/selected-release-run.json >/dev/null; then
+              echo "::error::Selected release run/attempt is not a successful ${RELEASE_WORKFLOW_NAME} execution"
+              exit 1
+            fi
+            if ! gh run download "$RELEASE_RUN_ID" \
+              --name "$ARTIFACT_NAME" \
+              --dir release-evidence; then
+              echo "::error::Exact final evidence is unavailable or expired; supply a retained signed_final_manifest_base64 instead"
+              exit 1
+            fi
+            VERIFY_SELECTION=(
+              --expected-run-id "$RELEASE_RUN_ID"
+              --expected-run-attempt "$RELEASE_RUN_ATTEMPT"
+            )
+          else
+            if ! printf '%s' "$SIGNED_FINAL_MANIFEST_BASE64" \
+              | base64 --decode > release-evidence/final-release-manifest.json; then
+              echo "::error::signed_final_manifest_base64 is not valid base64"
+              exit 1
+            fi
+          fi
+          test -s release-evidence/final-release-manifest.json
           TARGET=$(python scripts/containerapp_rollout.py verify-release-manifest \
-            --input release-evidence/bridge-release-manifest.json \
-            --required-role bridge \
+            --input release-evidence/final-release-manifest.json \
+            --required-role final \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow "$RELEASE_WORKFLOW_NAME" \
+            "${VERIFY_SELECTION[@]}" \
             --field revision)
-          EXPECTED_IMAGE=$(python scripts/containerapp_rollout.py verify-release-manifest \
-            --input release-evidence/bridge-release-manifest.json \
-            --required-role bridge \
-            --field image)
-          ACTUAL_IMAGE=$(az containerapp revision show \
+          SIGNED_SOURCE_SHA=$(python scripts/containerapp_rollout.py verify-release-manifest \
+            --input release-evidence/final-release-manifest.json \
+            --required-role final \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow "$RELEASE_WORKFLOW_NAME" \
+            "${VERIFY_SELECTION[@]}" \
+            --field source_sha)
+          if [ "$RUN_SOURCE" -eq 1 ]; then
+            SELECTED_SOURCE_SHA=$(jq -er '.head_sha' release-evidence/selected-release-run.json)
+            if [ "$SIGNED_SOURCE_SHA" != "$SELECTED_SOURCE_SHA" ]; then
+              echo "::error::Signed final source SHA does not match the selected release run"
+              exit 1
+            fi
+          fi
+          az containerapp revision show \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --revision "$TARGET" \
-            --query properties.template.containers[0].image -o tsv)
-          if [ "$ACTUAL_IMAGE" != "$EXPECTED_IMAGE" ]; then
-            echo "::error::Signed bridge manifest does not match the retained revision image"
-            exit 1
-          fi
+            -o json > rollback-target-revision.json
+          python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest release-evidence/final-release-manifest.json \
+            --revision-json rollback-target-revision.json \
+            --required-role final \
+            --require-zero-traffic >/dev/null
           echo "target=$TARGET" >> "$GITHUB_OUTPUT"
 
       - name: Capture exact prior traffic and rollback target
@@ -137,44 +215,46 @@ jobs:
           ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
         run: |
           set -euo pipefail
-          REVISION_JSON=$(az containerapp revision show \
+          az containerapp revision show \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --revision "$ROLLBACK_TARGET" \
-            -o json)
-          TARGET_SCHEMA_MIN=$(echo "$REVISION_JSON" | jq -r \
-            '.properties.template.containers[0].env[] | select(.name=="APP_SCHEMA_MIN_REVISION") | .value // ""')
-          TARGET_SCHEMA_MAX=$(echo "$REVISION_JSON" | jq -r \
-            '.properties.template.containers[0].env[] | select(.name=="APP_SCHEMA_MAX_REVISION") | .value // ""')
-          TARGET_FQDN=$(echo "$REVISION_JSON" | jq -r '.properties.fqdn // ""')
-          if [ -z "$TARGET_SCHEMA_MIN" ] || [ -z "$TARGET_SCHEMA_MAX" ] || [ -z "$TARGET_FQDN" ]; then
-            echo "::error::Rollback target lacks APP_SCHEMA_MIN_REVISION, APP_SCHEMA_MAX_REVISION, or revision FQDN metadata"
-            exit 1
-          fi
-
-          TARGET_ACTIVE=$(echo "$REVISION_JSON" | jq -r '.properties.active // false')
-          TARGET_WEIGHT=$(echo "$REVISION_JSON" | jq -r '.properties.trafficWeight // 0')
-          if [ "$TARGET_WEIGHT" != "0" ]; then
-            echo "::error::Rollback target must start at zero traffic before direct compatibility smoke"
-            exit 1
-          fi
+            -o json > rollback-target-revision.json
+          TARGET_ACTIVE=$(jq -r '.properties.active // false' rollback-target-revision.json)
+          activated_here=0
+          cleanup_preflight_target() {
+            if [ "$activated_here" -eq 1 ]; then
+              az containerapp revision deactivate \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --revision "$ROLLBACK_TARGET" || true
+            fi
+          }
+          trap cleanup_preflight_target ERR
+          TARGET_FQDN=$(python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest release-evidence/final-release-manifest.json \
+            --revision-json rollback-target-revision.json \
+            --required-role final \
+            --require-zero-traffic)
           if [ "$TARGET_ACTIVE" != "true" ]; then
             echo "Rollback target is inactive; activating it at zero traffic for schema preflight"
             az containerapp revision activate \
               --name "$CONTAINER_APP_NAME" \
               --resource-group "$AZURE_RESOURCE_GROUP" \
               --revision "$ROLLBACK_TARGET"
+            activated_here=1
           fi
 
-          POST_ACTIVATION_WEIGHT=$(az containerapp revision show \
+          az containerapp revision show \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --revision "$ROLLBACK_TARGET" \
-            --query properties.trafficWeight -o tsv)
-          if [ "${POST_ACTIVATION_WEIGHT:-0}" != "0" ]; then
-            echo "::error::Rollback target activation unexpectedly received traffic"
-            exit 1
-          fi
+            -o json > rollback-target-activated-revision.json
+          TARGET_FQDN=$(python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest release-evidence/final-release-manifest.json \
+            --revision-json rollback-target-activated-revision.json \
+            --required-role final \
+            --require-zero-traffic)
 
           COMPATIBILITY_CODE="000"
           for attempt in $(seq 1 20); do
@@ -192,39 +272,15 @@ jobs:
           if [ "$COMPATIBILITY_CODE" != "200" ]; then
             echo "::error::Target revision schema preflight returned HTTP ${COMPATIBILITY_CODE}; traffic remains unchanged"
             [ -s schema-compatibility.json ] && cat schema-compatibility.json || true
-            if [ "$TARGET_ACTIVE" != "true" ]; then
-              az containerapp revision deactivate \
-                --name "$CONTAINER_APP_NAME" \
-                --resource-group "$AZURE_RESOURCE_GROUP" \
-                --revision "$ROLLBACK_TARGET" || true
-            fi
             exit 1
           fi
-          CURRENT_SCHEMA=$(jq -er '.current_revision' schema-compatibility.json)
-          if ! jq -e --arg current "$CURRENT_SCHEMA" --arg minimum "$TARGET_SCHEMA_MIN" --arg maximum "$TARGET_SCHEMA_MAX" '
-            .status == "compatible"
-            and .current_revision == $current
-            and (.accepted_revisions | index($current) != null)
-            and .minimum_revision == $minimum
-            and .maximum_revision == $maximum
-          ' schema-compatibility.json >/dev/null; then
-            echo "::error::Target revision is incompatible with the current database schema; traffic remains unchanged"
-            if [ "$TARGET_ACTIVE" != "true" ]; then
-              az containerapp revision deactivate \
-                --name "$CONTAINER_APP_NAME" \
-                --resource-group "$AZURE_RESOURCE_GROUP" \
-                --revision "$ROLLBACK_TARGET" || true
-            fi
-            exit 1
-          fi
+          CURRENT_SCHEMA=$(python scripts/containerapp_rollout.py verify-runtime-compatibility \
+            --manifest release-evidence/final-release-manifest.json \
+            --runtime schema-compatibility.json \
+            --required-role final)
+          cp schema-compatibility.json rollback-preflight-schema-compatibility.json
+          trap - ERR
           echo "Rollback target supports current schema ${CURRENT_SCHEMA}; activation may proceed"
-
-      - name: Activate rollback revision
-        run: |
-          az containerapp revision activate \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --revision ${{ steps.revision.outputs.target }}
 
       - name: Shift traffic to rollback revision
         id: shift_rollback
@@ -249,24 +305,40 @@ jobs:
           BASE="${API_URL%/}"
           BASE="${BASE%/api}"
           if ! curl -fsS --max-time 30 "${BASE}/readyz" >/dev/null; then
-            echo "::error::Bridge readiness check failed after rollback"
+            echo "::error::Final target readiness check failed after rollback"
             exit 1
           fi
-          if ! curl -fsS --max-time 30 "${BASE}/api/schema-compatibility" \
-            | jq -e '.status == "compatible" and .release_role == "bridge"' >/dev/null; then
-            echo "::error::Bridge schema compatibility check failed after rollback"
-            exit 1
-          fi
+          curl -fsS --max-time 30 "${BASE}/api/schema-compatibility" \
+            -o rollback-routed-schema-compatibility.json
+          python scripts/containerapp_rollout.py verify-runtime-compatibility \
+            --manifest release-evidence/final-release-manifest.json \
+            --runtime rollback-routed-schema-compatibility.json \
+            --required-role final >/dev/null
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "${{ steps.revision.outputs.target }}" \
+            -o json > rollback-routed-revision.json
+          python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest release-evidence/final-release-manifest.json \
+            --revision-json rollback-routed-revision.json \
+            --required-role final >/dev/null
+          ROUTED_REVISION=$(az containerapp revision list \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query "[?properties.trafficWeight==\`100\`].name | [0]" -o tsv)
+          [ "$ROUTED_REVISION" = "${{ steps.revision.outputs.target }}" ]
           HEALTH_API_KEY="${ARCHMORPH_API_KEY:-${ADMIN_KEY:-}}"
+          : "${HEALTH_API_KEY:?ARCHMORPH_API_KEY or ADMIN_KEY is required}"
           if ! HTTP_CODE=$(curl -sS --max-time 30 \
             -H "X-API-Key: ${HEALTH_API_KEY}" \
-            -o bridge-read-only.json -w "%{http_code}" "${BASE}/api/health"); then
-            echo "::error::Bridge read-only check failed after rollback"
+            -o rollback-health.json -w "%{http_code}" "${BASE}/api/health"); then
+            echo "::error::Final target health check failed after rollback"
             exit 1
           fi
-          [ "$HTTP_CODE" = "503" ]
-          jq -e '.status == "bridge_read_only" and .retryable == true' bridge-read-only.json >/dev/null
-          echo "Rollback successful — signed bridge is ready, schema-compatible, and read-only"
+          [ "$HTTP_CODE" = "200" ]
+          jq -e '.status == "healthy"' rollback-health.json >/dev/null
+          echo "Rollback successful — exact signed final revision is healthy and schema-compatible"
 
       - name: Restore exact prior traffic after rollback failure
         if: always() && steps.rollback_state.outcome == 'success' && hashFiles('rollback-shift-attempted') != '' && steps.verify_rollback.outcome != 'success'

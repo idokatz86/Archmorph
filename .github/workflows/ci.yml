@@ -223,8 +223,10 @@ jobs:
             backend/tests/test_migration_bootstrap_verifier.py \
             backend/tests/test_migration_alert_attestation.py \
             backend/tests/test_frontend_release.py \
+            backend/tests/test_helm_release_contract.py \
             backend/tests/test_helm_secret_contract.py \
             backend/tests/test_helm_release_workflow.py \
+            backend/tests/test_kubernetes_lease.py \
             backend/tests/test_release_safety_workflows.py \
             backend/tests/test_ci_workflow_post_deploy_smoke.py \
             backend/tests/test_terraform_prod_workflow.py
@@ -541,6 +543,9 @@ jobs:
             frontend-sbom.json
             ${{ steps.grype-npm.outputs.sarif }}
 
+      - name: Validate complete frontend deployment bundle
+        run: python ../scripts/frontend_release.py validate --root . >/dev/null
+
       - name: Upload frontend dist
         uses: actions/upload-artifact@v7
         with:
@@ -806,12 +811,18 @@ jobs:
           APP_SCHEMA_MIN_REVISION=$(jq -er '.minimum_revision' backend/schema-contract.json)
           APP_SCHEMA_MAX_REVISION=$(jq -er '.maximum_revision' backend/schema-contract.json)
           EXPECTED_ALEMBIC_HEAD=$(jq -er '.migration_target_revision' backend/schema-contract.json)
+          FINAL_SCHEMA_CONTRACT_DIGEST=$(python scripts/containerapp_rollout.py \
+            schema-contract-digest --input backend/schema-contract.json)
+          BRIDGE_SCHEMA_CONTRACT_DIGEST=$(python scripts/containerapp_rollout.py \
+            schema-contract-digest --input backend/bridge-schema-contract.json)
           {
             echo "IMAGE_REF=$IMAGE_REF"
             echo "BRIDGE_IMAGE_REF=$BRIDGE_IMAGE_REF"
             echo "APP_SCHEMA_MIN_REVISION=$APP_SCHEMA_MIN_REVISION"
             echo "APP_SCHEMA_MAX_REVISION=$APP_SCHEMA_MAX_REVISION"
             echo "EXPECTED_ALEMBIC_HEAD=$EXPECTED_ALEMBIC_HEAD"
+            echo "FINAL_SCHEMA_CONTRACT_DIGEST=$FINAL_SCHEMA_CONTRACT_DIGEST"
+            echo "BRIDGE_SCHEMA_CONTRACT_DIGEST=$BRIDGE_SCHEMA_CONTRACT_DIGEST"
           } >> "$GITHUB_ENV"
           echo "Using immutable image reference: $IMAGE_REF"
           echo "Using immutable bridge image reference: $BRIDGE_IMAGE_REF"
@@ -891,7 +902,9 @@ jobs:
             --secret-env DATABASE_URL=db-connection \
             --secret-env REDIS_URL=redis-url \
             --env APP_SCHEMA_MIN_REVISION=013 \
-            --env APP_SCHEMA_MAX_REVISION=014
+            --env APP_SCHEMA_MAX_REVISION=014 \
+            --env ARCHMORPH_SOURCE_SHA="${{ github.sha }}" \
+            --env ARCHMORPH_SCHEMA_CONTRACT_DIGEST="$BRIDGE_SCHEMA_CONTRACT_DIGEST"
           az containerapp update \
             --name "$CONTAINER_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -958,68 +971,38 @@ jobs:
             --revision "$BRIDGE_REV" \
             --image "$BRIDGE_IMAGE_REF" \
             --source-sha "${{ github.sha }}" \
-            --accepted-revision 013 \
-            --accepted-revision 014
+            --schema-contract backend/bridge-schema-contract.json \
+            --observed-schema "$CURRENT_SCHEMA_REVISION" \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT"
           python scripts/containerapp_rollout.py verify-release-manifest \
             --input bridge-release-manifest.json \
+            --required-role bridge \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow "$GITHUB_WORKFLOW" \
+            --expected-run-id "$GITHUB_RUN_ID" \
+            --expected-run-attempt "$GITHUB_RUN_ATTEMPT" >/dev/null
+          curl -fsS --max-time 30 "https://${BRIDGE_FQDN}/api/schema-compatibility" \
+            -o bridge-schema-compatibility.json
+          python scripts/containerapp_rollout.py verify-runtime-compatibility \
+            --manifest bridge-release-manifest.json \
+            --runtime bridge-schema-compatibility.json \
             --required-role bridge >/dev/null
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "$BRIDGE_REV" -o json > bridge-release-revision.json
+          python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest bridge-release-manifest.json \
+            --revision-json bridge-release-revision.json \
+            --required-role bridge \
+            --require-zero-traffic >/dev/null
           echo "bridge_revision=$BRIDGE_REV" >> "$GITHUB_OUTPUT"
           BRIDGE_SCRIPT
           chmod 700 "$RUNNER_TEMP/deploy-schema-bridge.sh"
           bash -n "$RUNNER_TEMP/deploy-schema-bridge.sh"
-
-      - name: Stage signed bridge reuse script
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          cat > "$RUNNER_TEMP/reuse-signed-bridge.sh" <<'BRIDGE_RERUN_SCRIPT'
-          #!/usr/bin/env bash
-          set -euo pipefail
-          PREVIOUS_RUN_ID=$(gh run list \
-            --workflow ci.yml \
-            --branch main \
-            --status success \
-            --limit 20 \
-            --json databaseId \
-            --jq '.[].databaseId' \
-            | head -1)
-          if [ -z "$PREVIOUS_RUN_ID" ]; then
-            echo "::error::Schema is already migrated but no successful signed bridge evidence is available"
-            exit 1
-          fi
-          gh run download "$PREVIOUS_RUN_ID" \
-            --name backend-release-evidence \
-            --dir previous-release-evidence
-          cp previous-release-evidence/bridge-release-manifest.json bridge-release-manifest.json
-          BRIDGE_REV=$(python scripts/containerapp_rollout.py verify-release-manifest \
-            --input bridge-release-manifest.json \
-            --required-role bridge \
-            --field revision)
-          EXPECTED_BRIDGE_IMAGE=$(python scripts/containerapp_rollout.py verify-release-manifest \
-            --input bridge-release-manifest.json \
-            --required-role bridge \
-            --field image)
-          BRIDGE_JSON=$(az containerapp revision show \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --revision "$BRIDGE_REV" -o json)
-          ACTUAL_BRIDGE_IMAGE=$(echo "$BRIDGE_JSON" | jq -r '.properties.template.containers[0].image // ""')
-          BRIDGE_FQDN=$(echo "$BRIDGE_JSON" | jq -r '.properties.fqdn // ""')
-          BRIDGE_ROLE=$(echo "$BRIDGE_JSON" | jq -r \
-            '.properties.template.containers[0].env[] | select(.name=="ARCHMORPH_RELEASE_ROLE") | .value // ""')
-          [ "$ACTUAL_BRIDGE_IMAGE" = "$EXPECTED_BRIDGE_IMAGE" ]
-          [ "$BRIDGE_ROLE" = "bridge" ]
-          curl -fsS --max-time 30 "https://${BRIDGE_FQDN}/api/schema-compatibility" \
-            | jq -e --arg expected "$EXPECTED_ALEMBIC_HEAD" \
-              '.status == "compatible" and .release_role == "bridge" and .current_revision == $expected and (.accepted_revisions | index($expected) != null)' >/dev/null
-          [ "$(curl -sS -o rerun-bridge-read-only.json -w '%{http_code}' --max-time 30 \
-            -H "X-API-Key: $ARCHMORPH_API_KEY" \
-            "https://${BRIDGE_FQDN}/api/health")" = "503" ]
-          jq -e '.status == "bridge_read_only" and .retryable == true' rerun-bridge-read-only.json >/dev/null
-          echo "bridge_revision=$BRIDGE_REV" >> "$GITHUB_OUTPUT"
-          BRIDGE_RERUN_SCRIPT
-          chmod 700 "$RUNNER_TEMP/reuse-signed-bridge.sh"
-          bash -n "$RUNNER_TEMP/reuse-signed-bridge.sh"
 
       - name: Load signed migration execution evidence from a prior run attempt
         id: interrupted_migration
@@ -2500,6 +2483,8 @@ jobs:
             --env TRUSTED_FRONT_DOOR_HOSTS="$TRUSTED_FRONT_DOOR_HOSTS"
             --env APP_SCHEMA_MIN_REVISION="$APP_SCHEMA_MIN_REVISION"
             --env APP_SCHEMA_MAX_REVISION="$APP_SCHEMA_MAX_REVISION"
+            --env ARCHMORPH_SOURCE_SHA="${{ github.sha }}"
+            --env ARCHMORPH_SCHEMA_CONTRACT_DIGEST="$FINAL_SCHEMA_CONTRACT_DIGEST"
           )
           if [ -n "${ARCHMORPH_API_KEY_ROTATED:-}" ]; then
             REVISION_ARGS+=(--secret-env ARCHMORPH_API_KEY_ROTATED=api-key-rotated)
@@ -2964,6 +2949,47 @@ jobs:
             --stage complete
           echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
 
+      - name: Create signed immutable final release evidence
+        id: final_release_evidence
+        if: steps.verify_production.outcome == 'success'
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
+            -o final-schema-compatibility.json
+          OBSERVED_SCHEMA=$(jq -er '.current_revision' final-schema-compatibility.json)
+          python scripts/containerapp_rollout.py write-release-manifest \
+            --output final-release-manifest.json \
+            --role final \
+            --revision "${{ steps.green.outputs.green_revision }}" \
+            --image "$IMAGE_REF" \
+            --source-sha "${{ github.sha }}" \
+            --schema-contract backend/schema-contract.json \
+            --observed-schema "$OBSERVED_SCHEMA" \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT"
+          python scripts/containerapp_rollout.py verify-release-manifest \
+            --input final-release-manifest.json \
+            --required-role final \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow "$GITHUB_WORKFLOW" \
+            --expected-run-id "$GITHUB_RUN_ID" \
+            --expected-run-attempt "$GITHUB_RUN_ATTEMPT" >/dev/null
+          python scripts/containerapp_rollout.py verify-runtime-compatibility \
+            --manifest final-release-manifest.json \
+            --runtime final-schema-compatibility.json \
+            --required-role final >/dev/null
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "${{ steps.green.outputs.green_revision }}" \
+            -o json > final-release-revision.json
+          python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest final-release-manifest.json \
+            --revision-json final-release-revision.json \
+            --required-role final >/dev/null
+
       - name: Recover exact schema-safe traffic after rollout failure
         if: always() && steps.rollout_state.outcome == 'success' && steps.verify_production.outcome != 'success'
         run: |
@@ -3058,12 +3084,18 @@ jobs:
             exit "$RESTORE_STATUS"
           fi
 
-      - name: Deactivate old revisions (keep blue for rollback)
-        if: steps.verify_production.outcome == 'success'
+      - name: Deactivate superseded revisions after final evidence
+        if: steps.final_release_evidence.outcome == 'success'
         run: |
           set -euo pipefail
-          BRIDGE_REV="${{ steps.bridge_resolved.outputs.bridge_revision }}"
-          mapfile -t ROLLBACK_REVISIONS < <(jq -r '.[] | .revisionName // empty' pre-shift-traffic-manifest.json)
+          BRANCH=$(python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json --field branch)
+          ROLLBACK_REVISIONS=()
+          if [ "$BRANCH" = "routine" ]; then
+            mapfile -t ROLLBACK_REVISIONS < <(
+              jq -r '.[] | .revisionName // empty' pre-shift-traffic-manifest.json
+            )
+          fi
           OLD_REVS=$(az containerapp revision list \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
@@ -3071,16 +3103,17 @@ jobs:
 
           DEACTIVATE=""
           for rev in $OLD_REVS; do
-            if [ "$rev" = "$BRIDGE_REV" ] || printf '%s\n' "${ROLLBACK_REVISIONS[@]}" | grep -qxF "$rev"; then
+            if printf '%s\n' "${ROLLBACK_REVISIONS[@]}" | grep -qxF "$rev"; then
               continue
             fi
             DEACTIVATE+="${rev}"$'\n'
           done
 
-          if [ -n "$BRIDGE_REV" ]; then
-            echo "Keeping signed bridge revision for rollback: $BRIDGE_REV"
+          if [ "$BRANCH" = "migration" ]; then
+            echo "Migration bridge is recovery-only and will be deactivated after final evidence."
+          else
+            printf 'Keeping compatible routine-release predecessor: %s\n' "${ROLLBACK_REVISIONS[@]}"
           fi
-          printf 'Keeping exact prior traffic revision for restoration: %s\n' "${ROLLBACK_REVISIONS[@]}"
 
           for rev in $DEACTIVATE; do
             echo "Deactivating old revision: $rev"
@@ -3099,26 +3132,101 @@ jobs:
             fi
           done
 
-      - name: Upload backend release and rollback evidence
-        if: always() && steps.rollout_state.outcome == 'success'
-        uses: actions/upload-artifact@v7
-        with:
-          name: backend-release-evidence
-          path: |
-            bridge-release-manifest.json
+      - name: Assemble complete backend final release evidence
+        id: final_evidence_bundle
+        if: always() && steps.final_release_evidence.outcome == 'success'
+        run: |
+          set -euo pipefail
+          BRANCH=$(python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json --field branch)
+          REQUIRED_EVIDENCE=(
+            final-release-manifest.json
+            final-release-revision.json
+            final-schema-compatibility.json
             rollout-state.json
             pre-green-traffic-manifest.json
             migration-alert-attestation.json
             blue-traffic-original.json
             blue-traffic-manifest.json
             pre-shift-traffic-manifest.json
-            rollout-recovery-evidence.json
-            migration-execution-evidence.json
-            migration-start-recovery-evidence.json
-            migration-quiescence-evidence.json
-            interrupted-migration-start-evidence.json
-            interrupted-migration-quiescence.json
-            rollout-telemetry.ndjson
+            green-routed-traffic.json
+          )
+          if [ "$BRANCH" = "migration" ]; then
+            REQUIRED_EVIDENCE+=(
+              bridge-release-manifest.json
+              bridge-release-revision.json
+              bridge-schema-compatibility.json
+              migration-execution-evidence.json
+              rollout-telemetry.ndjson
+            )
+          fi
+          rm -rf backend-release-evidence
+          mkdir backend-release-evidence
+          for evidence_path in "${REQUIRED_EVIDENCE[@]}"; do
+            if [ ! -s "$evidence_path" ]; then
+              echo "::error::Required backend release evidence is missing or empty: ${evidence_path}"
+              exit 1
+            fi
+            cp "$evidence_path" backend-release-evidence/
+          done
+          printf '%s\n' "${REQUIRED_EVIDENCE[@]}" | jq -R . | jq -s \
+            --arg branch "$BRANCH" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
+            '{schema_version:1,role:"final",branch:$branch,run_id:$runId,
+              run_attempt:$runAttempt,required_files:.}' \
+            > backend-release-evidence/evidence-index.json
+          python scripts/containerapp_rollout.py verify-release-manifest \
+            --input backend-release-evidence/final-release-manifest.json \
+            --required-role final \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow "$GITHUB_WORKFLOW" \
+            --expected-run-id "$GITHUB_RUN_ID" \
+            --expected-run-attempt "$GITHUB_RUN_ATTEMPT" >/dev/null
+
+      - name: Upload complete backend final release evidence
+        if: always() && steps.final_evidence_bundle.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-release-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: backend-release-evidence
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Assemble explicit failed-rollout diagnostics
+        if: always() && steps.rollout_state.outcome == 'success' && (steps.final_release_evidence.outcome != 'success' || steps.final_evidence_bundle.outcome == 'failure')
+        run: |
+          set -euo pipefail
+          REQUIRED_DIAGNOSTICS=(rollout-state.json blue-traffic-manifest.json)
+          rm -rf backend-rollout-diagnostics
+          mkdir backend-rollout-diagnostics
+          for evidence_path in "${REQUIRED_DIAGNOSTICS[@]}"; do
+            test -s "$evidence_path"
+            cp "$evidence_path" backend-rollout-diagnostics/
+          done
+          CANDIDATES=(
+            rollout-recovery-evidence.json migration-execution-evidence.json
+            migration-start-recovery-evidence.json migration-quiescence-evidence.json
+            interrupted-migration-start-evidence.json interrupted-migration-quiescence.json
+            rollout-telemetry.ndjson bridge-release-manifest.json
+          )
+          PRESENT=()
+          for evidence_path in "${CANDIDATES[@]}"; do
+            if [ -s "$evidence_path" ]; then
+              cp "$evidence_path" backend-rollout-diagnostics/
+              PRESENT+=("$evidence_path")
+            fi
+          done
+          printf '%s\n' "${PRESENT[@]}" | sed '/^$/d' | jq -R . | jq -s \
+            '{schema_version:1,role:"diagnostic",partial:true,present_optional_files:.}' \
+            > backend-rollout-diagnostics/evidence-index.json
+
+      - name: Upload explicit failed-rollout diagnostics
+        if: always() && hashFiles('backend-rollout-diagnostics/evidence-index.json') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-rollout-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: backend-rollout-diagnostics
           if-no-files-found: error
           retention-days: 90
 
@@ -3168,6 +3276,13 @@ jobs:
         with:
           name: frontend-dist
           path: frontend/current-dist
+
+      - name: Validate current frontend artifact before mutation
+        run: |
+          set -euo pipefail
+          python scripts/frontend_release.py validate \
+            --root frontend/current-dist \
+            > frontend/current-dist/validated-digests.json
 
       - name: Capture current Static Web Apps settings
         id: capture_swa_settings
@@ -3282,6 +3397,10 @@ jobs:
             --root frontend/recovery-bundle \
             --restore-image "$SWA_RESTORE_IMAGE" \
             --output frontend/recovery-bundle/frontend-rollback-manifest.json
+          python scripts/frontend_release.py verify \
+            --root frontend/recovery-bundle \
+            --manifest frontend/recovery-bundle/frontend-rollback-manifest.json \
+            > frontend/recovery-bundle/verified-manifest.json
 
       - name: Upload verified frontend recovery bundle
         uses: actions/upload-artifact@v7

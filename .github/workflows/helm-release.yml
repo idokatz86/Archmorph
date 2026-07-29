@@ -16,6 +16,14 @@ on:
         description: Immutable sha256 image digest
         required: true
         type: string
+      bridge_image_repository:
+        description: Immutable schema-bridge repository (required only when prior image excludes target schema)
+        required: false
+        type: string
+      bridge_image_digest:
+        description: Schema-bridge sha256 digest (required only when prior image excludes target schema)
+        required: false
+        type: string
 
 permissions:
   id-token: write
@@ -53,7 +61,7 @@ jobs:
           AKS_RESOURCE_GROUP: ${{ secrets.AKS_RESOURCE_GROUP }}
           AKS_CLUSTER_NAME: ${{ secrets.AKS_CLUSTER_NAME }}
 
-      - name: Run serialized atomic Helm release
+      - name: Run serialized schema-bound Helm release
         run: bash scripts/helm_release.sh
         env:
           HELM_RELEASE_NAME: archmorph
@@ -61,17 +69,44 @@ jobs:
           HELM_VALUES_FILE: charts/archmorph/values-${{ inputs.environment }}.yaml
           HELM_IMAGE_REPOSITORY: ${{ inputs.image_repository }}
           HELM_IMAGE_DIGEST: ${{ inputs.image_digest }}
+          HELM_BRIDGE_IMAGE_REPOSITORY: ${{ inputs.bridge_image_repository }}
+          HELM_BRIDGE_IMAGE_DIGEST: ${{ inputs.bridge_image_digest }}
           HELM_SOURCE_SHA: ${{ github.sha }}
           HELM_EVIDENCE_FILE: helm-release-evidence.json
+          HELM_FINAL_MANIFEST_FILE: helm-final-release-manifest.json
+          RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
           HELM_EXTERNAL_SECRETS_ENABLED: ${{ vars.HELM_EXTERNAL_SECRETS_ENABLED || 'false' }}
           HELM_EXTERNAL_SECRET_MANIFEST: ${{ vars.HELM_EXTERNAL_SECRET_MANIFEST }}
           HELM_EXTERNAL_SECRET_NAME: ${{ vars.HELM_EXTERNAL_SECRET_NAME }}
           HELM_EXISTING_SECRET_NAME: ${{ vars.HELM_EXISTING_SECRET_NAME }}
 
+      - name: Validate Helm release evidence bundle
+        if: always()
+        run: |
+          set -euo pipefail
+          test -s helm-release-evidence.json
+          mkdir -p helm-release-evidence
+          cp helm-release-evidence.json helm-release-evidence/
+          STATUS=$(jq -er '.status' helm-release-evidence.json)
+          if [ "$STATUS" = "released" ]; then
+            test -s helm-final-release-manifest.json
+            python scripts/containerapp_rollout.py verify-release-manifest \
+              --input helm-final-release-manifest.json \
+              --required-role final \
+              --expected-repository "${{ github.repository }}" \
+              --expected-workflow "${{ github.workflow }}" \
+              --expected-run-id "${{ github.run_id }}" \
+              --expected-run-attempt "${{ github.run_attempt }}" >/dev/null
+            cp helm-final-release-manifest.json helm-release-evidence/
+          else
+            jq -e '.failure_action != "none"' helm-release-evidence.json >/dev/null
+          fi
+
       - name: Upload Helm release evidence
+        if: always() && hashFiles('helm-release-evidence/helm-release-evidence.json') != ''
         uses: actions/upload-artifact@v7
         with:
-          name: helm-release-evidence
-          path: helm-release-evidence.json
+          name: helm-release-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: helm-release-evidence
           if-no-files-found: error
           retention-days: 90

@@ -48,23 +48,24 @@ configuration.
 
 ## Schema rollout
 
-When `migrations.enabled=true`, Helm first runs a revisioned
-`migration-secret-preflight` hook. It mounts every required Secret key as an
+The owning release controller renders and applies a uniquely named
+`migration-secret-preflight` phase before the migration phase. It mounts every required Secret key as an
 environment reference, resolves `DATABASE_URL`, executes `SELECT 1`, and checks
-every revision in `migrations.acceptedCurrentAlembicRevisions` before the migration hook is
+every revision in `migrations.acceptedCurrentAlembicRevisions` before the migration Job is
 created. A missing Secret, inaccessible database, or unexpected schema therefore
 fails before DDL instead of becoming a normal `ExternalSecret` first-install
 race or a partial migration.
 
-The subsequent revisioned `pre-install,pre-upgrade` migration Job uses the same
+The subsequent separately applied migration Job uses the same
 immutable application image and `DATABASE_URL` secret as the Deployment. The Job
 runs `run_migrations.py --expect-head <revision>`, which takes a PostgreSQL
 advisory lock, validates that the reviewed target exists and is reachable from
 the current revision, upgrades only to that target, verifies the exact declared head, and exits
 non-zero on any failure. If the database is already at that exact head, the
-runner validates readiness and emits evidence without running DDL. Hooks use unique release-revision names and
-`hook-succeeded` cleanup only; they never use `before-hook-creation`, so a second
-release cannot delete an active migration Job.
+runner validates readiness and emits evidence without running DDL. Phase Jobs use
+unique run/attempt names, `activeDeadlineSeconds`, and
+`ttlSecondsAfterFinished`. Kubernetes TTL cleanup therefore bounds both failed
+and successful history without ever deleting an active execution.
 
 For a brand-new database only, set `migrations.bootstrapEmptyDatabase=true` in
 an explicitly reviewed first-provisioning values file. Both preflight and
@@ -74,17 +75,24 @@ false for all existing environments. A database with non-Alembic tables, or a
 credential/SQL failure, is never treated as empty and fails closed.
 
 Production and staging require `image.digest=sha256:<digest>`. Tags, including
-`latest`, are rejected. Run releases with `helm upgrade --install` plus
-`--atomic --wait`, and serialize install/upgrade operations in the owning GitOps or CI
-controller. Helm storage locking plus the database advisory lock are defensive
-backstops, not a replacement for release serialization.
+`latest`, are rejected. The controller verifies the currently serving image's
+schema contract before migration. If it excludes the target schema, a reviewed
+immutable bridge that accepts both revisions is brought up and selected by the
+Service before DDL. After migration, the bridge (or a verified compatible prior
+image) stays serving while a workload-only `helm upgrade --install --wait` runs
+with `migrations.enabled=false`. The workload phase intentionally does **not** use
+`--atomic`: target readiness failure is explicit fix-forward and never rolls the
+workload back across a committed schema boundary.
+Production/staging rendering fails when `migrations.phase=disabled` while
+`migrations.enabled=true`; only the serialized owner may enter the workload phase,
+and it must set `migrations.enabled=false` after both Jobs complete.
 
 The chart creates the application ServiceAccount when
-`serviceAccount.create=true`. Migration hooks default to the namespace `default`
-ServiceAccount because normal resources are not available to pre-install hooks;
-set `migrations.serviceAccountName` only to a ServiceAccount provisioned before
-the release. Any configured `imagePullSecrets` are propagated to the Deployment
-and both migration hooks so private-registry first install is deterministic.
+`serviceAccount.create=true`. Migration phases require a dedicated ServiceAccount
+provisioned before release; production and staging use explicit environment names,
+never `default`. The Jobs disable token automount and require no Kubernetes API
+RBAC. Any configured `imagePullSecrets` are propagated to the Deployment and both
+migration phases so private-registry execution is deterministic.
 
 ### External Secrets controller integration limitation
 
@@ -97,12 +105,18 @@ Secret keys, then run the chart. The chart intentionally fails first install
 instead of waiting on or racing an external controller.
 
 The owning executable path is `scripts/helm_release.sh`, invoked by the manual
-`Helm Release` workflow. It acquires a namespace Lease, fails clearly when the
+`Helm Release` workflow. It acquires a namespace Lease with holder identity,
+acquire/renew timestamps, duration, periodic heartbeat, bounded wait, and
+resourceVersion compare-and-swap. Normal exit releases only the currently owned
+record; a runner lost without cleanup expires, and a live holder cannot be
+stolen. It fails clearly when the
 External Secrets CRD/controller is unavailable, applies and waits for the
 ExternalSecret when configured, verifies required Secret keys, then renders the
-chart against that pre-existing Secret and runs `helm upgrade --install
---atomic --wait` with an immutable image digest. The workflow shares the whole
-production mutation lock with Container Apps, Static Web Apps, Terraform, and
-manual rollback and records source/image/schema evidence.
+chart against that pre-existing Secret. The workflow shares the whole production
+mutation lock with Container Apps, Static Web Apps, Terraform, and manual rollback
+and records previous/target image contracts, schema phases, failure action, and a
+signed final release manifest. The workload carries explicit final role, source
+SHA, and canonical schema-contract digest environment metadata, all checked
+against the deployed Deployment before the manifest is signed.
 
 Application replicas only verify schema state; they never run DDL.

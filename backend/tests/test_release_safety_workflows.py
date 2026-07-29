@@ -71,6 +71,8 @@ def test_ci_includes_pgvector_empty_schema_structural_migration_cycle():
     )["run"]
     assert "backend/tests/test_rollout_telemetry.py" in rollout_contracts
     assert "backend/tests/test_run_migrations.py" in rollout_contracts
+    assert "backend/tests/test_helm_release_contract.py" in rollout_contracts
+    assert "backend/tests/test_kubernetes_lease.py" in rollout_contracts
 
     run_script = _step_by_name(
         job["steps"],
@@ -377,12 +379,26 @@ def test_cleanup_is_manifest_and_stage_gated_without_obscuring_original_failure(
     assert "|| RESTORE_STATUS=$?" in recovery["run"]
     assert "rollout-recovery-evidence.json" in recovery["run"]
     assert "|| true" in recovery["run"]
-    deactivate = _step_by_name(steps, "Deactivate old revisions (keep blue for rollback)")
-    assert deactivate["if"] == "steps.verify_production.outcome == 'success'"
+    deactivate = _step_by_name(
+        steps, "Deactivate superseded revisions after final evidence"
+    )
+    assert deactivate["if"] == "steps.final_release_evidence.outcome == 'success'"
     assert "properties.active" in deactivate["run"]
     assert "remained active after cleanup" in deactivate["run"]
-    upload = _step_by_name(steps, "Upload backend release and rollback evidence")
-    assert upload["if"] == "always() && steps.rollout_state.outcome == 'success'"
+    assemble = _step_by_name(steps, "Assemble complete backend final release evidence")
+    assert assemble["id"] == "final_evidence_bundle"
+    assert assemble["if"] == (
+        "always() && steps.final_release_evidence.outcome == 'success'"
+    )
+    assert "REQUIRED_EVIDENCE" in assemble["run"]
+    assert "Required backend release evidence is missing or empty" in assemble["run"]
+    upload = _step_by_name(steps, "Upload complete backend final release evidence")
+    assert upload["if"] == (
+        "always() && steps.final_evidence_bundle.outcome == 'success'"
+    )
+    assert "github.run_id" in upload["with"]["name"]
+    diagnostics = _step_by_name(steps, "Assemble explicit failed-rollout diagnostics")
+    assert "partial:true" in diagnostics["run"]
 
 
 def test_migration_execution_is_persisted_and_quiesced_before_recovery_decisions():
@@ -588,7 +604,9 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
         "Recover exact schema-safe traffic after rollout failure",
     )
     restore = restore_step["run"]
-    retain = _step_by_name(steps, "Deactivate old revisions (keep blue for rollback)")["run"]
+    retain = _step_by_name(
+        steps, "Deactivate superseded revisions after final evidence"
+    )["run"]
 
     assert "blue-traffic-original.json" in capture
     assert "explicit-traffic" in capture
@@ -641,16 +659,15 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert "RESTORE_STATUS" in restore
     assert restore.index("recover-release") < restore.index("az containerapp revision show")
     assert "eval " not in restore
-    assert 'BRIDGE_REV="${{ steps.bridge_resolved.outputs.bridge_revision }}"' in retain
+    assert "--field branch" in retain
     assert "ROLLBACK_REVISIONS" in retain
-    assert "Keeping exact prior traffic revision" in retain
+    assert "Migration bridge is recovery-only" in retain
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
     assert "BRIDGE_BASE_IMAGE=${{ env.ACR_LOGIN_SERVER }}/archmorph-api@${{ steps.build_backend.outputs.digest }}" in workflow_text
     assert "backend/bridge_overlay/Dockerfile" in workflow_text
     assert "context: ./backend/bridge_overlay" in workflow_text
     assert "archmorph-api-bridge@${{ steps.build_bridge.outputs.digest }}" in workflow_text
     detect = _step_by_name(steps, "Discover schema with same-identity database preflight")["run"]
-    rerun = _step_by_name(steps, "Stage signed bridge reuse script")["run"]
     resolve = _step_by_name(steps, "Resolve verified bridge for discovered schema")["run"]
     route_bridge = _step_by_name(
         steps,
@@ -658,10 +675,8 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     )["run"]
     assert "--accept-current 013" in detect
     assert "/api/schema-compatibility" in detect
-    assert "gh run download" in rerun
-    assert "--required-role bridge" in rerun
-    assert 'BRIDGE_ROLE" = "bridge"' in rerun
-    assert "rerun-bridge-read-only.json" in rerun
+    assert "Stage signed bridge reuse script" not in names
+    assert "reuse-signed-bridge.sh" not in CI_WORKFLOW.read_text(encoding="utf-8")
     assert "BRIDGE_REVISION=" in resolve
     assert '[ "$CURRENT_SCHEMA_REVISION" = "013" ]' in resolve
     assert "export CURRENT_SCHEMA_REVISION" in resolve
@@ -671,11 +686,20 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert "routed-bridge-read-only.json" in route_bridge
     assert 'Routine schema-${EXPECTED_ALEMBIC_HEAD} release preserves current production traffic' in resolve
     assert "set-bridge" in resolve
-    upload = _step_by_name(steps, "Upload backend release and rollback evidence")["with"][
-        "path"
+    final = _step_by_name(steps, "Create signed immutable final release evidence")["run"]
+    assert "final-release-manifest.json" in final
+    assert "--role final" in final
+    assert "--schema-contract backend/schema-contract.json" in final
+    assert "--observed-schema" in final
+    assert "--run-attempt" in final
+    assert "verify-runtime-compatibility" in final
+    assert "verify-revision-target" in final
+    assemble = _step_by_name(steps, "Assemble complete backend final release evidence")[
+        "run"
     ]
-    assert "blue-traffic-original.json" in upload
-    assert "blue-traffic-manifest.json" in upload
+    assert "final-release-manifest.json" in assemble
+    assert "blue-traffic-original.json" in assemble
+    assert "blue-traffic-manifest.json" in assemble
 
 
 def test_frontend_waits_for_backend_and_has_previous_artifact_rollback():
@@ -795,13 +819,19 @@ def test_reviewed_migration_alert_specs_match_terraform_exactly():
 
 def test_rollback_health_verification_uses_authenticated_api_health():
     workflow = _load(ROLLBACK_WORKFLOW)
-    assert "traffic_percentage" not in workflow[True]["workflow_dispatch"]["inputs"]
+    inputs = workflow[True]["workflow_dispatch"]["inputs"]
+    assert "traffic_percentage" not in inputs
+    assert inputs["release_run_id"]["required"] is False
+    assert inputs["release_run_attempt"]["required"] is False
+    assert inputs["signed_final_manifest_base64"]["required"] is False
     assert workflow["env"]["ARCHMORPH_API_KEY"] == "${{ secrets.ARCHMORPH_API_KEY }}"
     assert workflow["env"]["ADMIN_KEY"] == "${{ secrets.ADMIN_KEY }}"
     assert workflow["env"]["MIGRATION_JOB_NAME"] == "${{ secrets.MIGRATION_JOB_NAME }}"
     assert workflow["env"]["RELEASE_MANIFEST_HMAC_KEY"] == (
         "${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}"
     )
+    assert workflow["env"]["RELEASE_WORKFLOW_NAME"] == "CI/CD"
+    assert workflow["permissions"]["actions"] == "read"
     assert workflow["jobs"]["rollback"]["environment"] == "production"
 
     steps = workflow["jobs"]["rollback"]["steps"]
@@ -825,10 +855,10 @@ def test_rollback_health_verification_uses_authenticated_api_health():
     assert step_names.index(
         "Require migration quiescence before manual traffic rollback"
     ) < step_names.index("Verify target schema compatibility before activation")
-    assert "APP_SCHEMA_MIN_REVISION" in compatibility_script
-    assert "APP_SCHEMA_MAX_REVISION" in compatibility_script
+    assert "verify-revision-target" in compatibility_script
+    assert "--require-zero-traffic" in compatibility_script
+    assert "verify-runtime-compatibility" in compatibility_script
     assert "/api/schema-compatibility" in compatibility_script
-    assert "Target revision is incompatible with the current database schema" in compatibility_script
     assert "traffic remains unchanged" in compatibility_script
     assert "Rollback target supports current schema" in compatibility_script
     assert "activating it at zero traffic for schema preflight" in compatibility_script
@@ -839,13 +869,26 @@ def test_rollback_health_verification_uses_authenticated_api_health():
         "Verify target schema compatibility before activation"
     )
     assert step_names.index("Verify target schema compatibility before activation") < step_names.index(
-        "Activate rollback revision"
-    )
-    assert step_names.index("Verify target schema compatibility before activation") < step_names.index(
         "Shift traffic to rollback revision"
     )
-    resolve = _step_by_name(steps, "Resolve explicit signed bridge rollback target")["run"]
+    assert "Activate rollback revision" not in step_names
+    resolve = _step_by_name(steps, "Resolve explicit signed final rollback target")["run"]
     assert "RELEASE_MANIFEST_HMAC_KEY must contain at least 32 bytes" in resolve
+    assert "backend-release-evidence-${RELEASE_RUN_ID}-${RELEASE_RUN_ATTEMPT}" in resolve
+    assert (
+        'actions/runs/${RELEASE_RUN_ID}/attempts/${RELEASE_RUN_ATTEMPT}' in resolve
+    )
+    assert '.run_attempt == $attempt' in resolve
+    assert '.conclusion == "success"' in resolve
+    assert "SIGNED_SOURCE_SHA" in resolve
+    assert "SELECTED_SOURCE_SHA" in resolve
+    assert "signed_final_manifest_base64" in resolve
+    assert "unavailable or expired" in resolve
+    assert "final-release-manifest.json" in resolve
+    assert "--required-role final" in resolve
+    assert "--expected-repository" in resolve
+    assert "--expected-workflow" in resolve
+    assert "--expected-run-attempt" in resolve
     verify_step = _step_by_name(steps, "Verify rollback health")
     run_script = verify_step["run"]
 
@@ -853,9 +896,11 @@ def test_rollback_health_verification_uses_authenticated_api_health():
     assert 'X-API-Key: ${HEALTH_API_KEY}' in run_script
     assert '"${BASE}/api/health"' in run_script
     assert '"${BASE}/api/schema-compatibility"' in run_script
-    assert '.release_role == "bridge"' in run_script
-    assert '[ "$HTTP_CODE" = "503" ]' in run_script
-    assert 'bridge_read_only' in run_script
+    assert "verify-runtime-compatibility" in run_script
+    assert "verify-revision-target" in run_script
+    assert "--required-role final" in run_script
+    assert '[ "$HTTP_CODE" = "200" ]' in run_script
+    assert ".status == \"healthy\"" in run_script
     shift = _step_by_name(steps, "Shift traffic to rollback revision")["run"]
     assert "rollback-target-traffic-manifest.json" in shift
     assert "apply-traffic" in shift

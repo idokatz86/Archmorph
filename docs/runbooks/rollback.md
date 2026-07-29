@@ -14,7 +14,9 @@ Do not use `terraform destroy` or `azd down` for normal rollback. Those commands
 - Azure RBAC for the production subscription and resource group.
 - GitHub secrets present: `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_RESOURCE_GROUP`, `CONTAINER_APP_NAME`, `MIGRATION_JOB_NAME`, `API_URL`, `ACR_NAME`, and `ACR_LOGIN_SERVER`, plus `ARCHMORPH_API_KEY` or `ADMIN_KEY` for authenticated health verification.
 - Azure CLI authenticated if using the manual fallback.
-- Release evidence for the signed bridge revision, frontend artifact, Git SHA, immutable image digest, declared schema range, and exact traffic manifest.
+- Release evidence for a signed final revision, frontend artifact, Git SHA,
+  immutable image digest, observed schema, canonical schema-contract digest,
+  exact run/attempt identity, and exact traffic manifest.
 
 ## Decision Points
 
@@ -39,23 +41,29 @@ Abort rollback and escalate if:
 Prefer the `Manual Rollback` workflow in `.github/workflows/rollback.yml`.
 
 1. Open GitHub Actions and choose `Manual Rollback`.
-2. Enter the successful `release_run_id` containing `backend-release-evidence`.
-  The workflow verifies the HMAC-signed bridge manifest and refuses list-order,
-  creation-time, or active-state target selection.
-3. The workflow always shifts 100% to the signed bridge; partial rollback is not supported.
-4. Run the workflow. The `rollback` job is bound to the GitHub `production` Environment, so GitHub will pause before Azure login and traffic movement until required reviewers approve the deployment (or an authorized emergency bypass is used under repository policy).
-5. For emergency rollback, page the designated production environment approver immediately. If GitHub Actions or environment approval is unavailable, use the Azure CLI fallback below and record why the protected workflow could not be used.
-6. Confirm the workflow compares the target revision's
-  `APP_SCHEMA_MIN_REVISION` / `APP_SCHEMA_MAX_REVISION` metadata and queries its
-  `/api/schema-compatibility` endpoint **before any traffic change**. An inactive
-  target may be started at zero traffic solely for this preflight.
-7. Only after compatibility succeeds, confirm the workflow activates the target,
-  shifts traffic, verifies readiness/schema metadata, and proves normal API
-  requests return retryable read-only 503.
+2. Enter the exact successful `release_run_id` and `release_run_attempt` whose
+   immutable artifact is named for both values. If retention expired, supply the
+   retained HMAC-signed final manifest as base64 instead. Supply exactly one
+   source; the workflow never searches for a latest or historical fallback.
+3. The workflow verifies `role=final` and binds source SHA, immutable image
+   digest, observed schema, canonical contract digest, and run identity. Partial
+   rollback is not supported.
+4. Run the workflow. The `rollback` job is bound to the GitHub `production`
+   Environment, so required reviewers approve Azure login and traffic movement.
+5. For emergency rollback, page the designated production environment approver.
+   If the protected workflow is unavailable, use the fallback below and record why.
+6. Confirm the target starts at zero traffic. The workflow compares its image,
+   source SHA, role, schema bounds, and contract digest to the signed manifest,
+   then queries `/api/schema-compatibility` before any traffic change. Runtime
+   values are compared with signed evidence, never with values read from the same
+   untrusted response.
+7. Only after compatibility succeeds, confirm the workflow shifts 100% traffic,
+   verifies the exact final contract again, and proves authenticated API health
+   returns HTTP 200 with `status=healthy`.
 8. If routed verification fails, confirm exact pre-rollback weights are restored
-  and verified before the workflow fails.
-9. Capture the workflow URL, target revision, image digest, schema range/current
-  revision, approval/bypass evidence, and health output in release evidence.
+   and verified before the workflow fails.
+9. Capture the workflow URL, target revision, image/source/contract digests,
+   current schema, approval evidence, and health output.
 
 The workflow normalizes `API_URL`, calls `/api/health`, sends `X-API-Key` from `ARCHMORPH_API_KEY` with `ADMIN_KEY` fallback when present, and uses the production Environment OIDC subject so Azure trust is scoped to approved production runs instead of branch name alone.
 
@@ -69,18 +77,12 @@ Set context:
 az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 ```
 
-Retrieve and verify the signed bridge manifest from successful release evidence.
+Retrieve and verify the signed final manifest from successful release evidence.
 Use its explicit revision/image pair. List revisions only to confirm that target
 still exists; never derive a target by selecting the first or second active row:
 
-The first migration `014` rollout creates this bridge from the exact current
-immutable release image plus a schema/readiness/read-only overlay. The old
-production revision is never promoted merely because it was active.
-
-The bridge is a safe rollback target, not normal steady state: it serves
-`/healthz`, `/readyz`, and `/api/schema-compatibility` only. Other requests return
-retryable 503 to prevent schema-013 writes. After bridge rollback, fix forward to
-a final schema-compatible revision before resuming normal customer operations.
+Bridge manifests are not manual rollback targets. They exist only inside the
+supervised migration recovery path while a schema transition is unresolved.
 
 ```bash
 az containerapp revision list \
@@ -125,9 +127,9 @@ curl -fsS \
   "${BASE}/api/health" | jq .
 ```
 
-Expected bridge rollback result: readiness is 200, schema compatibility is
-`compatible` with `release_role=bridge`, and normal API requests return retryable
-503. This is degraded safe recovery pending a final fix-forward.
+Expected final rollback result: readiness is 200, schema compatibility is
+`compatible` with `release_role=final` and exactly the signed contract, the routed
+revision matches the manifest, and authenticated API health is 200/`healthy`.
 
 ## ACR Image Pinning
 
@@ -331,10 +333,12 @@ Both requests must stay unauthenticated (`401` with `UNTRUSTED_SWA_PRINCIPAL`, o
 
 Use this checklist for quarterly operator drills:
 
-1. Identify the release run containing the signed known-good bridge manifest.
-2. Run `Manual Rollback` with that release run ID.
+1. Identify the exact release run and attempt containing the signed known-good
+  final manifest, or its retained signed copy after artifact expiry.
+2. Run `Manual Rollback` with that exact evidence source.
 3. Confirm traffic is `100` percent on the rollback revision.
-4. Verify bridge readiness/schema metadata and retryable read-only 503 behavior.
+4. Verify exact image/source/schema metadata, final-role compatibility, and
+  authenticated 200/`healthy` behavior.
 5. Verify frontend root, translator, playground, and one Architecture Package export.
 6. Record elapsed time, workflow URL, target revision, image digest, and any manual steps.
 

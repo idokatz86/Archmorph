@@ -50,6 +50,14 @@ spec:
             - configMapRef:
                 name: {{ include "archmorph.fullname" . }}-config
           env:
+            - name: ARCHMORPH_RELEASE_ROLE
+              value: "final"
+            {{- if .Values.releaseEvidence.sourceSha }}
+            - name: ARCHMORPH_SOURCE_SHA
+              value: {{ .Values.releaseEvidence.sourceSha | quote }}
+            - name: ARCHMORPH_SCHEMA_CONTRACT_DIGEST
+              value: {{ .Values.releaseEvidence.schemaContractDigest | quote }}
+            {{- end }}
             {{- range .Values.requiredSecretKeys }}
             - name: {{ .secretKey }}
               valueFrom:

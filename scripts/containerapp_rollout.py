@@ -31,6 +31,27 @@ _TERMINAL_EXECUTION_STATUSES = {
     "cancelled": "Cancelled",
     "canceled": "Cancelled",
 }
+_RELEASE_MANIFEST_SCHEMA_VERSION = 2
+_SCHEMA_CONTRACT_FIELDS = (
+    "contract_version",
+    "migration_target_revision",
+    "minimum_revision",
+    "maximum_revision",
+    "accepted_revisions",
+    "alias_read_through_until",
+)
+_RELEASE_MANIFEST_FIELDS = {
+    "schema_version",
+    "role",
+    "revision",
+    "image",
+    "image_digest",
+    "source_sha",
+    "observed_schema",
+    "schema_contract",
+    "schema_contract_digest",
+    "release_identity",
+}
 _RELEASE_STAGES = (
     "captured",
     "baseline_attempted",
@@ -1106,6 +1127,92 @@ def _write_release_state(path: Path, state: dict[str, Any]) -> None:
     _write_json_atomic(path, sign_release_state(state))
 
 
+def _strict_json(path: Path) -> object:
+    def reject_duplicate_keys(pairs: list[tuple[str, object]]) -> dict[str, object]:
+        payload: dict[str, object] = {}
+        for key, value in pairs:
+            if key in payload:
+                raise ValueError(f"JSON object contains duplicate key: {key}")
+            payload[key] = value
+        return payload
+
+    return json.loads(
+        path.read_text(encoding="utf-8"),
+        object_pairs_hook=reject_duplicate_keys,
+    )
+
+
+def normalize_schema_contract(payload: object) -> dict[str, object]:
+    """Validate and canonicalize the immutable application schema contract."""
+    if not isinstance(payload, dict) or set(payload) != set(_SCHEMA_CONTRACT_FIELDS):
+        raise ValueError("schema contract fields are incomplete or unexpected")
+    if payload.get("contract_version") != 1:
+        raise ValueError("schema contract version is unsupported")
+    accepted_payload = payload.get("accepted_revisions")
+    if not isinstance(accepted_payload, list) or not accepted_payload:
+        raise ValueError("schema contract accepted revisions are missing")
+    accepted = [str(item) for item in accepted_payload]
+    if accepted != sorted(set(accepted)) or any(
+        not _SCHEMA_RE.fullmatch(item) for item in accepted
+    ):
+        raise ValueError("schema contract accepted revisions are invalid")
+    normalized: dict[str, object] = {
+        "contract_version": 1,
+        "migration_target_revision": str(
+            payload.get("migration_target_revision") or ""
+        ),
+        "minimum_revision": str(payload.get("minimum_revision") or ""),
+        "maximum_revision": str(payload.get("maximum_revision") or ""),
+        "accepted_revisions": accepted,
+        "alias_read_through_until": str(payload.get("alias_read_through_until") or ""),
+    }
+    for field in (
+        "migration_target_revision",
+        "minimum_revision",
+        "maximum_revision",
+        "alias_read_through_until",
+    ):
+        revision = str(normalized[field])
+        if not _SCHEMA_RE.fullmatch(revision) or revision not in accepted:
+            raise ValueError(f"schema contract {field} is not an accepted revision")
+    return normalized
+
+
+def schema_contract_digest(payload: object) -> str:
+    """Return the canonical digest bound into release and runtime evidence."""
+    contract = normalize_schema_contract(payload)
+    canonical = json.dumps(contract, separators=(",", ":"), sort_keys=True).encode()
+    return "sha256:" + hashlib.sha256(canonical).hexdigest()
+
+
+def _release_identity(
+    *, repository: str, workflow: str, run_id: str, run_attempt: int
+) -> dict[str, object]:
+    if not re.fullmatch(r"[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+", repository):
+        raise ValueError("release repository identity is invalid")
+    if (
+        not workflow.strip()
+        or len(workflow) > 256
+        or any(character in workflow for character in "\r\n\0")
+    ):
+        raise ValueError("release workflow identity is invalid")
+    if not re.fullmatch(r"[1-9][0-9]*", run_id):
+        raise ValueError("release run ID is invalid")
+    if (
+        isinstance(run_attempt, bool)
+        or not isinstance(run_attempt, int)
+        or run_attempt < 1
+    ):
+        raise ValueError("release run attempt is invalid")
+    return {
+        "provider": "github-actions",
+        "repository": repository,
+        "workflow": workflow,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
+    }
+
+
 def traffic_command(items: list[dict]) -> str:
     """Render one shell-safe exact traffic-set argument list."""
     revisions: list[str] = []
@@ -1258,58 +1365,210 @@ def write_manifest(
     revision: str,
     image: str,
     source_sha: str,
-    accepted_revisions: list[str],
+    schema_contract: object,
+    observed_schema: str,
+    repository: str,
+    workflow: str,
+    run_id: str,
+    run_attempt: int,
 ) -> None:
     if role not in {"bridge", "final"}:
         raise ValueError("release role must be bridge or final")
     if not _REVISION_RE.fullmatch(revision) or not _DIGEST_RE.fullmatch(image):
-        raise ValueError("release manifest requires an explicit revision and immutable image")
+        raise ValueError(
+            "release manifest requires an explicit revision and immutable image"
+        )
     if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
         raise ValueError("source_sha must be a full Git commit SHA")
-    accepted = sorted(set(accepted_revisions))
-    if not accepted or any(not _SCHEMA_RE.fullmatch(item) for item in accepted):
-        raise ValueError("accepted schema revisions must be explicit")
+    contract = normalize_schema_contract(schema_contract)
+    accepted = contract["accepted_revisions"]
+    if not _SCHEMA_RE.fullmatch(observed_schema) or observed_schema not in accepted:
+        raise ValueError("observed schema is not accepted by the release contract")
+    if role == "final" and observed_schema != contract["migration_target_revision"]:
+        raise ValueError("final release must observe its migration target revision")
+    identity = _release_identity(
+        repository=repository,
+        workflow=workflow,
+        run_id=run_id,
+        run_attempt=run_attempt,
+    )
     payload = {
-        "schema_version": 1,
+        "schema_version": _RELEASE_MANIFEST_SCHEMA_VERSION,
         "role": role,
         "revision": revision,
         "image": image,
+        "image_digest": image.rsplit("@", 1)[1],
         "source_sha": source_sha,
-        "accepted_revisions": accepted,
+        "observed_schema": observed_schema,
+        "schema_contract": contract,
+        "schema_contract_digest": schema_contract_digest(contract),
+        "release_identity": identity,
     }
     canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
-    key = os.environ.get("RELEASE_MANIFEST_HMAC_KEY", "").encode()
-    if len(key) < 32:
-        raise ValueError("RELEASE_MANIFEST_HMAC_KEY must contain at least 32 bytes")
-    payload["signature"] = "sha256=" + hmac.new(key, canonical, hashlib.sha256).hexdigest()
-    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    payload["signature"] = (
+        "sha256="
+        + hmac.new(_release_state_key(), canonical, hashlib.sha256).hexdigest()
+    )
+    _write_json_atomic(path, payload)
 
 
-def verify_manifest(path: Path, *, required_role: str) -> dict:
-    payload = json.loads(path.read_text(encoding="utf-8"))
+def verify_manifest(
+    path: Path,
+    *,
+    required_role: str,
+    expected_run_id: str | None = None,
+    expected_run_attempt: int | None = None,
+    expected_repository: str | None = None,
+    expected_workflow: str | None = None,
+) -> dict:
+    loaded = _strict_json(path)
+    if not isinstance(loaded, dict):
+        raise ValueError("release manifest must be a JSON object")
+    payload = dict(loaded)
     signature = str(payload.pop("signature", ""))
+    if set(payload) != _RELEASE_MANIFEST_FIELDS:
+        raise ValueError("release manifest fields are incomplete or unexpected")
     canonical = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
-    key = os.environ.get("RELEASE_MANIFEST_HMAC_KEY", "").encode()
-    expected = "sha256=" + hmac.new(key, canonical, hashlib.sha256).hexdigest()
-    if len(key) < 32 or not hmac.compare_digest(signature, expected):
+    expected = (
+        "sha256="
+        + hmac.new(_release_state_key(), canonical, hashlib.sha256).hexdigest()
+    )
+    if not hmac.compare_digest(signature, expected):
         raise ValueError("release manifest signature is invalid")
+    if payload.get("schema_version") != _RELEASE_MANIFEST_SCHEMA_VERSION:
+        raise ValueError("release manifest schema version is unsupported")
+    if required_role not in {"bridge", "final"}:
+        raise ValueError("required release manifest role is invalid")
     if payload.get("role") != required_role:
         raise ValueError("release manifest role is not allowed for this operation")
     if not _REVISION_RE.fullmatch(str(payload.get("revision") or "")):
         raise ValueError("release manifest revision is invalid")
     if not _DIGEST_RE.fullmatch(str(payload.get("image") or "")):
         raise ValueError("release manifest image is not immutable")
+    if payload.get("image_digest") != str(payload["image"]).rsplit("@", 1)[1]:
+        raise ValueError("release manifest image digest does not match its image")
     if not re.fullmatch(r"[0-9a-f]{40}", str(payload.get("source_sha") or "")):
         raise ValueError("release manifest source SHA is invalid")
-    accepted = payload.get("accepted_revisions")
+    contract = normalize_schema_contract(payload.get("schema_contract"))
+    if payload.get("schema_contract") != contract:
+        raise ValueError("release manifest schema contract is not canonical")
+    if payload.get("schema_contract_digest") != schema_contract_digest(contract):
+        raise ValueError("release manifest schema contract digest is invalid")
+    observed = str(payload.get("observed_schema") or "")
+    if observed not in contract["accepted_revisions"]:
+        raise ValueError("release manifest observed schema is incompatible")
+    if required_role == "final" and observed != contract["migration_target_revision"]:
+        raise ValueError("final release manifest did not observe its target schema")
+    identity_payload = payload.get("release_identity")
+    if not isinstance(identity_payload, dict):
+        raise ValueError("release manifest identity is missing")
+    identity = _release_identity(
+        repository=str(identity_payload.get("repository") or ""),
+        workflow=str(identity_payload.get("workflow") or ""),
+        run_id=str(identity_payload.get("run_id") or ""),
+        run_attempt=identity_payload.get("run_attempt"),
+    )
+    if identity_payload != identity:
+        raise ValueError("release manifest identity is not canonical")
+    if expected_repository is not None and identity["repository"] != expected_repository:
+        raise ValueError("release manifest repository does not match the selected source")
+    if expected_workflow is not None and identity["workflow"] != expected_workflow:
+        raise ValueError("release manifest workflow does not match the selected source")
+    if expected_run_id is not None and identity["run_id"] != expected_run_id:
+        raise ValueError("release manifest run ID does not match the selected run")
     if (
-        not isinstance(accepted, list)
-        or not accepted
-        or accepted != sorted(set(accepted))
-        or any(not _SCHEMA_RE.fullmatch(str(item)) for item in accepted)
+        expected_run_attempt is not None
+        and identity["run_attempt"] != expected_run_attempt
     ):
-        raise ValueError("release manifest accepted revisions are invalid")
+        raise ValueError(
+            "release manifest run attempt does not match the selected artifact"
+        )
     return payload
+
+
+def verify_runtime_compatibility(manifest: dict, runtime: object) -> str:
+    """Verify runtime schema evidence against a signed manifest, not itself."""
+    if not isinstance(runtime, dict):
+        raise ValueError("runtime schema compatibility evidence must be an object")
+    if runtime.get("status") != "compatible":
+        raise ValueError("runtime reports an incompatible schema")
+    if runtime.get("release_role") != manifest.get("role"):
+        raise ValueError("runtime release role does not match signed evidence")
+    contract = normalize_schema_contract(manifest.get("schema_contract"))
+    for field in (
+        "migration_target_revision",
+        "minimum_revision",
+        "maximum_revision",
+        "accepted_revisions",
+        "alias_read_through_until",
+    ):
+        if runtime.get(field) != contract[field]:
+            raise ValueError(
+                f"runtime schema contract field does not match evidence: {field}"
+            )
+    current = str(runtime.get("current_revision") or "")
+    if current not in contract["accepted_revisions"]:
+        raise ValueError("runtime current schema is outside the signed contract")
+    return current
+
+
+def verify_revision_target(
+    manifest: dict,
+    revision_payload: object,
+    *,
+    require_zero_traffic: bool,
+) -> str:
+    """Bind an ACA revision's immutable image/source/contract to signed evidence."""
+    if not isinstance(revision_payload, dict):
+        raise ValueError("revision evidence must be a JSON object")
+    if revision_payload.get("name") != manifest.get("revision"):
+        raise ValueError("revision name does not match signed evidence")
+    properties = revision_payload.get("properties")
+    if not isinstance(properties, dict):
+        raise ValueError("revision evidence is missing properties")
+    template = properties.get("template")
+    containers = template.get("containers") if isinstance(template, dict) else None
+    if not isinstance(containers, list) or len(containers) != 1:
+        raise ValueError("revision evidence must contain exactly one container")
+    container = containers[0]
+    if not isinstance(container, dict) or container.get("image") != manifest.get(
+        "image"
+    ):
+        raise ValueError("revision image does not match signed evidence")
+    env_payload = container.get("env")
+    if not isinstance(env_payload, list):
+        raise ValueError("revision environment metadata is missing")
+    env: dict[str, str] = {}
+    for item in env_payload:
+        if not isinstance(item, dict) or not isinstance(item.get("name"), str):
+            raise ValueError("revision environment metadata is malformed")
+        name = item["name"]
+        if name in env:
+            raise ValueError("revision environment metadata contains duplicate names")
+        if "value" in item:
+            env[name] = str(item.get("value") or "")
+    contract = normalize_schema_contract(manifest.get("schema_contract"))
+    expected_env = {
+        "ARCHMORPH_RELEASE_ROLE": str(manifest["role"]),
+        "ARCHMORPH_SOURCE_SHA": str(manifest["source_sha"]),
+        "ARCHMORPH_SCHEMA_CONTRACT_DIGEST": str(manifest["schema_contract_digest"]),
+        "APP_SCHEMA_MIN_REVISION": str(contract["minimum_revision"]),
+        "APP_SCHEMA_MAX_REVISION": str(contract["maximum_revision"]),
+    }
+    for name, value in expected_env.items():
+        if env.get(name) != value:
+            raise ValueError(
+                f"revision metadata does not match signed evidence: {name}"
+            )
+    weight = properties.get("trafficWeight", 0)
+    if require_zero_traffic and (
+        isinstance(weight, bool) or not isinstance(weight, int) or weight != 0
+    ):
+        raise ValueError("rollback target must have zero traffic before preflight")
+    fqdn = str(properties.get("fqdn") or "")
+    if not fqdn or any(character.isspace() for character in fqdn):
+        raise ValueError("revision evidence is missing a valid FQDN")
+    return fqdn
 
 
 def _json(path: Path) -> object:
@@ -1347,12 +1606,45 @@ def main() -> int:
     manifest.add_argument("--revision", required=True)
     manifest.add_argument("--image", required=True)
     manifest.add_argument("--source-sha", required=True)
-    manifest.add_argument("--accepted-revision", action="append", required=True)
+    manifest.add_argument("--schema-contract", required=True, type=Path)
+    manifest.add_argument("--observed-schema", required=True)
+    manifest.add_argument("--repository", required=True)
+    manifest.add_argument("--workflow", required=True)
+    manifest.add_argument("--run-id", required=True)
+    manifest.add_argument("--run-attempt", required=True, type=int)
 
     verify = subparsers.add_parser("verify-release-manifest")
     verify.add_argument("--input", required=True, type=Path)
     verify.add_argument("--required-role", required=True)
-    verify.add_argument("--field", choices=("revision", "image", "source_sha"))
+    verify.add_argument("--expected-run-id")
+    verify.add_argument("--expected-run-attempt", type=int)
+    verify.add_argument("--expected-repository")
+    verify.add_argument("--expected-workflow")
+    verify.add_argument(
+        "--field",
+        choices=(
+            "revision",
+            "image",
+            "image_digest",
+            "source_sha",
+            "observed_schema",
+            "schema_contract_digest",
+        ),
+    )
+
+    contract_digest = subparsers.add_parser("schema-contract-digest")
+    contract_digest.add_argument("--input", required=True, type=Path)
+
+    runtime = subparsers.add_parser("verify-runtime-compatibility")
+    runtime.add_argument("--manifest", required=True, type=Path)
+    runtime.add_argument("--runtime", required=True, type=Path)
+    runtime.add_argument("--required-role", required=True)
+
+    revision_target = subparsers.add_parser("verify-revision-target")
+    revision_target.add_argument("--manifest", required=True, type=Path)
+    revision_target.add_argument("--revision-json", required=True, type=Path)
+    revision_target.add_argument("--required-role", required=True)
+    revision_target.add_argument("--require-zero-traffic", action="store_true")
 
     state = subparsers.add_parser("create-release-state")
     state.add_argument("--current-schema", required=True)
@@ -1460,7 +1752,26 @@ def main() -> int:
             revision=args.revision,
             image=args.image,
             source_sha=args.source_sha,
-            accepted_revisions=args.accepted_revision,
+            schema_contract=_json(args.schema_contract),
+            observed_schema=args.observed_schema,
+            repository=args.repository,
+            workflow=args.workflow,
+            run_id=args.run_id,
+            run_attempt=args.run_attempt,
+        )
+    elif args.command == "schema-contract-digest":
+        print(schema_contract_digest(_json(args.input)))
+    elif args.command == "verify-runtime-compatibility":
+        signed = verify_manifest(args.manifest, required_role=args.required_role)
+        print(verify_runtime_compatibility(signed, _json(args.runtime)))
+    elif args.command == "verify-revision-target":
+        signed = verify_manifest(args.manifest, required_role=args.required_role)
+        print(
+            verify_revision_target(
+                signed,
+                _json(args.revision_json),
+                require_zero_traffic=args.require_zero_traffic,
+            )
         )
     elif args.command == "create-release-state":
         payload = create_release_state(
@@ -1551,7 +1862,14 @@ def main() -> int:
             )
         )
     else:
-        payload = verify_manifest(args.input, required_role=args.required_role)
+        payload = verify_manifest(
+            args.input,
+            required_role=args.required_role,
+            expected_run_id=args.expected_run_id,
+            expected_run_attempt=args.expected_run_attempt,
+            expected_repository=args.expected_repository,
+            expected_workflow=args.expected_workflow,
+        )
         print(payload[args.field] if args.field else json.dumps(payload, sort_keys=True))
     return 0
 
