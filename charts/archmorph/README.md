@@ -59,11 +59,19 @@ race or a partial migration.
 The subsequent revisioned `pre-install,pre-upgrade` migration Job uses the same
 immutable application image and `DATABASE_URL` secret as the Deployment. The Job
 runs `run_migrations.py --expect-head <revision>`, which takes a PostgreSQL
-advisory lock, executes Alembic, verifies the exact declared head, and exits
+advisory lock, validates that the reviewed target exists and is reachable from
+the current revision, upgrades only to that target, verifies the exact declared head, and exits
 non-zero on any failure. If the database is already at that exact head, the
 runner validates readiness and emits evidence without running DDL. Hooks use unique release-revision names and
 `hook-succeeded` cleanup only; they never use `before-hook-creation`, so a second
 release cannot delete an active migration Job.
+
+For a brand-new database only, set `migrations.bootstrapEmptyDatabase=true` in
+an explicitly reviewed first-provisioning values file. Both preflight and
+migration then require that `alembic_version` is absent and that no application
+tables exist before applying the reviewed `expectedAlembicHead`. Leave the flag
+false for all existing environments. A database with non-Alembic tables, or a
+credential/SQL failure, is never treated as empty and fails closed.
 
 Production and staging require `image.digest=sha256:<digest>`. Tags, including
 `latest`, are rejected. Run releases with `helm upgrade --install` plus

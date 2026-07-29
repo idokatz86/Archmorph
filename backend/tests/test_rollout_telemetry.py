@@ -1,5 +1,8 @@
 import importlib.util
+import json
 from pathlib import Path
+from unittest.mock import patch
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -63,3 +66,73 @@ def test_migration_telemetry_rejects_non_azure_ingestion_endpoint(monkeypatch):
 
     with pytest.raises(ValueError, match="invalid ingestion endpoint"):
         telemetry._ingestion_url()
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        URLError("dns unavailable"),
+        TimeoutError("bounded timeout"),
+        OSError("tls failure"),
+        HTTPError("https://example.invalid", 429, "rate limited", {}, None),
+    ],
+)
+def test_telemetry_failure_is_bounded_and_preserves_local_evidence(
+    tmp_path, monkeypatch, failure
+):
+    monkeypatch.setenv(
+        "APPLICATIONINSIGHTS_CONNECTION_STRING",
+        "InstrumentationKey=placeholder;IngestionEndpoint=https://example.applicationinsights.azure.com",
+    )
+    evidence = tmp_path / "events.ndjson"
+    with (
+        patch.object(telemetry, "emit", side_effect=failure) as emit,
+        patch.object(telemetry.time, "sleep") as sleep,
+    ):
+        result = telemetry.emit_best_effort(
+            event="migration_started",
+            run_id="123",
+            execution="migration-run",
+            image_digest="sha256:" + "a" * 64,
+            evidence_output=evidence,
+            max_attempts=3,
+            request_timeout=0.1,
+        )
+
+    assert emit.call_count == 3
+    assert sleep.call_count == 2
+    assert result["delivery_status"] == "failed"
+    records = [json.loads(line) for line in evidence.read_text().splitlines()]
+    assert records[0]["delivery_status"] == "pending"
+    assert records[-1]["delivery_status"] == "failed"
+    assert "DATABASE" not in evidence.read_text()
+    assert "InstrumentationKey" not in evidence.read_text()
+
+
+def test_telemetry_retries_then_returns_control_on_success(tmp_path, monkeypatch):
+    monkeypatch.setenv(
+        "APPLICATIONINSIGHTS_CONNECTION_STRING",
+        "InstrumentationKey=placeholder;IngestionEndpoint=https://example.applicationinsights.azure.com",
+    )
+    evidence = tmp_path / "events.ndjson"
+    with (
+        patch.object(
+            telemetry,
+            "emit",
+            side_effect=[TimeoutError("first"), None],
+        ) as emit,
+        patch.object(telemetry.time, "sleep"),
+    ):
+        result = telemetry.emit_best_effort(
+            event="migration_quiesced",
+            run_id="123",
+            execution="migration-run",
+            image_digest="sha256:" + "a" * 64,
+            evidence_output=evidence,
+            max_attempts=3,
+            request_timeout=0.1,
+        )
+
+    assert emit.call_count == 2
+    assert result["delivery_status"] == "delivered"
+    assert result["attempt"] == 2

@@ -8,6 +8,7 @@ on:
 
 # OIDC for Azure deploy; no security-events needed (security.yml handles SARIF)
 permissions:
+  actions: read
   id-token: write
   security-events: write
   contents: read
@@ -217,6 +218,8 @@ jobs:
         run: |
           python -m pytest -q -n 0 \
             backend/tests/test_containerapp_rollout.py \
+            backend/tests/test_rollout_telemetry.py \
+            backend/tests/test_run_migrations.py \
             backend/tests/test_migration_bootstrap_verifier.py \
             backend/tests/test_migration_alert_attestation.py \
             backend/tests/test_frontend_release.py \
@@ -285,7 +288,7 @@ jobs:
         with:
           version: v3.17.3
 
-      - name: Run Alembic migration cycle
+      - name: Run empty-schema structural migration compatibility cycle
         run: |
           DATABASE_SCHEME="postgresql"
           printf -v DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s' \
@@ -295,8 +298,8 @@ jobs:
           python -m alembic upgrade head --sql > /tmp/archmorph-alembic-upgrade.sql
           test -s /tmp/archmorph-alembic-upgrade.sql
           python -m alembic upgrade head
-          python -m alembic downgrade base
-          python -m alembic upgrade head
+          python -m alembic downgrade 013
+          python -m alembic upgrade 014
 
       - name: Run canonical PostgreSQL, Redis, migration, and Helm contracts
         run: |
@@ -750,10 +753,6 @@ jobs:
             echo "::error::RELEASE_MANIFEST_HMAC_KEY must contain at least 32 bytes"
             missing=1
           fi
-          if [ -z "${APPLICATIONINSIGHTS_CONNECTION_STRING:-}" ]; then
-            echo "::error::APPLICATIONINSIGHTS_CONNECTION_STRING is required for migration evidence alerts"
-            missing=1
-          fi
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
@@ -1022,21 +1021,112 @@ jobs:
           chmod 700 "$RUNNER_TEMP/reuse-signed-bridge.sh"
           bash -n "$RUNNER_TEMP/reuse-signed-bridge.sh"
 
+      - name: Load signed migration execution evidence from a prior run attempt
+        id: interrupted_migration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p interrupted-release-evidence
+          ARTIFACT_NAME=$(gh api \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
+            --jq '.artifacts[].name' \
+            | grep -E "^(migration-terminal-state|migration-execution-state|migration-start-boundary)-${GITHUB_RUN_ID}-[0-9]+$" \
+            | awk -F- '{priority = ($0 ~ /^migration-terminal-state-/ ? 2 : ($0 ~ /^migration-execution-state-/ ? 1 : 0)); printf "%08d %d %s\n", $NF, priority, $0}' \
+            | sort -k1,1nr -k2,2nr \
+            | head -1 \
+            | cut -d' ' -f3- || true)
+          if [ -n "$ARTIFACT_NAME" ] && gh run download "$GITHUB_RUN_ID" \
+            --name "$ARTIFACT_NAME" \
+            --dir interrupted-release-evidence >/dev/null 2>&1; then
+            cp interrupted-release-evidence/rollout-state.json interrupted-rollout-state.json
+            python scripts/containerapp_rollout.py verify-release-state \
+              --state interrupted-rollout-state.json >/dev/null
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Reject concurrent production migration execution
         run: |
           set -euo pipefail
-          if az containerapp job show \
-            --name "$MIGRATION_JOB_NAME" \
+          if [ -f interrupted-rollout-state.json ]; then
+            START_BOUNDARY=$(python scripts/containerapp_rollout.py verify-release-state \
+              --state interrupted-rollout-state.json \
+              --field start_boundary)
+            if [ "$START_BOUNDARY" = "true" ]; then
+              RESOLVE_STATUS=0
+              python scripts/containerapp_rollout.py resolve-migration-start \
+                --state interrupted-rollout-state.json \
+                --evidence-output interrupted-migration-start-evidence.json \
+                >/dev/null || RESOLVE_STATUS=$?
+              if [ "$RESOLVE_STATUS" -ne 0 ]; then
+                echo "::error::Recovery required: migration start cannot be bound to one exact reviewed execution; traffic remains unchanged"
+                exit "$RESOLVE_STATUS"
+              fi
+            fi
+            EXECUTION_NAME=$(python scripts/containerapp_rollout.py verify-release-state \
+              --state interrupted-rollout-state.json \
+              --field execution_name)
+            IMAGE_DIGEST=$(python scripts/containerapp_rollout.py verify-release-state \
+              --state interrupted-rollout-state.json \
+              --field image_digest)
+            python scripts/emit_rollout_telemetry.py \
+              --event migration_quiescence_started \
+              --run-id "$GITHUB_RUN_ID" \
+              --execution "$EXECUTION_NAME" \
+              --image-digest "$IMAGE_DIGEST" \
+              --evidence-output rollout-telemetry.ndjson
+            QUIESCE_STATUS=0
+            python scripts/containerapp_rollout.py quiesce-migration \
+              --state interrupted-rollout-state.json \
+              --evidence-output interrupted-migration-quiescence.json \
+              --max-attempts 20 \
+              --poll-seconds 5 || QUIESCE_STATUS=$?
+            if [ "$QUIESCE_STATUS" -ne 0 ]; then
+              python scripts/emit_rollout_telemetry.py \
+                --event migration_recovery_required \
+                --run-id "$GITHUB_RUN_ID" \
+                --execution "$EXECUTION_NAME" \
+                --image-digest "$IMAGE_DIGEST" \
+                --evidence-output rollout-telemetry.ndjson
+              echo "::error::Persisted migration execution could not be proven quiescent; retaining current schema-compatible traffic"
+              exit "$QUIESCE_STATUS"
+            fi
+            python scripts/emit_rollout_telemetry.py \
+              --event migration_quiesced \
+              --run-id "$GITHUB_RUN_ID" \
+              --execution "$EXECUTION_NAME" \
+              --image-digest "$IMAGE_DIGEST" \
+              --evidence-output rollout-telemetry.ndjson
+          fi
+          az containerapp job list \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --only-show-errors \
-            --output none 2>/dev/null; then
-            RUNNING_EXECUTIONS=$(az containerapp job execution list \
+            --output json > migration-jobs-before-bootstrap.json
+          JOB_COUNT=$(jq --arg name "$MIGRATION_JOB_NAME" \
+            '[.[] | select(.name == $name)] | length' migration-jobs-before-bootstrap.json)
+          if [ "$JOB_COUNT" -gt 1 ]; then
+            echo "::error::Migration Job identity is ambiguous; traffic remains unchanged"
+            exit 1
+          fi
+          if [ "$JOB_COUNT" -eq 1 ]; then
+            az containerapp job execution list \
               --name "$MIGRATION_JOB_NAME" \
               --resource-group "$AZURE_RESOURCE_GROUP" \
-              --query "[?properties.status=='Running' || properties.status=='Processing'].name" \
-              -o tsv)
-            if [ -n "$RUNNING_EXECUTIONS" ]; then
-              echo "::error::Another production migration execution is already active"
+              --output json > migration-executions-before-bootstrap.json
+            NONTERMINAL_COUNT=$(jq '[.[] | select(
+              (.properties.status // "Unknown") as $status
+              | ($status != "Succeeded" and $status != "Failed" and
+                 $status != "Stopped" and $status != "Cancelled" and
+                 $status != "Canceled")
+            )] | length' migration-executions-before-bootstrap.json)
+            if [ "$NONTERMINAL_COUNT" -ne 0 ]; then
+              jq -n \
+                --arg status "recovery_required" \
+                --arg reason "nonterminal migration execution has no verified signed ownership evidence" \
+                '{schema_version:1,status:$status,reason:$reason}' \
+                > interrupted-migration-quiescence.json
+              echo "::error::Recovery required: a nonterminal migration execution is active without verified exact-execution ownership; traffic remains unchanged"
               exit 1
             fi
           fi
@@ -1297,7 +1387,7 @@ jobs:
             --container-name migrate \
             --command python run_migrations.py \
             --args --preflight-only --accept-current 013 --accept-current "$EXPECTED_ALEMBIC_HEAD" \
-            --query name -o tsv)
+            --query name --output tsv)
           if [ -z "$PREFLIGHT_EXECUTION" ]; then
             echo "::error::Database preflight Job did not return an execution name"
             exit 1
@@ -1307,7 +1397,7 @@ jobs:
               --name "$MIGRATION_JOB_NAME" \
               --resource-group "$AZURE_RESOURCE_GROUP" \
               --job-execution-name "$PREFLIGHT_EXECUTION" \
-              --query properties.status -o tsv)
+              --query properties.status --output tsv)
             case "$PREFLIGHT_STATUS" in
               Succeeded) break ;;
               Failed|Stopped|Cancelled)
@@ -1325,27 +1415,12 @@ jobs:
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --job-execution-name "$PREFLIGHT_EXECUTION" \
-            --query 'properties.template.containers[0].args' -o json)
+            --query 'properties.template.containers[0].args' --output json)
           echo "$PREFLIGHT_ARGS" | jq -e --arg expected "$EXPECTED_ALEMBIC_HEAD" \
             'index("--preflight-only") != null and index("013") != null and index($expected) != null' >/dev/null
-          if ! az containerapp job logs show \
-            --name "$MIGRATION_JOB_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --execution "$PREFLIGHT_EXECUTION" \
-            --container migrate \
-            --format text \
-            --tail 300 > preflight-execution.log; then
-            echo "::error::Unable to retrieve same-identity preflight evidence"
-            exit 1
-          fi
-          if ! grep -Fq 'ARCHMORPH_MIGRATION_PREFLIGHT_EVIDENCE=' preflight-execution.log; then
-            echo "::error::Same-identity database preflight completed without required evidence"
-            exit 1
-          fi
-          CURRENT_SCHEMA=$(grep -F 'ARCHMORPH_MIGRATION_PREFLIGHT_EVIDENCE=' preflight-execution.log \
-            | tail -1 \
-            | sed 's/^.*ARCHMORPH_MIGRATION_PREFLIGHT_EVIDENCE=//' \
-            | jq -er '.current_revision')
+          curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
+            -o current-schema-compatibility.json
+          CURRENT_SCHEMA=$(jq -er '.current_revision' current-schema-compatibility.json)
           if [ "$CURRENT_SCHEMA" != "013" ] && [ "$CURRENT_SCHEMA" != "$EXPECTED_ALEMBIC_HEAD" ]; then
             echo "::error::Production schema is outside the reviewed 013-to-${EXPECTED_ALEMBIC_HEAD} rollout"
             exit 1
@@ -1446,23 +1521,31 @@ jobs:
             "${API_URL%/api}/api/health")" = "503" ]
           jq -e '.status == "bridge_read_only" and .retryable == true' routed-bridge-read-only.json >/dev/null
 
-      - name: Run exact-head production migration
-        id: migrate_schema
+      - name: Prepare exact-head production migration
+        id: prepare_migration
         if: steps.current_schema.outputs.revision == '013'
         run: |
           set -euo pipefail
           python scripts/containerapp_rollout.py mark-stage \
             --state rollout-state.json \
             --stage migration_attempted
-          RUNNING_EXECUTIONS=$(az containerapp job execution list \
+          az containerapp job execution list \
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query "[?properties.status=='Running' || properties.status=='Processing'].name" \
-            -o tsv)
-          if [ -n "$RUNNING_EXECUTIONS" ]; then
+            --output json > migration-executions-immediately-before-start.json
+          NONTERMINAL_COUNT=$(jq '[.[] | select(
+            (.properties.status // "Unknown") as $status
+            | ($status != "Succeeded" and $status != "Failed" and
+               $status != "Stopped" and $status != "Cancelled" and
+               $status != "Canceled")
+          )] | length' migration-executions-immediately-before-start.json)
+          if [ "$NONTERMINAL_COUNT" -ne 0 ]; then
             echo "::error::Another production migration execution is already active"
             exit 1
           fi
+          jq '[.[].name] | sort | unique' \
+            migration-executions-immediately-before-start.json \
+            > known-migration-executions.json
 
           JOB_JSON=$(az containerapp job show \
             --name "$MIGRATION_JOB_NAME" \
@@ -1483,92 +1566,153 @@ jobs:
             exit 1
           fi
 
+          IMAGE_DIGEST="${IMAGE_REF##*@}"
+          MIGRATION_EXECUTION_MARKER="migration-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          python scripts/containerapp_rollout.py mark-migration-starting \
+            --state rollout-state.json \
+            --job-name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --image-digest "$IMAGE_DIGEST" \
+            --execution-marker "$MIGRATION_EXECUTION_MARKER" \
+            --known-executions known-migration-executions.json
+          python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json >/dev/null
+          echo "MIGRATION_EXECUTION_MARKER=$MIGRATION_EXECUTION_MARKER" >> "$GITHUB_ENV"
+
+      - name: Persist signed migration start boundary
+        if: steps.prepare_migration.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: migration-start-boundary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: rollout-state.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Start exact-head production migration
+        id: start_migration
+        if: steps.current_schema.outputs.revision == '013'
+        run: |
+          set -euo pipefail
+          IMAGE_DIGEST="${IMAGE_REF##*@}"
           EXECUTION_NAME=$(az containerapp job start \
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --query name -o tsv)
+            --args --expect-head "$EXPECTED_ALEMBIC_HEAD" --execution-marker "$MIGRATION_EXECUTION_MARKER" \
+            --query name --output tsv)
           if [ -z "$EXECUTION_NAME" ]; then
             echo "::error::Migration Job did not return an execution name"
             exit 1
           fi
-          IMAGE_DIGEST="${IMAGE_REF##*@}"
+          python scripts/containerapp_rollout.py record-migration-execution \
+            --state rollout-state.json \
+            --job-name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --execution-name "$EXECUTION_NAME" \
+            --image-digest "$IMAGE_DIGEST"
+          python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json >/dev/null
           python scripts/emit_rollout_telemetry.py \
             --event migration_started \
-            --run-id "${{ github.run_id }}" \
+            --run-id "$GITHUB_RUN_ID" \
             --execution "$EXECUTION_NAME" \
-            --image-digest "$IMAGE_DIGEST"
+            --image-digest "$IMAGE_DIGEST" \
+            --evidence-output rollout-telemetry.ndjson
+          echo "execution_name=$EXECUTION_NAME" >> "$GITHUB_OUTPUT"
+          echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
 
-          for attempt in $(seq 1 90); do
-            EXECUTION_STATUS=$(az containerapp job execution show \
-              --name "$MIGRATION_JOB_NAME" \
-              --resource-group "$AZURE_RESOURCE_GROUP" \
-              --job-execution-name "$EXECUTION_NAME" \
-              --query properties.status -o tsv)
-            echo "Migration execution status: ${EXECUTION_STATUS}"
-            case "$EXECUTION_STATUS" in
-              Succeeded)
-                EXECUTION_IMAGE=$(az containerapp job execution show \
-                  --name "$MIGRATION_JOB_NAME" \
-                  --resource-group "$AZURE_RESOURCE_GROUP" \
-                  --job-execution-name "$EXECUTION_NAME" \
-                  --query 'properties.template.containers[0].image' -o tsv)
-                EXECUTION_HEAD=$(az containerapp job execution show \
-                  --name "$MIGRATION_JOB_NAME" \
-                  --resource-group "$AZURE_RESOURCE_GROUP" \
-                  --job-execution-name "$EXECUTION_NAME" \
-                  --query "properties.template.containers[0].env[?name=='EXPECTED_ALEMBIC_HEAD'].value | [0]" \
-                  -o tsv)
-                if [ "$EXECUTION_IMAGE" != "$IMAGE_REF" ]; then
-                  echo "::error::Completed migration execution did not use the exact built digest"
-                  exit 1
-                fi
-                if [ "$EXECUTION_HEAD" != "$EXPECTED_ALEMBIC_HEAD" ]; then
-                  echo "::error::Completed migration execution did not preserve exact-head evidence"
-                  exit 1
-                fi
-                if ! az containerapp job logs show \
-                  --name "$MIGRATION_JOB_NAME" \
-                  --resource-group "$AZURE_RESOURCE_GROUP" \
-                  --execution "$EXECUTION_NAME" \
-                  --container migrate \
-                  --format text \
-                  --tail 300 > migration-execution.log; then
-                  echo "::error::Unable to retrieve migration success evidence"
-                  exit 1
-                fi
-                if ! grep -Fq 'ARCHMORPH_MIGRATION_EVIDENCE=' migration-execution.log; then
-                  echo "::error::Migration execution completed without required success evidence"
-                  exit 1
-                fi
-                python scripts/emit_rollout_telemetry.py \
-                  --event migration_succeeded \
-                  --run-id "${{ github.run_id }}" \
-                  --execution "$EXECUTION_NAME" \
-                  --image-digest "$IMAGE_DIGEST"
-                echo "Production schema migration completed at exact head ${EXPECTED_ALEMBIC_HEAD}"
-                break
-                ;;
-              Failed|Stopped|Cancelled)
-                python scripts/emit_rollout_telemetry.py \
-                  --event migration_failed \
-                  --run-id "${{ github.run_id }}" \
-                  --execution "$EXECUTION_NAME" \
-                  --image-digest "$IMAGE_DIGEST"
-                echo "::error::Production schema migration failed with status ${EXECUTION_STATUS}"
+      - name: Persist signed migration execution state
+        if: steps.start_migration.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: migration-execution-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            rollout-state.json
+            rollout-telemetry.ndjson
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Supervise exact-head production migration
+        id: migrate_schema
+        if: steps.current_schema.outputs.revision == '013'
+        run: |
+          set -euo pipefail
+          EXECUTION_NAME="${{ steps.start_migration.outputs.execution_name }}"
+          IMAGE_DIGEST="${{ steps.start_migration.outputs.image_digest }}"
+          set +e
+          EXECUTION_STATUS=$(python scripts/containerapp_rollout.py supervise-migration \
+            --state rollout-state.json \
+            --evidence-output migration-execution-evidence.json \
+            --max-attempts 90 \
+            --poll-seconds 10)
+          SUPERVISION_STATUS=$?
+          set -e
+          if [ "$SUPERVISION_STATUS" -ne 0 ]; then
+            python scripts/emit_rollout_telemetry.py \
+              --event migration_timed_out \
+              --run-id "$GITHUB_RUN_ID" \
+              --execution "$EXECUTION_NAME" \
+              --image-digest "$IMAGE_DIGEST" \
+              --evidence-output rollout-telemetry.ndjson
+            echo "::error::Exact migration execution did not reach a proven terminal state"
+            exit "$SUPERVISION_STATUS"
+          fi
+          echo "Migration execution terminal state: ${EXECUTION_STATUS}"
+          case "$EXECUTION_STATUS" in
+            Succeeded)
+              EXECUTION_IMAGE=$(az containerapp job execution show \
+                --name "$MIGRATION_JOB_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --job-execution-name "$EXECUTION_NAME" \
+                --query 'properties.template.containers[0].image' --output tsv)
+              EXECUTION_HEAD=$(az containerapp job execution show \
+                --name "$MIGRATION_JOB_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --job-execution-name "$EXECUTION_NAME" \
+                --query "properties.template.containers[0].env[?name=='EXPECTED_ALEMBIC_HEAD'].value | [0]" \
+                --output tsv)
+              if [ "$EXECUTION_IMAGE" != "$IMAGE_REF" ]; then
+                echo "::error::Completed migration execution did not use the exact built digest"
                 exit 1
-                ;;
-            esac
-            if [ "$attempt" -eq 90 ]; then
+              fi
+              if [ "$EXECUTION_HEAD" != "$EXPECTED_ALEMBIC_HEAD" ]; then
+                echo "::error::Completed migration execution did not preserve exact-head evidence"
+                exit 1
+              fi
               python scripts/emit_rollout_telemetry.py \
-                --event migration_timed_out \
-                --run-id "${{ github.run_id }}" \
+                --event migration_succeeded \
+                --run-id "$GITHUB_RUN_ID" \
                 --execution "$EXECUTION_NAME" \
-                --image-digest "$IMAGE_DIGEST"
-              echo "::error::Production schema migration did not complete within 15 minutes"
+                --image-digest "$IMAGE_DIGEST" \
+                --evidence-output rollout-telemetry.ndjson
+              echo "Production schema migration completed at exact head ${EXPECTED_ALEMBIC_HEAD}"
+              ;;
+            Failed|Stopped|Cancelled)
+              python scripts/emit_rollout_telemetry.py \
+                --event migration_failed \
+                --run-id "$GITHUB_RUN_ID" \
+                --execution "$EXECUTION_NAME" \
+                --image-digest "$IMAGE_DIGEST" \
+                --evidence-output rollout-telemetry.ndjson
+              echo "::error::Production schema migration failed with status ${EXECUTION_STATUS}"
               exit 1
-            fi
-            sleep 10
-          done
+              ;;
+            *)
+              echo "::error::Migration supervision returned unsupported terminal state"
+              exit 1
+              ;;
+          esac
+
+      - name: Persist terminal migration execution state
+        if: always() && steps.start_migration.outcome == 'success' && hashFiles('migration-execution-evidence.json') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: migration-terminal-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            rollout-state.json
+            migration-execution-evidence.json
+            rollout-telemetry.ndjson
+          if-no-files-found: error
+          retention-days: 90
 
       - name: Discover Container Apps subnet for storage cutover
         run: |
@@ -2468,11 +2612,6 @@ jobs:
             --revision "$GREEN_REV" \
             --query '{name:name,provisioningState:properties.provisioningState,runningState:properties.runningState,healthState:properties.healthState,replicas:properties.replicas,createdTime:properties.createdTime}' \
             -o json || true
-          az containerapp logs show \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-            --revision "$GREEN_REV" \
-            --tail 100 || true
           exit 1
 
       - name: Preflight green revision auth and storage contract
@@ -2587,11 +2726,6 @@ jobs:
               --revision "${{ steps.green.outputs.green_revision }}" \
               --query '{name:name,provisioningState:properties.provisioningState,runningState:properties.runningState,healthState:properties.healthState,replicas:properties.replicas,createdTime:properties.createdTime,fqdn:properties.fqdn}' \
               -o json || true
-            az containerapp logs show \
-              --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-              --revision "${{ steps.green.outputs.green_revision }}" \
-              --tail 100 || true
             echo "::endgroup::"
           }
 
@@ -2834,7 +2968,74 @@ jobs:
         if: always() && steps.rollout_state.outcome == 'success' && steps.verify_production.outcome != 'success'
         run: |
           set -euo pipefail
-          echo "::error::Production rollout failed; selecting exact recovery traffic from durable stage and live schema evidence"
+          echo "::error::Production rollout failed; proving migration quiescence before any schema or traffic recovery decision"
+          START_BOUNDARY=$(python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json \
+            --field start_boundary)
+          if [ "$START_BOUNDARY" = "true" ]; then
+            RESOLVE_STATUS=0
+            python scripts/containerapp_rollout.py resolve-migration-start \
+              --state rollout-state.json \
+              --evidence-output migration-start-recovery-evidence.json \
+              >/dev/null || RESOLVE_STATUS=$?
+            if [ "$RESOLVE_STATUS" -ne 0 ]; then
+              jq -n \
+                --arg status "recovery_required" \
+                --arg action "retain_current_schema_compatible_traffic" \
+                --arg reason "migration start cannot be bound to one exact reviewed execution" \
+                '{schema_version:1,status:$status,action:$action,reason:$reason}' \
+                > rollout-recovery-evidence.json
+              echo "::error::Recovery required: migration start is ambiguous; traffic remains on bridge/green"
+              exit "$RESOLVE_STATUS"
+            fi
+          fi
+          EXECUTION_NAME=$(python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json \
+            --field execution_name)
+          IMAGE_DIGEST=$(python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json \
+            --field image_digest)
+          if [ -n "$EXECUTION_NAME" ]; then
+            python scripts/emit_rollout_telemetry.py \
+              --event migration_quiescence_started \
+              --run-id "$GITHUB_RUN_ID" \
+              --execution "$EXECUTION_NAME" \
+              --image-digest "$IMAGE_DIGEST" \
+              --evidence-output rollout-telemetry.ndjson
+          fi
+          QUIESCE_STATUS=0
+          python scripts/containerapp_rollout.py quiesce-migration \
+            --state rollout-state.json \
+            --evidence-output migration-quiescence-evidence.json \
+            --max-attempts 20 \
+            --poll-seconds 5 || QUIESCE_STATUS=$?
+          if [ "$QUIESCE_STATUS" -ne 0 ]; then
+            jq -n \
+              --arg status "recovery_required" \
+              --arg action "retain_current_schema_compatible_traffic" \
+              --arg reason "exact migration execution quiescence could not be proven" \
+              '{schema_version:1,status:$status,action:$action,reason:$reason}' \
+              > rollout-recovery-evidence.json
+            if [ -n "$EXECUTION_NAME" ]; then
+              python scripts/emit_rollout_telemetry.py \
+                --event migration_recovery_required \
+                --run-id "$GITHUB_RUN_ID" \
+                --execution "$EXECUTION_NAME" \
+                --image-digest "$IMAGE_DIGEST" \
+                --evidence-output rollout-telemetry.ndjson
+            fi
+            echo "::error::Recovery required: exact migration execution is not proven quiescent; traffic remains on bridge/green"
+            exit "$QUIESCE_STATUS"
+          fi
+          if [ -n "$EXECUTION_NAME" ]; then
+            python scripts/emit_rollout_telemetry.py \
+              --event migration_quiesced \
+              --run-id "$GITHUB_RUN_ID" \
+              --execution "$EXECUTION_NAME" \
+              --image-digest "$IMAGE_DIGEST" \
+              --evidence-output rollout-telemetry.ndjson
+          fi
+          echo "Migration is quiescent; re-reading schema before choosing exact recovery traffic"
           OBSERVED_SCHEMA=""
           if curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
             -o recovery-schema.json; then
@@ -2852,11 +3053,6 @@ jobs:
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --revision "${{ steps.green.outputs.green_revision || steps.bridge_resolved.outputs.bridge_revision }}" \
             --query '{name:name,state:properties.runningState,health:properties.healthState,traffic:properties.trafficWeight}' -o json || true
-          az containerapp logs show \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --revision "${{ steps.green.outputs.green_revision }}" \
-            --tail 100 || true
           if [ "$RESTORE_STATUS" -ne 0 ]; then
             echo "::error::Schema-safe traffic recovery failed or requires manual intervention; see rollout-recovery-evidence"
             exit "$RESTORE_STATUS"
@@ -2917,6 +3113,12 @@ jobs:
             blue-traffic-manifest.json
             pre-shift-traffic-manifest.json
             rollout-recovery-evidence.json
+            migration-execution-evidence.json
+            migration-start-recovery-evidence.json
+            migration-quiescence-evidence.json
+            interrupted-migration-start-evidence.json
+            interrupted-migration-quiescence.json
+            rollout-telemetry.ndjson
           if-no-files-found: error
           retention-days: 90
 

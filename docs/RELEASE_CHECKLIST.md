@@ -75,7 +75,7 @@ The backend must start with PostgreSQL, Redis, `ENFORCE_POSTGRES=true`, and `REQ
 The `CI/CD` workflow must pass before release:
 
 - `backend-tests`: Ruff, pytest, coverage threshold, OpenAPI export, committed OpenAPI contract snapshot check, backend SBOM, Grype.
-- `alembic-migration-smoke`: PostgreSQL plus pgvector migration cycle covering heads, offline upgrade SQL generation, upgrade to head, downgrade to base, and re-upgrade.
+- `alembic-migration-smoke`: PostgreSQL plus pgvector structural migration checks covering heads, offline upgrade SQL generation, and an **empty-schema-only** `014 -> 013 -> 014` compatibility cycle. This is not evidence that production data can be downgraded; populated revision `014` is protected by refusal tests and uses fix-forward/bridge recovery.
 - `frontend-build`: ESLint, Vitest, Vite build, frontend SBOM, Grype.
 - `upload-sarif`: SARIF upload attempted for available scans.
 - `deploy-backend`: Terraform validation/policy dependencies; exact traffic capture; schema `013`/`014` bridge and signed immutable manifest; authorization-mode-aware Key Vault grant; same-identity secret/`SELECT 1`/schema preflight; exact-head migration; zero-traffic final smoke; exact restoration trap; production health verify.

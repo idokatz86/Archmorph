@@ -18,6 +18,7 @@ env:
   AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
   AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
   CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
+  MIGRATION_JOB_NAME: ${{ secrets.MIGRATION_JOB_NAME }}
   API_URL: ${{ secrets.API_URL }}
   ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY }}
   ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
@@ -40,6 +41,36 @@ jobs:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Require migration quiescence before manual traffic rollback
+        run: |
+          set -euo pipefail
+          : "${MIGRATION_JOB_NAME:?MIGRATION_JOB_NAME is required for rollback quiescence checks}"
+          az containerapp job list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --output json > rollback-containerapp-jobs.json
+          JOB_COUNT=$(jq --arg name "$MIGRATION_JOB_NAME" \
+            '[.[] | select(.name == $name)] | length' rollback-containerapp-jobs.json)
+          if [ "$JOB_COUNT" -gt 1 ]; then
+            echo "::error::Migration Job identity is ambiguous; traffic remains unchanged"
+            exit 1
+          fi
+          if [ "$JOB_COUNT" -eq 1 ]; then
+            az containerapp job execution list \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --output json > rollback-migration-executions.json
+            NONTERMINAL_COUNT=$(jq '[.[] | select(
+              (.properties.status // "Unknown") as $status
+              | ($status != "Succeeded" and $status != "Failed" and
+                 $status != "Stopped" and $status != "Cancelled" and
+                 $status != "Canceled")
+            )] | length' rollback-migration-executions.json)
+            if [ "$NONTERMINAL_COUNT" -ne 0 ]; then
+              echo "::error::Manual rollback cannot prove migration quiescence; rerun the signed rollout recovery that owns the exact execution"
+              exit 1
+            fi
+          fi
 
       - name: Resolve explicit signed bridge rollback target
         id: revision
@@ -252,11 +283,6 @@ jobs:
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --revision "${{ steps.revision.outputs.target }}" \
             --query '{name:name,state:properties.runningState,health:properties.healthState,traffic:properties.trafficWeight}' -o json || true
-          az containerapp logs show \
-            --name "$CONTAINER_APP_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --revision "${{ steps.revision.outputs.target }}" \
-            --tail 100 || true
           if [ "$RESTORE_STATUS" -ne 0 ]; then
             echo "::error::Exact prior traffic restoration failed"
             exit "$RESTORE_STATUS"

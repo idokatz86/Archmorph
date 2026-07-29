@@ -278,6 +278,37 @@ def test_first_install_external_secret_requires_pre_materialized_runtime_secret(
         "--accept-current",
         "014",
     ]
+    assert "--bootstrap-empty-database" not in migration["spec"]["template"]["spec"][
+        "containers"
+    ][0]["args"]
+
+
+def test_empty_database_bootstrap_requires_explicit_first_provisioning_value():
+    documents = _documents(
+        _render_environment(
+            "values-production.yaml",
+            "--set",
+            "migrations.bootstrapEmptyDatabase=true",
+        ).stdout
+    )
+    preflight = next(
+        document
+        for document in documents
+        if document["kind"] == "Job" and "secret-preflight" in document["metadata"]["name"]
+    )
+    migration = next(
+        document
+        for document in documents
+        if document["kind"] == "Job" and "-migrate-" in document["metadata"]["name"]
+    )
+    assert preflight["spec"]["template"]["spec"]["containers"][0]["args"][-1] == (
+        "--bootstrap-empty-database"
+    )
+    assert migration["spec"]["template"]["spec"]["containers"][0]["args"] == [
+        "--expect-head",
+        "014",
+        "--bootstrap-empty-database",
+    ]
 
 
 def test_revisioned_hooks_do_not_delete_an_active_prior_migration():
@@ -327,3 +358,5 @@ def test_chart_documents_external_secret_controller_bootstrap_limitation():
     assert "running `helm install` or `helm upgrade`" in readme
     assert "`--atomic --wait`" in readme
     assert "serialize" in readme.lower()
+    assert "migrations.bootstrapEmptyDatabase=true" in readme
+    assert "no application" in readme

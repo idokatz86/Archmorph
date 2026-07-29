@@ -32,7 +32,12 @@ spec:
           image: {{ include "archmorph.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "run_migrations.py"]
-          args: ["--expect-head", {{ required "migrations.expectedAlembicHead is required" .Values.migrations.expectedAlembicHead | quote }}]
+          args:
+            - "--expect-head"
+            - {{ required "migrations.expectedAlembicHead is required" .Values.migrations.expectedAlembicHead | quote }}
+            {{- if .Values.migrations.bootstrapEmptyDatabase }}
+            - "--bootstrap-empty-database"
+            {{- end }}
           workingDir: /app
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}

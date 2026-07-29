@@ -12,7 +12,7 @@ Do not use `terraform destroy` or `azd down` for normal rollback. Those commands
 
 - GitHub Actions access to run the manual rollback workflow.
 - Azure RBAC for the production subscription and resource group.
-- GitHub secrets present: `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_RESOURCE_GROUP`, `CONTAINER_APP_NAME`, `API_URL`, `ACR_NAME`, and `ACR_LOGIN_SERVER`, plus `ARCHMORPH_API_KEY` or `ADMIN_KEY` for authenticated health verification.
+- GitHub secrets present: `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_RESOURCE_GROUP`, `CONTAINER_APP_NAME`, `MIGRATION_JOB_NAME`, `API_URL`, `ACR_NAME`, and `ACR_LOGIN_SERVER`, plus `ARCHMORPH_API_KEY` or `ADMIN_KEY` for authenticated health verification.
 - Azure CLI authenticated if using the manual fallback.
 - Release evidence for the signed bridge revision, frontend artifact, Git SHA, immutable image digest, declared schema range, and exact traffic manifest.
 
@@ -222,6 +222,53 @@ The manual rollback workflow and both Terraform production plan/apply jobs share
 bootstrap, migration, green smoke, or traffic movement. A preflight failure exits
 before traffic mutation; a post-shift failure restores the exact prior manifest.
 
+### Interrupted migration supervision
+
+After a migration Job starts, CI immediately binds its exact execution name,
+Job name, resource group, and immutable image digest into HMAC-signed rollout
+state and uploads attempt-specific recovery evidence. Every automated recovery
+and rerun verifies that state before querying or stopping an execution. Never
+select the newest execution, infer revision `013`, or stop all Job executions.
+
+Immediately before start, CI also uploads a signed boundary containing the exact
+pre-existing execution inventory plus a unique non-secret execution marker. If
+the runner is cancelled after Azure accepts start but before the returned name is
+uploaded, a rerun may bind an execution only when one new execution proves that
+marker, the reviewed Alembic target, and the immutable image digest. Zero,
+multiple, missing-retention, malformed, or mismatched candidates remain
+recovery-required; no unrelated execution is stopped.
+
+If the bound execution is running, processing, unknown, or cannot be queried,
+the recovery path uses only these exact-execution control-plane forms:
+
+```bash
+az containerapp job execution show \
+  --job-execution-name "$EXECUTION" \
+  --name "$JOB" \
+  --resource-group "$RG" \
+  --query properties.status \
+  --output tsv
+
+az containerapp job stop \
+  --name "$JOB" \
+  --resource-group "$RG" \
+  --job-execution-name "$EXECUTION"
+```
+
+Poll the same execution to a terminal state before re-reading schema and choosing
+traffic. A missing execution is safe only when its terminal status already exists
+in verified signed state. If stop or quiescence cannot be proven, leave traffic
+on the schema-compatible bridge/green revision, mark recovery required, and page
+Platform Engineering. Manual rollback refuses all traffic mutation while any
+unsupervised nonterminal migration execution exists.
+
+Release workflows emit only bounded control-plane state, exception classes, and
+secret-free local lifecycle evidence. They do not stream Container App
+application logs into GitHub output. Detailed application diagnostics remain in
+the access-controlled Log Analytics/Application Insights workspace; inspect them
+there under incident RBAC and retention policy, and attach only redacted metadata
+to the private incident record.
+
 ## Migration alert ownership
 
 Platform Engineering owns `archmorph-migration-job-failure` and
@@ -231,7 +278,13 @@ Failure, timeout, cancellation, or absence of
 The alert queries use secret-free Application Insights lifecycle events rather
 than relying on provider-specific Container Apps Job log columns.
 
-CI now runs an Alembic smoke against PostgreSQL plus pgvector: heads, offline upgrade SQL generation, upgrade to head, downgrade to base, and re-upgrade. A migration that cannot complete this cycle must not be promoted.
+CI runs Alembic structural compatibility checks against PostgreSQL plus pgvector:
+heads, offline upgrade SQL generation, and an empty-schema-only
+`014 -> 013 -> 014` cycle. That cycle proves migration structure, not production
+rollback. A separate nonempty-data regression proves revision `014` refuses to
+discard durable rows. Production recovery remains fix-forward or a retained
+schema-compatible bridge/final revision; do not infer data reversibility from
+the empty-schema CI gate.
 
 ## Health And Smoke Verification
 

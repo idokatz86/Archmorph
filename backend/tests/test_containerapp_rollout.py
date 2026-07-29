@@ -19,11 +19,17 @@ apply_traffic = rollout.apply_traffic
 authoritative_latest_revision = rollout.authoritative_latest_revision
 canonical_traffic = rollout.canonical_traffic
 create_release_state = rollout.create_release_state
+effective_traffic = rollout.effective_traffic
 explicit_traffic = rollout.explicit_traffic
+mark_migration_terminal = rollout.mark_migration_terminal
+mark_migration_starting = rollout.mark_migration_starting
 mark_release_stage = rollout.mark_release_stage
+quiesce_migration_execution = rollout.quiesce_migration_execution
 recovery_decision = rollout.recovery_decision
 recover_release = rollout.recover_release
+set_migration_execution = rollout.set_migration_execution
 set_release_bridge = rollout.set_release_bridge
+supervise_migration_execution = rollout.supervise_migration_execution
 traffic_command = rollout.traffic_command
 verify_manifest = rollout.verify_manifest
 write_manifest = rollout.write_manifest
@@ -86,7 +92,6 @@ def test_authoritative_latest_not_highest_weight_preserves_stable90_latest10():
             ],
         ),
     )
-
     assert result == canonical_traffic(
         [
             {"revisionName": "api-stable", "weight": 90, "label": "stable"},
@@ -117,6 +122,15 @@ def test_authoritative_latest_preserves_labels_and_multiple_revisions_exactly():
             {"revisionName": "api-c", "weight": 10, "label": "stable"},
         ]
     )
+
+
+def test_effective_traffic_supports_positive_latest_with_inert_revision_entries():
+    assert effective_traffic(
+        [
+            {"latestRevision": True, "weight": 100, "label": ""},
+            {"revisionName": "api-old", "weight": 0, "label": "retired"},
+        ]
+    ) == [{"latestRevision": True, "weight": 100, "label": ""}]
 
 
 def test_authoritative_latest_requires_latest_ready_not_merely_latest_revision():
@@ -357,7 +371,7 @@ def test_traffic_validation_rejects_implicit_or_invalid_manifest():
         canonical_traffic([{"revisionName": "", "weight": 100}])
     with pytest.raises(ValueError, match="between 0 and 100"):
         canonical_traffic([{"revisionName": "api-blue", "weight": 101}])
-    with pytest.raises(ValueError, match="sum to 0 or 100"):
+    with pytest.raises(ValueError, match="sum to 100"):
         canonical_traffic([{"revisionName": "api-blue", "weight": 99}])
 
 
@@ -445,6 +459,628 @@ def test_apply_traffic_explicitly_clears_extra_current_targets_and_preserves_zer
     command = run.call_args_list[1].args[0]
     assert "api-blue=100" in command
     assert "old=0" in command
+
+
+def test_apply_traffic_accepts_aca_omission_of_an_explicit_zero_entry():
+    current = [
+        {"revisionName": "api-blue", "weight": 50},
+        {"revisionName": "api-old", "weight": 50, "label": "old"},
+    ]
+    expected = [
+        {"revisionName": "api-blue", "weight": 100},
+        {"revisionName": "api-old", "weight": 0, "label": "old"},
+    ]
+    actual = [{"revisionName": "api-blue", "weight": 100}]
+    with patch.object(
+        rollout.subprocess,
+        "run",
+        side_effect=[
+            CompletedProcess([], 0, stdout=json.dumps(current)),
+            CompletedProcess([], 0),
+            CompletedProcess([], 0, stdout=json.dumps(actual)),
+        ],
+    ):
+        apply_traffic(expected, name="api", resource_group="example-rg")
+
+
+def test_apply_traffic_ignores_retained_inert_stale_label_binding():
+    current = [
+        {"revisionName": "api-bridge", "weight": 100},
+        {"revisionName": "api-old", "weight": 0, "label": "stable"},
+    ]
+    expected = [{"revisionName": "api-green", "weight": 100, "label": "stable"}]
+    actual = expected + [
+        {"revisionName": "api-old", "weight": 0, "label": "retired"}
+    ]
+    with patch.object(
+        rollout.subprocess,
+        "run",
+        side_effect=[
+            CompletedProcess([], 0, stdout=json.dumps(current)),
+            CompletedProcess([], 0),
+            CompletedProcess([], 0, stdout=json.dumps(actual)),
+        ],
+    ):
+        apply_traffic(expected, name="api", resource_group="example-rg")
+
+
+@pytest.mark.parametrize("aca_retains_zero", [True, False])
+@pytest.mark.parametrize(
+    "expected",
+    [
+        [{"revisionName": "api-green", "weight": 100, "label": ""}],
+        [{"revisionName": "api-green", "weight": 100, "label": "stable"}],
+        [
+            {"revisionName": "api-blue", "weight": 70, "label": ""},
+            {"revisionName": "api-canary", "weight": 30, "label": "canary"},
+        ],
+    ],
+)
+def test_apply_traffic_accepts_aca_zero_retention_for_production_manifest_shapes(
+    expected, aca_retains_zero
+):
+    current = [
+        {"revisionName": "api-bridge", "weight": 100, "label": ""},
+        {"latestRevision": True, "weight": 0, "label": ""},
+    ]
+    actual = list(expected)
+    if aca_retains_zero:
+        actual.extend(
+            [
+                {"revisionName": "api-bridge", "weight": 0, "label": ""},
+                {"latestRevision": True, "weight": 0, "label": ""},
+            ]
+        )
+    with patch.object(
+        rollout.subprocess,
+        "run",
+        side_effect=[
+            CompletedProcess([], 0, stdout=json.dumps(current)),
+            CompletedProcess([], 0),
+            CompletedProcess([], 0, stdout=json.dumps(actual)),
+        ],
+    ) as run:
+        apply_traffic(expected, name="api", resource_group="example-rg")
+
+    command = run.call_args_list[1].args[0]
+    assert "api-bridge=0" in command
+    assert "latest=0" not in command
+
+
+def test_apply_traffic_bridge_to_green_then_green_to_exact_baseline_with_inert_zeros():
+    bridge = [{"revisionName": "api-bridge", "weight": 100, "label": ""}]
+    green = [{"revisionName": "api-green", "weight": 100, "label": ""}]
+    baseline = [
+        {"revisionName": "api-blue", "weight": 80, "label": ""},
+        {"revisionName": "api-canary", "weight": 20, "label": "canary"},
+    ]
+    responses = [
+        CompletedProcess([], 0, stdout=json.dumps(bridge)),
+        CompletedProcess([], 0),
+        CompletedProcess(
+            [],
+            0,
+            stdout=json.dumps(
+                green + [{"revisionName": "api-bridge", "weight": 0, "label": ""}]
+            ),
+        ),
+        CompletedProcess([], 0, stdout=json.dumps(green)),
+        CompletedProcess([], 0),
+        CompletedProcess([], 0, stdout=json.dumps(baseline)),
+    ]
+    with patch.object(rollout.subprocess, "run", side_effect=responses):
+        apply_traffic(green, name="api", resource_group="example-rg")
+        apply_traffic(baseline, name="api", resource_group="example-rg")
+
+
+def test_apply_traffic_explicitly_zeros_a_prior_positive_latest_target():
+    expected = [{"revisionName": "api-green", "weight": 100}]
+    current = [{"latestRevision": True, "weight": 100}]
+    with patch.object(
+        rollout.subprocess,
+        "run",
+        side_effect=[
+            CompletedProcess([], 0, stdout=json.dumps(current)),
+            CompletedProcess([], 0),
+            CompletedProcess([], 0, stdout=json.dumps(expected)),
+        ],
+    ) as run:
+        apply_traffic(expected, name="api", resource_group="example-rg")
+    command = run.call_args_list[1].args[0]
+    assert "latest=0" in command
+    assert "api-green=100" in command
+
+
+@pytest.mark.parametrize(
+    "actual",
+    [
+        [
+            {"revisionName": "api-green", "weight": 99},
+            {"revisionName": "api-unexpected", "weight": 1},
+        ],
+        [
+            {"revisionName": "api-green", "weight": 50},
+            {"revisionName": "api-blue", "weight": 50},
+        ],
+    ],
+)
+def test_apply_traffic_fails_closed_on_partial_or_unexpected_positive_target(actual):
+    expected = [{"revisionName": "api-green", "weight": 100}]
+    with (
+        patch.object(
+            rollout.subprocess,
+            "run",
+            side_effect=[
+                CompletedProcess([], 0, stdout=json.dumps(expected)),
+                CompletedProcess([], 0),
+                CompletedProcess([], 0, stdout=json.dumps(actual)),
+            ],
+        ),
+        pytest.raises(RuntimeError, match="mismatch after apply"),
+    ):
+        apply_traffic(expected, name="api", resource_group="example-rg")
+
+
+def test_apply_traffic_fails_on_wrong_positive_label():
+    expected = [{"revisionName": "api-green", "weight": 100, "label": "stable"}]
+    actual = [{"revisionName": "api-green", "weight": 100, "label": "other"}]
+    with (
+        patch.object(
+            rollout.subprocess,
+            "run",
+            side_effect=[
+                CompletedProcess([], 0, stdout=json.dumps(expected)),
+                CompletedProcess([], 0),
+                CompletedProcess([], 0, stdout=json.dumps(actual)),
+            ],
+        ),
+        pytest.raises(RuntimeError, match="mismatch after apply"),
+    ):
+        apply_traffic(expected, name="api", resource_group="example-rg")
+
+
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        "not-json",
+        json.dumps([{"revisionName": "api-green"}]),
+        json.dumps([{"revisionName": "api-green", "weight": "100"}]),
+        json.dumps(
+            [
+                {"revisionName": "api-green", "weight": 100},
+                {"revisionName": "api-green", "weight": 0},
+            ]
+        ),
+        json.dumps([{"revisionName": "api-green", "weight": 90}]),
+    ],
+)
+def test_apply_traffic_rejects_malformed_aca_response(malformed):
+    expected = [{"revisionName": "api-green", "weight": 100}]
+    with (
+        patch.object(
+            rollout.subprocess,
+            "run",
+            side_effect=[
+                CompletedProcess([], 0, stdout=json.dumps(expected)),
+                CompletedProcess([], 0),
+                CompletedProcess([], 0, stdout=malformed),
+            ],
+        ),
+        pytest.raises(RuntimeError, match="post-apply traffic response is malformed"),
+    ):
+        apply_traffic(expected, name="api", resource_group="example-rg")
+
+
+def test_inert_zeros_cannot_turn_healthy_green_into_recovery_rollback():
+    state = mark_release_stage(_release_state(schema="014"), "complete")
+    actual = [
+        {"revisionName": "api-green", "weight": 100},
+        {"revisionName": "api-blue", "weight": 0},
+        {"latestRevision": True, "weight": 0},
+    ]
+    with patch.object(
+        rollout.subprocess,
+        "run",
+        side_effect=[
+            CompletedProcess([], 0, stdout=json.dumps(actual)),
+            CompletedProcess([], 0),
+            CompletedProcess([], 0, stdout=json.dumps(actual)),
+        ],
+    ):
+        apply_traffic(
+            [{"revisionName": "api-green", "weight": 100}],
+            name="api",
+            resource_group="example-rg",
+        )
+    assert recovery_decision(state, observed_schema="014") == ("none", [])
+
+
+def _persisted_execution_state(tmp_path, monkeypatch, *, terminal_status=""):
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
+    state = mark_release_stage(_release_state(schema="013"), "migration_attempted")
+    state = set_migration_execution(
+        state,
+        job_name="migration-job",
+        resource_group="example-rg",
+        execution_name="migration-job-abc123",
+        image_digest="sha256:" + "a" * 64,
+    )
+    if terminal_status:
+        state = mark_migration_terminal(state, terminal_status)
+    path = tmp_path / "rollout-state.json"
+    rollout._write_release_state(path, state)
+    return path
+
+
+def test_supervision_persists_terminal_status_for_restart_safe_rerun(tmp_path, monkeypatch):
+    state_path = _persisted_execution_state(tmp_path, monkeypatch)
+    evidence = tmp_path / "execution.json"
+    with patch.object(
+        rollout,
+        "observe_exact_execution",
+        side_effect=[
+            {"kind": "status", "status": "Running", "source": "show"},
+            {"kind": "status", "status": "Succeeded", "source": "show"},
+        ],
+    ):
+        assert supervise_migration_execution(
+            state_path,
+            evidence_output=evidence,
+            max_attempts=2,
+            poll_seconds=0,
+        ) == "Succeeded"
+    assert rollout._read_release_state(state_path)["migration_execution"][
+        "terminal_status"
+    ] == "Succeeded"
+    assert json.loads(evidence.read_text())["status"] == "terminal_observed"
+
+
+def test_restart_safe_execution_state_rejects_tampering(tmp_path, monkeypatch):
+    state_path = _persisted_execution_state(tmp_path, monkeypatch)
+    payload = json.loads(state_path.read_text())
+    payload["migration_execution"]["execution_name"] = "migration-job-attacker"
+    state_path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="signature is invalid"):
+        rollout._read_release_state(state_path)
+
+
+def test_ambiguous_pre_start_boundary_retains_traffic_and_requires_recovery(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
+    state = mark_release_stage(_release_state(schema="013"), "migration_attempted")
+    state = mark_migration_starting(
+        state,
+        job_name="migration-job",
+        resource_group="example-rg",
+        image_digest="sha256:" + "a" * 64,
+        execution_marker="migration-123-1",
+        known_executions=["migration-job-prior"],
+    )
+    state_path = tmp_path / "rollout-state.json"
+    rollout._write_release_state(state_path, state)
+    with pytest.raises(RuntimeError, match="start outcome is ambiguous"):
+        recovery_decision(state, observed_schema="013")
+    with pytest.raises(RuntimeError, match="quiescence cannot be proven"):
+        quiesce_migration_execution(
+            state_path,
+            evidence_output=tmp_path / "quiescence.json",
+            max_attempts=1,
+            poll_seconds=0,
+        )
+    evidence = json.loads((tmp_path / "quiescence.json").read_text())
+    assert evidence["status"] == "recovery_required_start_outcome_ambiguous"
+    assert evidence["stop_result"] == "not_attempted_without_exact_execution"
+
+
+def test_interrupted_start_resolves_only_exact_marker_head_and_digest(tmp_path, monkeypatch):
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
+    state = mark_release_stage(_release_state(schema="013"), "migration_attempted")
+    state = mark_migration_starting(
+        state,
+        job_name="migration-job",
+        resource_group="example-rg",
+        image_digest="sha256:" + "a" * 64,
+        execution_marker="migration-123-1",
+        known_executions=["migration-job-prior"],
+    )
+    state_path = tmp_path / "rollout-state.json"
+    rollout._write_release_state(state_path, state)
+    with patch.object(
+        rollout,
+        "_control_plane_run",
+        side_effect=[
+            CompletedProcess(
+                [],
+                0,
+                stdout=json.dumps(["migration-job-prior", "migration-job-exact"]),
+            ),
+            CompletedProcess(
+                [],
+                0,
+                stdout=json.dumps(
+                    {
+                        "args": [
+                            "--expect-head",
+                            "014",
+                            "--execution-marker",
+                            "migration-123-1",
+                        ],
+                        "image": "registry.example/api@sha256:" + "a" * 64,
+                    }
+                ),
+            ),
+        ],
+    ):
+        execution = rollout.resolve_migration_start_boundary(
+            state_path,
+            evidence_output=tmp_path / "start.json",
+        )
+    assert execution == "migration-job-exact"
+    persisted = rollout._read_release_state(state_path)
+    assert "migration_starting" not in persisted
+    assert persisted["migration_execution"]["execution_name"] == execution
+
+
+def test_interrupted_start_never_binds_an_unrelated_new_execution(tmp_path, monkeypatch):
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
+    state = mark_release_stage(_release_state(schema="013"), "migration_attempted")
+    state = mark_migration_starting(
+        state,
+        job_name="migration-job",
+        resource_group="example-rg",
+        image_digest="sha256:" + "a" * 64,
+        execution_marker="migration-123-1",
+        known_executions=[],
+    )
+    state_path = tmp_path / "rollout-state.json"
+    rollout._write_release_state(state_path, state)
+    with (
+        patch.object(
+            rollout,
+            "_control_plane_run",
+            side_effect=[
+                CompletedProcess([], 0, stdout=json.dumps(["migration-job-unrelated"])),
+                CompletedProcess(
+                    [],
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "args": [
+                                "--expect-head",
+                                "014",
+                                "--execution-marker",
+                                "other-run",
+                            ],
+                            "image": "registry.example/api@sha256:" + "a" * 64,
+                        }
+                    ),
+                ),
+            ],
+        ),
+        pytest.raises(RuntimeError, match="one exact reviewed execution"),
+    ):
+        rollout.resolve_migration_start_boundary(
+            state_path,
+            evidence_output=tmp_path / "start.json",
+        )
+    persisted = rollout._read_release_state(state_path)
+    assert "migration_execution" not in persisted
+    assert persisted["migration_starting"]["execution_marker"] == "migration-123-1"
+
+
+def test_exact_execution_query_uses_exact_name_list_fallback_only():
+    with patch.object(
+        rollout,
+        "_control_plane_run",
+        side_effect=[
+            CompletedProcess([], 2, stderr="show unsupported"),
+            CompletedProcess([], 0, stdout="Running\n"),
+        ],
+    ) as control_plane:
+        observation = rollout.observe_exact_execution(
+            job_name="migration-job",
+            resource_group="example-rg",
+            execution_name="migration-job-abc123",
+        )
+    assert observation == {"kind": "status", "status": "Running", "source": "list"}
+    fallback = control_plane.call_args_list[1].args[0]
+    assert "[?name=='migration-job-abc123'].properties.status" in fallback
+    assert "Running" not in fallback
+
+
+@pytest.mark.parametrize("terminal", ["Failed", "Succeeded", "Cancelled", "Stopped"])
+def test_quiescence_accepts_observed_terminal_without_stopping(tmp_path, monkeypatch, terminal):
+    state_path = _persisted_execution_state(tmp_path, monkeypatch)
+    evidence = tmp_path / "quiescence.json"
+    with (
+        patch.object(
+            rollout,
+            "observe_exact_execution",
+            return_value={"kind": "status", "status": terminal, "source": "show"},
+        ),
+        patch.object(rollout, "_assert_no_unrelated_nonterminal_execution"),
+        patch.object(rollout, "_control_plane_run") as control_plane,
+    ):
+        result = quiesce_migration_execution(
+            state_path,
+            evidence_output=evidence,
+            max_attempts=2,
+            poll_seconds=0,
+        )
+    control_plane.assert_not_called()
+    assert result["status"] == "quiesced"
+    persisted = rollout._read_release_state(state_path)
+    assert persisted["migration_execution"]["quiescence_verified"] is True
+
+
+@pytest.mark.parametrize("terminal", ["Stopped", "Succeeded"])
+def test_quiescence_stops_only_exact_execution_and_handles_success_race(
+    tmp_path, monkeypatch, terminal
+):
+    state_path = _persisted_execution_state(tmp_path, monkeypatch)
+    evidence = tmp_path / "quiescence.json"
+    with (
+        patch.object(
+            rollout,
+            "observe_exact_execution",
+            side_effect=[
+                {"kind": "status", "status": "Running", "source": "show"},
+                {"kind": "status", "status": terminal, "source": "show"},
+            ],
+        ),
+        patch.object(
+            rollout,
+            "_control_plane_run",
+            return_value=CompletedProcess([], 0, stdout=""),
+        ) as control_plane,
+        patch.object(rollout, "_assert_no_unrelated_nonterminal_execution"),
+    ):
+        result = quiesce_migration_execution(
+            state_path,
+            evidence_output=evidence,
+            max_attempts=2,
+            poll_seconds=0,
+        )
+    command = control_plane.call_args.args[0]
+    assert command == [
+        "az",
+        "containerapp",
+        "job",
+        "stop",
+        "--name",
+        "migration-job",
+        "--resource-group",
+        "example-rg",
+        "--job-execution-name",
+        "migration-job-abc123",
+    ]
+    assert result["observation"]["status"] == terminal
+
+
+def test_missing_execution_requires_durable_terminal_evidence(tmp_path, monkeypatch):
+    terminal_path = _persisted_execution_state(
+        tmp_path,
+        monkeypatch,
+        terminal_status="Succeeded",
+    )
+    with patch.object(
+        rollout,
+        "observe_exact_execution",
+        return_value={"kind": "missing"},
+    ), patch.object(rollout, "_assert_no_unrelated_nonterminal_execution"):
+        result = quiesce_migration_execution(
+            terminal_path,
+            evidence_output=tmp_path / "terminal.json",
+            max_attempts=1,
+            poll_seconds=0,
+        )
+    assert result["status"] == "quiesced_from_durable_terminal_evidence"
+
+    missing_path = _persisted_execution_state(tmp_path, monkeypatch)
+    with (
+        patch.object(
+            rollout,
+            "observe_exact_execution",
+            return_value={"kind": "missing"},
+        ),
+        patch.object(
+            rollout,
+            "_control_plane_run",
+            return_value=CompletedProcess([], 1, stderr="not found"),
+        ),
+        pytest.raises(RuntimeError, match="quiescence could not be proven"),
+    ):
+        quiesce_migration_execution(
+            missing_path,
+            evidence_output=tmp_path / "missing.json",
+            max_attempts=1,
+            poll_seconds=0,
+        )
+
+
+@pytest.mark.parametrize(
+    "observation",
+    [
+        {"kind": "cli_error", "error_class": "AzureCliExecutionQueryError"},
+        {"kind": "status", "status": "Processing", "source": "show"},
+        {"kind": "status", "status": "Unknown", "source": "show"},
+    ],
+)
+def test_quiescence_cli_error_or_nonterminal_timeout_retains_traffic(
+    tmp_path, monkeypatch, observation
+):
+    state_path = _persisted_execution_state(tmp_path, monkeypatch)
+    with (
+        patch.object(rollout, "observe_exact_execution", return_value=observation),
+        patch.object(
+            rollout,
+            "_control_plane_run",
+            return_value=CompletedProcess([], 1, stderr="control-plane failure"),
+        ),
+        pytest.raises(RuntimeError, match="recovery required"),
+    ):
+        quiesce_migration_execution(
+            state_path,
+            evidence_output=tmp_path / "failure.json",
+            max_attempts=1,
+            poll_seconds=0,
+        )
+
+
+def test_recovery_refuses_traffic_decision_while_bound_execution_is_not_terminal():
+    state = mark_release_stage(_release_state(schema="013"), "migration_attempted")
+    state = set_migration_execution(
+        state,
+        job_name="migration-job",
+        resource_group="example-rg",
+        execution_name="migration-job-abc123",
+        image_digest="sha256:" + "a" * 64,
+    )
+    with pytest.raises(RuntimeError, match="quiescence is not proven"):
+        recovery_decision(state, observed_schema="013")
+
+    terminal = mark_migration_terminal(state, "Succeeded")
+    with pytest.raises(RuntimeError, match="concurrent migration quiescence"):
+        recovery_decision(terminal, observed_schema="014")
+
+
+def test_quiescence_blocks_unrelated_nonterminal_execution_without_stopping_it(
+    tmp_path, monkeypatch
+):
+    state_path = _persisted_execution_state(tmp_path, monkeypatch)
+    with (
+        patch.object(
+            rollout,
+            "observe_exact_execution",
+            return_value={"kind": "status", "status": "Succeeded", "source": "show"},
+        ),
+        patch.object(
+            rollout,
+            "_control_plane_run",
+            return_value=CompletedProcess(
+                [],
+                0,
+                stdout=json.dumps(
+                    [
+                        {"name": "migration-job-abc123", "status": "Succeeded"},
+                        {"name": "migration-job-unrelated", "status": "Processing"},
+                    ]
+                ),
+            ),
+        ) as control_plane,
+        pytest.raises(RuntimeError, match="unrelated nonterminal"),
+    ):
+        quiesce_migration_execution(
+            state_path,
+            evidence_output=tmp_path / "concurrent.json",
+            max_attempts=1,
+            poll_seconds=0,
+        )
+    commands = [call.args[0] for call in control_plane.call_args_list]
+    assert all(command[3] != "stop" for command in commands)
+    evidence = json.loads((tmp_path / "concurrent.json").read_text())
+    assert evidence["status"] == "recovery_required_concurrent_execution_not_quiescent"
 
 
 def test_signed_bridge_manifest_is_immutable_and_role_bound(tmp_path, monkeypatch):

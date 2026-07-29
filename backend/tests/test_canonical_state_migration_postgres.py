@@ -925,7 +925,7 @@ def _seed_every_014_only_table(engine) -> dict[str, str]:
     return ids
 
 
-def test_downgrade_refuses_when_any_014_only_durable_category_has_rows():
+def test_nonempty_production_shape_refuses_data_discarding_downgrade():
     engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
     config = _alembic_config()
     expected_categories = {
@@ -1177,7 +1177,7 @@ def test_terraform_state_material_duplicates_abort_without_secret_evidence_or_lo
         engine.dispose()
 
 
-def test_empty_014_schema_can_downgrade_and_reupgrade():
+def test_empty_014_schema_structural_compatibility_cycle():
     engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
     config = _alembic_config()
     try:
@@ -1191,6 +1191,61 @@ def test_empty_014_schema_can_downgrade_and_reupgrade():
         with engine.connect() as connection:
             assert connection.execute(text("SELECT version_num FROM alembic_version")).scalar_one() == "014"
             assert "api_key_credentials" in inspect(connection).get_table_names()
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def test_controlled_runner_bootstraps_only_a_verified_empty_postgres_database(monkeypatch):
+    import run_migrations
+
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    readiness = {
+        "postgres_configured": True,
+        "connection_ok": True,
+        "schema_at_head": True,
+        "required_schema_present": True,
+        "current_revision": "014",
+        "expected_revision": "014",
+    }
+    try:
+        _reset_database(engine)
+        monkeypatch.setenv("DATABASE_URL", POSTGRES_URL)
+        with patch("database.database_readiness", return_value=readiness):
+            evidence = run_migrations.run(expected_head="014", bootstrap=True)
+        assert evidence["status"] == "bootstrapped"
+        with engine.connect() as connection:
+            assert connection.execute(
+                text("SELECT version_num FROM alembic_version")
+            ).scalar_one() == "014"
+
+        with (
+            patch("database.database_readiness", return_value=readiness),
+            pytest.raises(RuntimeError, match="disable bootstrap for upgrades"),
+        ):
+            run_migrations.run(expected_head="014", bootstrap=True)
+        with patch("database.database_readiness", return_value=readiness):
+            repeated = run_migrations.run(expected_head="014")
+        assert repeated["status"] == "already_at_head"
+    finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+def test_controlled_runner_refuses_non_alembic_postgres_tables_in_bootstrap(monkeypatch):
+    import run_migrations
+
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    try:
+        _reset_database(engine)
+        with engine.begin() as connection:
+            connection.execute(text("CREATE TABLE legacy_customer_data (id integer)"))
+        monkeypatch.setenv("DATABASE_URL", POSTGRES_URL)
+        with pytest.raises(RuntimeError, match="application tables but no alembic_version"):
+            run_migrations.run(expected_head="014", bootstrap=True)
+        with engine.connect() as connection:
+            assert "legacy_customer_data" in inspect(connection).get_table_names()
+            assert "alembic_version" not in inspect(connection).get_table_names()
     finally:
         _reset_database(engine)
         engine.dispose()

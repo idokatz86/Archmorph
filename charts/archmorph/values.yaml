@@ -145,6 +145,10 @@ optionalSecretKeys:
 # advisory-lock guarded migration before any application pod is rolled out.
 migrations:
   enabled: true
+  # First-provisioning only. When true, the runner requires no alembic_version
+  # table and no application tables before upgrading to expectedAlembicHead.
+  # Keep false for every existing environment and normal upgrade.
+  bootstrapEmptyDatabase: false
   # Must already exist before pre-install hooks. "default" is universally present;
   # set a pre-created dedicated account where cluster policy requires it.
   serviceAccountName: "default"

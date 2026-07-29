@@ -14,6 +14,9 @@ MAIN_TERRAFORM = REPO_ROOT / "infra" / "main.tf"
 HELM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "helm-release.yml"
 TERRAFORM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "terraform-prod.yml"
 MIGRATION_ALERT_SPECS = REPO_ROOT / "infra" / "monitoring" / "migration-alert-specs.json"
+ROLLOUT_HELPER = REPO_ROOT / "scripts" / "containerapp_rollout.py"
+RELEASE_CHECKLIST = REPO_ROOT / "docs" / "RELEASE_CHECKLIST.md"
+ROLLBACK_RUNBOOK = REPO_ROOT / "docs" / "runbooks" / "rollback.md"
 
 
 def _load(path: Path) -> dict:
@@ -52,21 +55,33 @@ def _terraform_alert_block(terraform: str, resource_name: str) -> str:
     raise AssertionError(f"Unterminated Terraform alert resource {resource_name}")
 
 
-def test_ci_includes_pgvector_alembic_migration_cycle():
+def test_ci_includes_pgvector_empty_schema_structural_migration_cycle():
     workflow = _load(CI_WORKFLOW)
     job = workflow["jobs"]["alembic-migration-smoke"]
+    rollout_job = workflow["jobs"]["rollout-contracts"]
 
     assert job["services"]["postgres"]["image"] == "pgvector/pgvector:pg16"
     assert job["services"]["redis"]["image"] == "redis:7.4-alpine"
     assert job["env"]["POSTGRES_USER"] == "archmorph"
     assert job["env"]["POSTGRES_DB"] == "archmorph"
     assert job["env"]["ARCHMORPH_TEST_REDIS_URL"] == "redis://127.0.0.1:6379/15"
+    rollout_contracts = _step_by_name(
+        rollout_job["steps"],
+        "Run deterministic rollout contracts",
+    )["run"]
+    assert "backend/tests/test_rollout_telemetry.py" in rollout_contracts
+    assert "backend/tests/test_run_migrations.py" in rollout_contracts
 
-    run_script = _step_by_name(job["steps"], "Run Alembic migration cycle")["run"]
+    run_script = _step_by_name(
+        job["steps"],
+        "Run empty-schema structural migration compatibility cycle",
+    )["run"]
     assert "python -m alembic heads" in run_script
     assert "python -m alembic upgrade head --sql" in run_script
     assert "python -m alembic upgrade head" in run_script
-    assert "python -m alembic downgrade base" in run_script
+    assert "python -m alembic downgrade 013" in run_script
+    assert "python -m alembic upgrade 014" in run_script
+    assert "python -m alembic downgrade base" not in run_script
     assert 'DATABASE_SCHEME="postgresql"' in run_script
     assert "printf -v DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s'" in run_script
     assert 'export DATABASE_URL ARCHMORPH_TEST_POSTGRES_URL="$DATABASE_URL"' in run_script
@@ -81,6 +96,17 @@ def test_ci_includes_pgvector_alembic_migration_cycle():
     assert "tests/test_helm_secret_contract.py" in contracts
     assert 'DATABASE_SCHEME="postgresql"' in contracts
     assert "printf -v DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s'" in contracts
+
+
+def test_release_docs_call_downgrade_cycle_structural_and_require_fix_forward():
+    checklist = RELEASE_CHECKLIST.read_text(encoding="utf-8")
+    runbook = ROLLBACK_RUNBOOK.read_text(encoding="utf-8")
+    for document in (checklist, runbook):
+        assert "empty-schema" in document
+        assert "production" in document
+        assert "fix-forward" in document
+    assert "not production\nrollback" in runbook
+    assert "nonempty-data regression" in runbook
 
 
 def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_green():
@@ -103,10 +129,19 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
         deploy["steps"],
         "Wait for migration identity, RBAC, and secret propagation",
     )["run"]
-    migration = _step_by_name(
+    prepare_migration = _step_by_name(
         deploy["steps"],
-        "Run exact-head production migration",
+        "Prepare exact-head production migration",
     )["run"]
+    start_migration = _step_by_name(
+        deploy["steps"],
+        "Start exact-head production migration",
+    )["run"]
+    supervision = _step_by_name(
+        deploy["steps"],
+        "Supervise exact-head production migration",
+    )["run"]
+    migration = prepare_migration + start_migration + supervision
     preflight = _step_by_name(
         deploy["steps"],
         "Discover schema with same-identity database preflight",
@@ -149,26 +184,37 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert "MIGRATION_IMAGE_REFERENCE" in propagation
 
     assert "az containerapp job update" not in migration
-    assert "az containerapp job start" in migration
-    job_start = migration.split("az containerapp job start", 1)[1].split(")", 1)[0]
+    assert "az containerapp job start" in start_migration
+    job_start = start_migration.split("az containerapp job start", 1)[1].split(")", 1)[0]
     assert "--image " not in job_start
+    assert "--query name --output tsv" in job_start
     assert "EXPECTED_ALEMBIC_HEAD" in migration
     assert "MIGRATION_IMAGE_REFERENCE" in migration
     assert "properties.template.containers[0].image" in migration
     assert "EXPECTED_ALEMBIC_HEAD" in migration
     assert "did not preserve exact-head evidence" in migration
     assert "az containerapp job execution show" in migration
+    assert "--job-execution-name" in migration
+    assert "--query properties.status --output tsv" in preflight
     assert "Succeeded)" in migration
     assert "Failed|Stopped|Cancelled)" in migration
+    assert "mark-migration-starting" in prepare_migration
+    assert "known-migration-executions.json" in prepare_migration
+    assert "--execution-marker" in prepare_migration
+    assert "record-migration-execution" in start_migration
+    assert '--execution-marker "$MIGRATION_EXECUTION_MARKER"' in start_migration
+    assert start_migration.index("record-migration-execution") < start_migration.index(
+        "--event migration_started"
+    )
+    assert "supervise-migration" in supervision
     assert "az containerapp job start" in preflight
     assert '--preflight-only --accept-current 013 --accept-current "$EXPECTED_ALEMBIC_HEAD"' in preflight
     assert "Same-identity database preflight failed" in preflight
     assert "Same-identity database preflight timed out" in preflight
-    assert "ARCHMORPH_MIGRATION_PREFLIGHT_EVIDENCE=" in preflight
-    assert "completed without required evidence" in preflight
+    assert "/api/schema-compatibility" in preflight
+    assert "current-schema-compatibility.json" in preflight
 
-    assert "ARCHMORPH_MIGRATION_EVIDENCE=" in migration
-    assert "completed without required success evidence" in migration
+    assert "az containerapp logs show" not in migration
     for event in (
         "migration_started",
         "migration_succeeded",
@@ -197,9 +243,23 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
         "Route production to verified bridge before migration"
     )
     assert step_names.index("Route production to verified bridge before migration") < step_names.index(
-        "Run exact-head production migration"
+        "Prepare exact-head production migration"
     )
-    assert step_names.index("Run exact-head production migration") < step_names.index("Deploy green revision")
+    assert step_names.index("Prepare exact-head production migration") < step_names.index(
+        "Persist signed migration start boundary"
+    )
+    assert step_names.index("Persist signed migration start boundary") < step_names.index(
+        "Start exact-head production migration"
+    )
+    assert step_names.index("Start exact-head production migration") < step_names.index(
+        "Persist signed migration execution state"
+    )
+    assert step_names.index("Persist signed migration execution state") < step_names.index(
+        "Supervise exact-head production migration"
+    )
+    assert step_names.index("Supervise exact-head production migration") < step_names.index(
+        "Deploy green revision"
+    )
     assert step_names.index("Smoke test green revision") < step_names.index("Shift traffic to green (100%)")
 
 
@@ -259,9 +319,11 @@ def test_phase_a_workflow_rejects_concurrency_and_uses_only_job_control_plane():
     }
     phase_a = "\n".join(step.get("run", "") for step in steps if step.get("name") in phase_a_names)
 
-    assert "Running" in phase_a
-    assert "Processing" in phase_a
-    assert "Another production migration execution is already active" in phase_a
+    assert "Unknown" in phase_a
+    assert "Succeeded" in phase_a
+    assert "Cancelled" in phase_a
+    assert "nonterminal migration execution is active" in phase_a
+    assert "recovery_required" in phase_a
     assert "az containerapp update" not in phase_a
     assert "az containerapp revision" not in phase_a
     assert "az containerapp ingress traffic" not in phase_a
@@ -302,7 +364,7 @@ def test_alert_attestation_precedes_every_migration_job_start():
         "Discover schema with same-identity database preflight"
     )
     assert names.index("Attest applied migration alerts before Job execution") < names.index(
-        "Run exact-head production migration"
+        "Prepare exact-head production migration"
     )
 
 
@@ -321,6 +383,103 @@ def test_cleanup_is_manifest_and_stage_gated_without_obscuring_original_failure(
     assert "remained active after cleanup" in deactivate["run"]
     upload = _step_by_name(steps, "Upload backend release and rollback evidence")
     assert upload["if"] == "always() && steps.rollout_state.outcome == 'success'"
+
+
+def test_migration_execution_is_persisted_and_quiesced_before_recovery_decisions():
+    workflow = _load(CI_WORKFLOW)
+    steps = workflow["jobs"]["deploy-backend"]["steps"]
+    names = [step.get("name") for step in steps]
+    load = _step_by_name(
+        steps,
+        "Load signed migration execution evidence from a prior run attempt",
+    )["run"]
+    reject = _step_by_name(steps, "Reject concurrent production migration execution")["run"]
+    prepare = _step_by_name(steps, "Prepare exact-head production migration")["run"]
+    start_boundary = _step_by_name(steps, "Persist signed migration start boundary")
+    start = _step_by_name(steps, "Start exact-head production migration")["run"]
+    persist = _step_by_name(steps, "Persist signed migration execution state")
+    supervise = _step_by_name(steps, "Supervise exact-head production migration")["run"]
+    terminal = _step_by_name(steps, "Persist terminal migration execution state")
+    recovery = _step_by_name(
+        steps,
+        "Recover exact schema-safe traffic after rollout failure",
+    )["run"]
+
+    assert "gh api" in load
+    assert 'gh run download "$GITHUB_RUN_ID"' in load
+    assert "migration-terminal-state|migration-execution-state|migration-start-boundary" in load
+    assert "verify-release-state" in load
+    assert "resolve-migration-start" in reject
+    assert "cannot be bound to one exact reviewed execution" in reject
+    assert "quiesce-migration" in reject
+    assert "retaining current schema-compatible traffic" in reject
+    assert "traffic remains unchanged" in reject
+    assert "mark-migration-starting" in prepare
+    assert "known-migration-executions.json" in prepare
+    assert "az containerapp job start" in start
+    assert start_boundary["with"]["name"] == (
+        "migration-start-boundary-${{ github.run_id }}-${{ github.run_attempt }}"
+    )
+    assert start_boundary["with"]["path"] == "rollout-state.json"
+    assert "record-migration-execution" in start
+    assert start.index("record-migration-execution") < start.index(
+        "--event migration_started"
+    )
+    assert persist["with"]["name"] == (
+        "migration-execution-state-${{ github.run_id }}-${{ github.run_attempt }}"
+    )
+    assert persist["with"]["path"] == "rollout-state.json\nrollout-telemetry.ndjson\n"
+    assert terminal["if"].startswith("always() && steps.start_migration.outcome == 'success'")
+    assert terminal["with"]["name"] == (
+        "migration-terminal-state-${{ github.run_id }}-${{ github.run_attempt }}"
+    )
+    assert "migration-execution-evidence.json" in terminal["with"]["path"]
+    assert "supervise-migration" in supervise
+    assert names.index("Prepare exact-head production migration") < names.index(
+        "Persist signed migration start boundary"
+    ) < names.index("Start exact-head production migration") < names.index(
+        "Persist signed migration execution state"
+    ) < names.index("Supervise exact-head production migration") < names.index(
+        "Persist terminal migration execution state"
+    )
+    assert recovery.index("resolve-migration-start") < recovery.index(
+        "quiesce-migration"
+    )
+    assert recovery.index("quiesce-migration") < recovery.index(
+        "/api/schema-compatibility"
+    ) < recovery.index("recover-release")
+    assert "recovery_required" in recovery
+    assert "traffic remains on bridge/green" in recovery
+    assert "migration-quiescence-evidence.json" in recovery
+
+
+def test_touched_workflow_never_streams_raw_container_application_logs():
+    workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
+    rollback_text = ROLLBACK_WORKFLOW.read_text(encoding="utf-8")
+    assert "az containerapp logs show" not in workflow_text
+    assert "az containerapp logs show" not in rollback_text
+    assert "APPLICATIONINSIGHTS_CONNECTION_STRING is required" not in workflow_text
+    assert "rollout-telemetry.ndjson" in workflow_text
+
+
+def test_exact_execution_helper_uses_official_show_stop_forms_without_unrelated_stop():
+    helper = ROLLOUT_HELPER.read_text(encoding="utf-8")
+    show_contract = (
+        '"execution",\n            "show",\n            "--job-execution-name",\n'
+        '            execution_name,\n            "--name",\n            job_name,\n'
+        '            "--resource-group",\n            resource_group,\n'
+        '            "--query",\n            "properties.status",\n'
+        '            "--output",\n            "tsv",'
+    )
+    stop_contract = (
+        '"job",\n            "stop",\n            "--name",\n'
+        '            binding["job_name"],\n            "--resource-group",\n'
+        '            binding["resource_group"],\n            "--job-execution-name",\n'
+        '            binding["execution_name"],'
+    )
+    assert show_contract in helper
+    assert stop_contract in helper
+    assert "job stop --name" not in helper
 
 
 def test_all_production_mutation_workflows_share_one_lock_and_frontend_is_in_owner_job():
@@ -383,7 +542,9 @@ def test_migration_and_bootstrap_failures_stop_before_live_revision_or_traffic_c
         "Apply migration bootstrap (Phase A)",
         "Wait for migration identity, RBAC, and secret propagation",
         "Discover schema with same-identity database preflight",
-        "Run exact-head production migration",
+        "Prepare exact-head production migration",
+        "Start exact-head production migration",
+        "Supervise exact-head production migration",
     )
     for name in guarded_steps:
         step = _step_by_name(deploy_steps, name)
@@ -496,7 +657,7 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
         "Route production to verified bridge before migration",
     )["run"]
     assert "--accept-current 013" in detect
-    assert "ARCHMORPH_MIGRATION_PREFLIGHT_EVIDENCE=" in detect
+    assert "/api/schema-compatibility" in detect
     assert "gh run download" in rerun
     assert "--required-role bridge" in rerun
     assert 'BRIDGE_ROLE" = "bridge"' in rerun
@@ -637,6 +798,7 @@ def test_rollback_health_verification_uses_authenticated_api_health():
     assert "traffic_percentage" not in workflow[True]["workflow_dispatch"]["inputs"]
     assert workflow["env"]["ARCHMORPH_API_KEY"] == "${{ secrets.ARCHMORPH_API_KEY }}"
     assert workflow["env"]["ADMIN_KEY"] == "${{ secrets.ADMIN_KEY }}"
+    assert workflow["env"]["MIGRATION_JOB_NAME"] == "${{ secrets.MIGRATION_JOB_NAME }}"
     assert workflow["env"]["RELEASE_MANIFEST_HMAC_KEY"] == (
         "${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}"
     )
@@ -650,6 +812,19 @@ def test_rollback_health_verification_uses_authenticated_api_health():
     compatibility_step = _step_by_name(steps, "Verify target schema compatibility before activation")
     compatibility_script = compatibility_step["run"]
     step_names = [step.get("name") for step in steps]
+    quiescence = _step_by_name(
+        steps,
+        "Require migration quiescence before manual traffic rollback",
+    )["run"]
+    assert "MIGRATION_JOB_NAME is required" in quiescence
+    assert "az containerapp job list" in quiescence
+    assert "identity is ambiguous" in quiescence
+    assert "az containerapp job execution list" in quiescence
+    assert "Unknown" in quiescence
+    assert "rerun the signed rollout recovery" in quiescence
+    assert step_names.index(
+        "Require migration quiescence before manual traffic rollback"
+    ) < step_names.index("Verify target schema compatibility before activation")
     assert "APP_SCHEMA_MIN_REVISION" in compatibility_script
     assert "APP_SCHEMA_MAX_REVISION" in compatibility_script
     assert "/api/schema-compatibility" in compatibility_script
