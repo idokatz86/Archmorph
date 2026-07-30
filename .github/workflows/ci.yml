@@ -112,9 +112,6 @@ jobs:
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
 
-      - name: Run latency regression budget serially
-        run: python -m pytest --tb=short -q -n 0 --no-cov -m latency_budget
-
       - name: Risk-based module coverage floors
         run: |
           mkdir -p coverage-risk
@@ -195,6 +192,35 @@ jobs:
           path: |
             backend-sbom.json
             ${{ steps.grype-python.outputs.sarif }}
+
+  # ============================================
+  # BACKEND WALL-CLOCK LATENCY (isolated runner)
+  # ============================================
+  backend-latency-budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: uv pip install --system -r requirements.txt
+
+      - name: Run latency regression budget serially
+        run: python -m pytest --tb=short -q -n 0 --no-cov -m latency_budget
 
   rollout-contracts:
     runs-on: ubuntu-latest

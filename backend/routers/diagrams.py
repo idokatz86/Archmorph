@@ -1014,8 +1014,13 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         record_event(
             "analyses_run",
             {"diagram_id": diagram_id, "services": result["services_detected"]},
+            durable_subject=principal is not None,
         )
-        record_funnel_step(diagram_id, "analyze")
+        record_funnel_step(
+            diagram_id,
+            "analyze",
+            durable_subject=principal is not None,
+        )
         return _attach_lifecycle_receipt(
             await attach_export_capability_for_request(
                 result,
@@ -1127,8 +1132,16 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         ))
     else:
         SESSION_STORE[diagram_id] = result
-    record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
-    record_funnel_step(diagram_id, "analyze")
+    record_event(
+        "analyses_run",
+        {"diagram_id": diagram_id, "services": result["services_detected"]},
+        durable_subject=principal is not None,
+    )
+    record_funnel_step(
+        diagram_id,
+        "analyze",
+        durable_subject=principal is not None,
+    )
 
     return _attach_lifecycle_receipt(
         await attach_export_capability_for_request(

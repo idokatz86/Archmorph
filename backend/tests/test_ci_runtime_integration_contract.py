@@ -75,17 +75,25 @@ def test_migration_bootstrap_lock_tracks_github_linux_provider_packages():
 
 def test_wall_clock_latency_budget_runs_once_without_xdist_or_coverage():
     workflow = yaml.safe_load(CI_WORKFLOW.read_text())
-    steps = workflow["jobs"]["backend-tests"]["steps"]
+    backend_steps = workflow["jobs"]["backend-tests"]["steps"]
     coverage = next(
-        step for step in steps if step.get("name") == "Run tests with coverage"
+        step
+        for step in backend_steps
+        if step.get("name") == "Run tests with coverage"
     )["run"]
+    latency_steps = workflow["jobs"]["backend-latency-budget"]["steps"]
     latency = next(
         step
-        for step in steps
+        for step in latency_steps
         if step.get("name") == "Run latency regression budget serially"
     )["run"]
 
     assert '-m "not latency_budget"' in coverage
+    assert not any(
+        step.get("name") == "Run latency regression budget serially"
+        for step in backend_steps
+    )
     assert "-m latency_budget" in latency
     assert "-n 0" in latency
     assert "--no-cov" in latency
+    assert workflow["jobs"]["backend-latency-budget"]["timeout-minutes"] == 10

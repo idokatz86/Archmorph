@@ -32,7 +32,7 @@ MAX_COMPRESSION_RATIO = int(os.getenv("ARCHMORPH_EXPORT_SCAN_MAX_RATIO", "100"))
 MAX_IMAGE_PIXELS = int(os.getenv("ARCHMORPH_EXPORT_SCAN_MAX_IMAGE_PIXELS", "50000000"))
 
 _TEXT_FORMATS = frozenset({
-    "bicep", "csv", "drawio", "hcl", "html", "json", "landing-zone-svg",
+    "bicep", "csv", "drawio", "excalidraw", "hcl", "html", "json", "landing-zone-svg",
     "md", "markdown", "svg", "terraform", "text", "txt", "vdx", "vsdx", "xml",
 })
 _ARCHIVE_FORMATS = frozenset({"docx", "pptx", "zip"})

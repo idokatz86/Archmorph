@@ -127,6 +127,13 @@ def test_unsupported_opaque_binary_fails_closed():
     assert _error_code(exc_info) == "artifact_binary_scan_unavailable"
 
 
+def test_safe_excalidraw_json_is_scanned_as_text():
+    scan_generated_export(
+        b'{"type":"excalidraw","version":2,"elements":[]}',
+        format="excalidraw",
+    )
+
+
 def test_safe_png_and_pdf_are_scanned():
     from PIL import Image
     from pypdf import PdfWriter
@@ -179,6 +186,49 @@ def test_rejection_occurs_before_blob_or_sql_persistence(monkeypatch):
         )
     assert _error_code(exc_info) == "artifact_secret_detected"
     assert upload_called is False
+
+
+def test_authenticated_public_sample_export_does_not_require_customer_version(
+    monkeypatch,
+):
+    from export_artifacts import persist_generated_export
+    from routers.shared import SESSION_STORE
+
+    diagram_id = "sample-public-export-contract"
+    SESSION_STORE.set(diagram_id, {"diagram_id": diagram_id, "is_sample": True})
+
+    class DatabaseSession:
+        def close(self):
+            pass
+
+    monkeypatch.setattr(
+        "export_artifacts.get_request_durable_principal",
+        lambda _request: {
+            "owner_user_id": "api-key:sample",
+            "tenant_id": "service:sample",
+        },
+    )
+    monkeypatch.setattr(
+        "export_artifacts.has_canonical_durable_principal",
+        lambda _request: True,
+    )
+    monkeypatch.setattr("database.SessionLocal", DatabaseSession)
+    monkeypatch.setattr(
+        "workspace_store.get_current_analysis_version",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            ValueError("sample has no customer canonical version")
+        ),
+    )
+    try:
+        assert persist_generated_export(
+            object(),
+            diagram_id=diagram_id,
+            artifact_type="sample-report",
+            format="json",
+            content='{"safe": true}',
+        ) is None
+    finally:
+        SESSION_STORE.delete(diagram_id)
 
 
 def test_blob_reference_rejects_arbitrary_container_path_and_scope(monkeypatch):

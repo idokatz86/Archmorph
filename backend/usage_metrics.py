@@ -25,7 +25,7 @@ import signal
 import tempfile
 import threading
 import time
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional
 
@@ -1016,7 +1016,12 @@ def _prune_daily_metrics():
 # ─────────────────────────────────────────────────────────────
 # Record events (simple counters)
 # ─────────────────────────────────────────────────────────────
-def record_event(event_type: str, details: Optional[Dict] = None):
+def record_event(
+    event_type: str,
+    details: Optional[Dict] = None,
+    *,
+    durable_subject: bool = True,
+):
     """
     Record a usage event and increment counters.
 
@@ -1026,10 +1031,15 @@ def record_event(event_type: str, details: Optional[Dict] = None):
     raw_details = details or {}
     diagram_id = raw_details.get("diagram_id")
     project_id = raw_details.get("project_id")
-    with _subject_write_fence(
-        diagram_id=str(diagram_id) if diagram_id else None,
-        project_id=str(project_id) if project_id else None,
-    ) as details_allowed:
+    subject_fence = (
+        _subject_write_fence(
+            diagram_id=str(diagram_id) if diagram_id else None,
+            project_id=str(project_id) if project_id else None,
+        )
+        if durable_subject
+        else nullcontext(True)
+    )
+    with subject_fence as details_allowed:
         with _lock:
             now = datetime.now(timezone.utc)
             _record_aggregate_locked(event_type, now)
@@ -1048,7 +1058,12 @@ def record_event(event_type: str, details: Optional[Dict] = None):
 # ─────────────────────────────────────────────────────────────
 # Funnel tracking (session-based)
 # ─────────────────────────────────────────────────────────────
-def record_funnel_step(diagram_id: str, step: str):
+def record_funnel_step(
+    diagram_id: str,
+    step: str,
+    *,
+    durable_subject: bool = True,
+):
     """
     Record that a user session reached a funnel step.
     Steps: upload → analyze → questions → answers → iac_generate → export
@@ -1062,10 +1077,15 @@ def record_funnel_step(diagram_id: str, step: str):
         if diagram_id.startswith("project-")
         else None
     )
-    with _subject_write_fence(
-        diagram_id=None if project_id else diagram_id,
-        project_id=project_id,
-    ) as session_allowed:
+    subject_fence = (
+        _subject_write_fence(
+            diagram_id=None if project_id else diagram_id,
+            project_id=project_id,
+        )
+        if durable_subject
+        else nullcontext(True)
+    )
+    with subject_fence as session_allowed:
         if not session_allowed:
             return
         retained_diagram_id = _retained_identifier(diagram_id)

@@ -28,6 +28,35 @@ class ExportArtifactRef:
     size_bytes: int
 
 
+def _is_public_compatibility_session(
+    diagram_id: str,
+    *,
+    canonical_principal: bool,
+) -> bool:
+    """Return whether an export belongs to non-customer canonical state."""
+    from routers.shared import SESSION_STORE
+
+    session = SESSION_STORE.peek(diagram_id)
+    if not isinstance(session, dict):
+        return False
+    if session.get("is_sample") and diagram_id.startswith("sample-"):
+        return True
+    if session.get("is_template") or session.get("is_starter"):
+        return True
+    production_like = os.getenv("ENVIRONMENT", "development").lower() in {
+        "production",
+        "prod",
+        "staging",
+    }
+    return bool(
+        not production_like
+        and (
+            not session.get("_owner_user_id")
+            or not canonical_principal
+        )
+    )
+
+
 def _upload_blob(
     *,
     owner_user_id: str,
@@ -75,30 +104,10 @@ def persist_generated_export(
         or not principal.get("tenant_id")
         or not has_canonical_durable_principal(request)
     ):
-        from routers.shared import SESSION_STORE
-
-        session = SESSION_STORE.peek(diagram_id)
-        production_like = os.getenv("ENVIRONMENT", "development").lower() in {
-            "production",
-            "prod",
-            "staging",
-        }
-        public_compatibility = bool(
-            isinstance(session, dict)
-            and (
-                session.get("is_sample")
-                or session.get("is_template")
-                or session.get("is_starter")
-                or (
-                    not production_like
-                    and (
-                        not session.get("_owner_user_id")
-                        or not has_canonical_durable_principal(request)
-                    )
-                )
-            )
-        )
-        if public_compatibility:
+        if _is_public_compatibility_session(
+            diagram_id,
+            canonical_principal=False,
+        ):
             return None
         raise ArchmorphException(
             409,
@@ -210,6 +219,14 @@ def persist_generated_export(
     except CanonicalWriteDeniedError as exc:
         raise ArchmorphException(404, "Diagram not found") from exc
     except ValueError as exc:
+        # Public samples/templates intentionally have no customer-owned
+        # canonical analysis version, even when viewed with an API key. Their
+        # bytes are returned but do not enter customer artifact retention.
+        if _is_public_compatibility_session(
+            diagram_id,
+            canonical_principal=True,
+        ):
+            return None
         raise ArchmorphException(
             409,
             "Canonical analysis version is required for export.",
