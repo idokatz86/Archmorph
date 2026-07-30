@@ -201,6 +201,9 @@ jobs:
   backend-latency-budget:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      DATABASE_URL: sqlite:////dev/shm/archmorph-latency.db
+      USAGE_METRICS_DATA_DIR: /dev/shm/archmorph-metrics
     defaults:
       run:
         working-directory: backend

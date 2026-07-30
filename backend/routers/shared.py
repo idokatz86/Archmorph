@@ -529,6 +529,34 @@ def get_request_durable_principal(request: Request) -> Optional[dict]:
     from auth import get_user_from_request_headers
 
     headers = dict(request.headers)
+    has_bearer = headers.get("authorization", "").lower().startswith("bearer ")
+    supplied_api_key = bool(headers.get("x-api-key"))
+    context = getattr(request.state, "credential_context", None)
+    if isinstance(context, CredentialContext) and not has_bearer:
+        if context.kind is CredentialKind.DEVELOPMENT and not supplied_api_key:
+            return None
+        if context.kind in {CredentialKind.STATIC, CredentialKind.MANAGED}:
+            if not context.owner_user_id or not context.tenant_id:
+                return None
+            api_key_id = context.owner_user_id
+            legacy_owner_user_ids = []
+            legacy_static = _legacy_static_principal_id()
+            if legacy_static and legacy_static != api_key_id:
+                legacy_owner_user_ids.append(legacy_static)
+            legacy_owner_scopes = [
+                {
+                    "owner_user_id": legacy_static,
+                    "tenant_id": f"service:{legacy_static.split(':', 1)[-1]}",
+                }
+            ] if legacy_static and legacy_static != api_key_id else []
+            return {
+                "owner_user_id": api_key_id,
+                "tenant_id": context.tenant_id,
+                "owner_api_key_id": api_key_id,
+                "legacy_owner_user_ids": legacy_owner_user_ids,
+                "legacy_owner_scopes": legacy_owner_scopes,
+            }
+
     user = get_user_from_request_headers(headers)
     if user:
         owner_user_id = (

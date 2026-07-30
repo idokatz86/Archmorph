@@ -19,11 +19,26 @@ jobs:
       
       - name: Start Application Locally
         run: |
-          # Only spin up backend, skipping bloated frontend for pure API testing 
-          docker compose up -d backend
+          # Use one production-shaped process, not the development file watcher.
+          docker compose up -d postgres redis
+          docker compose run -d \
+            --name archmorph-k6-backend \
+            --service-ports \
+            backend \
+            uvicorn main:app --host 0.0.0.0 --port 8000
           
           echo "Waiting for backend to stabilize..."
-          for i in {1..30}; do curl -s http://localhost:8000/healthz > /dev/null && break || sleep 2; done
+          for i in {1..30}; do
+            if curl -fsS http://localhost:8000/healthz >/dev/null; then
+              break
+            fi
+            sleep 2
+          done
+          if ! curl -fsS http://localhost:8000/healthz >/dev/null; then
+            echo "Backend did not become healthy after $i attempts"
+            docker logs archmorph-k6-backend
+            exit 1
+          fi
           docker compose ps
           
       - name: Run k6 Load Test
@@ -49,4 +64,10 @@ jobs:
 
       - name: Dump docker logs on failure
         if: failure()
-        run: docker compose logs backend
+        run: docker logs archmorph-k6-backend
+
+      - name: Stop Application
+        if: always()
+        run: |
+          docker rm -f archmorph-k6-backend >/dev/null 2>&1 || true
+          docker compose down -v

@@ -5,6 +5,7 @@ K6_SCRIPT = Path(__file__).parent / "performance" / "api_load_test.js"
 SLA_SPINE_SCRIPT = Path(__file__).parent / "performance" / "sla_spine_locust.py"
 LANDING_ZONE_LOCUST = Path(__file__).parents[2] / "tests" / "perf" / "locustfile_landing_zone.py"
 SLA_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "sla-spine.yml"
+BACKEND_PERFORMANCE_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "backend-performance.yml"
 PERF_SOAK_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "perf-soak.yml"
 CI_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "ci.yml"
 ALERTS_TF = Path(__file__).parents[2] / "infra" / "observability" / "alerts.tf"
@@ -35,6 +36,19 @@ def test_k6_requests_tag_static_endpoints():
     assert "tags:" in script
     assert "endpoint:" in script
     assert "ep.name" in script
+
+
+def test_k6_ci_uses_non_reloading_backend_and_expected_unauthenticated_chat():
+    workflow = BACKEND_PERFORMANCE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert '-e API_KEY=' not in workflow
+    assert "docker compose up -d postgres redis" in workflow
+    assert "--name archmorph-k6-backend" in workflow
+    assert "uvicorn main:app --host 0.0.0.0 --port 8000" in workflow
+    assert "--reload" not in workflow
+    assert "401 is expected for chat endpoints" in K6_SCRIPT.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_sla_spine_locust_enforces_endpoint_p95s():

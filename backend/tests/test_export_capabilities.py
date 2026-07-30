@@ -204,6 +204,45 @@ async def test_request_issuance_reuses_verified_canonical_write_binding(
     assert record["analysis_version"] == binding.analysis_version
 
 
+@pytest.mark.asyncio
+async def test_request_issuance_reuses_explicit_public_binding_result(monkeypatch):
+    async def unexpected_resolver(*_args, **_kwargs):
+        raise AssertionError("explicit public binding must not be queried twice")
+
+    monkeypatch.setattr(
+        "export_capabilities.export_capability_binding_for_request",
+        unexpected_resolver,
+    )
+    monkeypatch.setattr(
+        "export_capabilities._principal_marker",
+        lambda _request: (_ for _ in ()).throw(
+            AssertionError("explicit public binding must not reparse principal")
+        ),
+    )
+    monkeypatch.setattr(
+        "export_capabilities._request_export_contract",
+        lambda _request: ("any", "any"),
+    )
+    monkeypatch.setattr("export_capabilities._audit", lambda *_args, **_kwargs: None)
+
+    SESSION_STORE.set(
+        "sample-public-diagram",
+        {"diagram_id": "sample-public-diagram", "is_sample": True},
+    )
+    try:
+        token = await issue_export_capability_for_request(
+            object(),
+            "sample-public-diagram",
+            binding=None,
+            binding_resolved=True,
+        )
+
+        assert token
+        assert EXPORT_CAPABILITY_STORE.peek(_digest(token))["binding_version"] == 0
+    finally:
+        SESSION_STORE.delete("sample-public-diagram")
+
+
 def test_export_without_capability_is_unauthorized(
     test_client, diagram_id, auth_headers
 ):

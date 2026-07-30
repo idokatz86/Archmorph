@@ -173,6 +173,58 @@ def test_direct_b2c_durable_principal_uses_verified_provider_subject():
     assert principal["legacy_owner_user_ids"] == ["azure_ad_b2c_subject-42"]
 
 
+def test_durable_api_principal_reuses_verified_credential_context(monkeypatch):
+    from starlette.requests import Request
+    from routers.shared import CredentialContext, CredentialKind
+
+    request = Request({"type": "http", "headers": []})
+    request.state.credential_context = CredentialContext(
+        kind=CredentialKind.STATIC,
+        principal_id="api-key:static-service",
+        key_id="static",
+        scopes=frozenset({"read", "write"}),
+        rate_limit=None,
+        tenant_id="service:static-service",
+        owner_user_id="api-key:static-service",
+    )
+    monkeypatch.setattr(
+        "auth.get_user_from_request_headers",
+        lambda _headers: (_ for _ in ()).throw(
+            AssertionError("verified API context must not reparse authentication")
+        ),
+    )
+
+    principal = get_request_durable_principal(request)
+
+    assert principal["owner_user_id"] == "api-key:static-service"
+    assert principal["tenant_id"] == "service:static-service"
+    assert principal["owner_api_key_id"] == "api-key:static-service"
+
+
+def test_development_credential_context_has_no_durable_principal(monkeypatch):
+    from starlette.requests import Request
+    from routers.shared import CredentialContext, CredentialKind
+
+    request = Request({"type": "http", "headers": []})
+    request.state.credential_context = CredentialContext(
+        kind=CredentialKind.DEVELOPMENT,
+        principal_id="development",
+        key_id=None,
+        scopes=frozenset({"read", "write"}),
+        rate_limit=None,
+        tenant_id=None,
+        owner_user_id=None,
+    )
+    monkeypatch.setattr(
+        "auth.get_user_from_request_headers",
+        lambda _headers: (_ for _ in ()).throw(
+            AssertionError("development context must not reparse authentication")
+        ),
+    )
+
+    assert get_request_durable_principal(request) is None
+
+
 @pytest.fixture(autouse=True)
 def clean_state():
     SESSION_STORE.clear()

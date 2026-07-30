@@ -97,3 +97,7 @@ def test_wall_clock_latency_budget_runs_once_without_xdist_or_coverage():
     assert "-n 0" in latency
     assert "--no-cov" in latency
     assert workflow["jobs"]["backend-latency-budget"]["timeout-minutes"] == 10
+    assert workflow["jobs"]["backend-latency-budget"]["env"] == {
+        "DATABASE_URL": "sqlite:////dev/shm/archmorph-latency.db",
+        "USAGE_METRICS_DATA_DIR": "/dev/shm/archmorph-metrics",
+    }

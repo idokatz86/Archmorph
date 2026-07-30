@@ -440,11 +440,12 @@ async def issue_export_capability_for_request(
     issued_intent: Optional[str] = None,
     issued_format: Optional[str] = None,
     binding: Optional[ExportCapabilityBinding] = None,
+    binding_resolved: bool = False,
 ) -> str:
     """Issue a capability bound to the request caller and durable diagram."""
-    if binding is None:
+    if binding is None and not binding_resolved:
         binding = await export_capability_binding_for_request(request, diagram_id)
-    elif not secrets.compare_digest(
+    elif binding is not None and not secrets.compare_digest(
         _principal_marker(request) or "",
         binding.principal_marker,
     ):
@@ -460,7 +461,11 @@ async def issue_export_capability_for_request(
         diagram_id,
         ttl_seconds=ttl_seconds,
         binding=binding,
-        principal_marker=_principal_marker(request) if binding is None else None,
+        principal_marker=(
+            _principal_marker(request)
+            if binding is None and not binding_resolved
+            else None
+        ),
         issued_intent=issued_intent or route_intent,
         issued_format=issued_format or route_format,
     )
@@ -474,6 +479,7 @@ async def attach_export_capability_for_request(
     issued_intent: Optional[str] = None,
     issued_format: Optional[str] = None,
     binding: Optional[ExportCapabilityBinding] = None,
+    binding_resolved: bool = False,
 ):
     """Attach a request- and resource-bound successor capability."""
     token = await issue_export_capability_for_request(
@@ -482,6 +488,7 @@ async def attach_export_capability_for_request(
         issued_intent=issued_intent,
         issued_format=issued_format,
         binding=binding,
+        binding_resolved=binding_resolved,
     )
     if isinstance(payload, dict):
         return {
