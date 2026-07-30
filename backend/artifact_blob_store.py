@@ -38,7 +38,8 @@ class ArtifactBlobReference:
 
 
 def _scope_hash(value: str) -> str:
-    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:24]
+    # Pseudonymous scope identifier, not password verification material.
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()[:24]  # codeql[py/weak-sensitive-data-hashing]
 
 
 def _validate_segment(value: str, label: str) -> str:

@@ -75,6 +75,10 @@ def test_sla_spine_workflow_posts_pr_summary_and_runs_locust():
     assert "ARCHMORPH_API_KEY=sla-spine-api-key" in workflow
     assert "SLO_SPINE_API_KEY: sla-spine-api-key" in workflow
     assert "ENVIRONMENT=test" in workflow
+    assert "image: pgvector/pgvector:pg16" in workflow
+    assert "--add-host host.docker.internal:host-gateway" in workflow
+    assert "DATABASE_URL=postgresql://archmorph:archmorph_dev@host.docker.internal:5432/archmorph" in workflow
+    assert "DATABASE_URL=sqlite" not in workflow
     assert "Full-Spine SLO Gate" in workflow
     assert "issues: write" in workflow
 

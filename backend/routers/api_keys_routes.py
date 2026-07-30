@@ -71,7 +71,8 @@ _keys: Dict[str, APIKeyRecord] = {}  # id -> record
 _hash_index: Dict[str, str] = {}  # key_hash -> id  (for fast lookup by key)
 
 def _hash_key(raw_key: str) -> str:
-    return hashlib.sha256(raw_key.encode()).hexdigest()
+    # Generated API keys contain 256 random bits; this is an exact lookup digest.
+    return hashlib.sha256(raw_key.encode()).hexdigest()  # codeql[py/weak-sensitive-data-hashing]
 
 
 def _generate_key() -> str:

@@ -33,7 +33,10 @@ logger = logging.getLogger(__name__)
 
 _shutdown_event = threading.Event()
 
-DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
+DATA_DIR = os.getenv(
+    "USAGE_METRICS_DATA_DIR",
+    os.path.join(os.path.dirname(__file__), "data"),
+)
 METRICS_FILE = os.path.join(DATA_DIR, "usage_metrics.json")
 
 # Azure Blob Storage persistence — RBAC preferred, connection string fallback

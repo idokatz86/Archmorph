@@ -118,7 +118,7 @@ class AnalysisWriteResult:
 
 def _short_hash(data: str) -> str:
     """Return a 16-char hex digest of *data* for content-addressed dedup."""
-    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]  # codeql[py/weak-sensitive-data-hashing]
 
 
 def _full_hash(data: bytes) -> str:
@@ -156,7 +156,8 @@ def _serialize_snapshot(snapshot: Dict[str, Any]) -> str:
 
 def snapshot_payload_hash(snapshot: Dict[str, Any]) -> str:
     """Return the full deterministic hash used by restore grants."""
-    return hashlib.sha256(_serialize_snapshot(snapshot).encode("utf-8")).hexdigest()
+    # Deterministic content-integrity digest, not password verification material.
+    return hashlib.sha256(_serialize_snapshot(snapshot).encode("utf-8")).hexdigest()  # codeql[py/weak-sensitive-data-hashing]
 
 
 def _require_durable_identity(owner_user_id: str, tenant_id: Optional[str]) -> None:
@@ -1880,6 +1881,32 @@ def persist_analysis_state(
                     )
                     .first()
                 )
+                if receipt is None and current_version > 0:
+                    # A durable commit may have succeeded before its transient
+                    # cache projection failed. On retry, expected_version (and
+                    # therefore request_hash) advances to that committed
+                    # version. Replay only when the requested snapshot is
+                    # already the current canonical version; an intervening
+                    # mutation cannot match and must create a new transition.
+                    matching_version = _matching_current_version(
+                        db,
+                        analysis=analysis,
+                        snapshot=snapshot,
+                    )
+                    if matching_version is not None:
+                        receipt = (
+                            db.query(AnalysisMutationReceipt)
+                            .filter(
+                                AnalysisMutationReceipt.owner_user_id
+                                == owner_user_id,
+                                AnalysisMutationReceipt.tenant_id == tenant_id,
+                                AnalysisMutationReceipt.diagram_id == diagram_id,
+                                AnalysisMutationReceipt.operation == operation,
+                                AnalysisMutationReceipt.version_id
+                                == matching_version.id,
+                            )
+                            .first()
+                        )
                 if receipt is not None:
                     version = db.query(AnalysisVersion).filter(
                         AnalysisVersion.id == receipt.version_id,

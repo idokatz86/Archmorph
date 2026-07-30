@@ -362,6 +362,46 @@ def test_api_key_iac_mutation_survives_cache_loss(test_client, durable_runtime, 
     assert SESSION_STORE.peek(diagram_id)["_owner_api_key_id"] == principal
 
 
+def test_iac_idempotency_is_scoped_to_the_canonical_source_version(
+    test_client,
+    durable_runtime,
+):
+    owner, tenant, headers = _identity()
+    diagram_id = f"diag-version-scoped-idempotency-{uuid.uuid4().hex}"
+    _seed(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+    )
+    terraform_v1 = 'resource "azurerm_resource_group" "first" {}'
+    bicep = "resource storage 'Microsoft.Storage/storageAccounts@2023-01-01' = {}"
+    terraform_v2 = 'resource "azurerm_resource_group" "second" {}'
+
+    with patch(
+        "routers.iac_routes.generate_iac_code",
+        side_effect=[terraform_v1, bicep, terraform_v2],
+    ):
+        responses = [
+            test_client.post(
+                f"/api/diagrams/{diagram_id}/generate?format={iac_format}",
+                headers=headers,
+            )
+            for iac_format in ("terraform", "bicep", "terraform")
+        ]
+
+    assert [response.status_code for response in responses] == [200, 200, 200]
+    cached = SESSION_STORE.peek(diagram_id)
+    db = durable_runtime()
+    try:
+        analysis = db.query(Analysis).filter(Analysis.diagram_id == diagram_id).one()
+        assert cached["_analysis_version"] == analysis.current_version
+    finally:
+        db.close()
+    assert cached["iac_format"] == "terraform"
+    assert cached["iac_code"] == terraform_v2
+
+
 def test_infrastructure_import_survives_cache_loss_with_linked_artifact(
     test_client,
     durable_runtime,

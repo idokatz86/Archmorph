@@ -105,11 +105,15 @@ jobs:
       - name: Run tests with coverage
         run: |
           python -m pytest --tb=short -q -n auto --dist loadfile \
+            -m "not latency_budget" \
             --cov=. --cov-report=term-missing --cov-config=.coveragerc \
             --cov-context=test --cov-fail-under=63
         env:
           AZURE_OPENAI_API_KEY: ${{ secrets.AZURE_OPENAI_API_KEY }}
           AZURE_OPENAI_ENDPOINT: ${{ secrets.AZURE_OPENAI_ENDPOINT }}
+
+      - name: Run latency regression budget serially
+        run: python -m pytest --tb=short -q -n 0 --no-cov -m latency_budget
 
       - name: Risk-based module coverage floors
         run: |
@@ -390,11 +394,6 @@ jobs:
         with:
           terraform_version: "1.9.x"
 
-      - name: Configure Terraform plugin cache
-        run: |
-          mkdir -p "$RUNNER_TEMP/terraform-plugin-cache"
-          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-plugin-cache" >> "$GITHUB_ENV"
-
       - name: Check Terraform formatting
         run: find . -path './.terraform' -prune -o -name '*.tf' -print0 | xargs -0 terraform fmt -check
 
@@ -402,6 +401,13 @@ jobs:
         run: |
           for dir in . staging dr observability migration-bootstrap; do
             echo "::group::terraform validate infra/$dir"
+            if [[ "$dir" == "." ]]; then
+              cache_name="root"
+            else
+              cache_name="${dir//\//-}"
+            fi
+            export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/terraform-plugin-cache/$cache_name"
+            mkdir -p "$TF_PLUGIN_CACHE_DIR"
             terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
             terraform -chdir="$dir" validate -no-color
             echo "::endgroup::"

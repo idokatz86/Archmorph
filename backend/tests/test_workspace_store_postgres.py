@@ -93,7 +93,9 @@ def postgres_factory(request):
         admin_engine = create_engine(base_url.set(database="postgres"), isolation_level="AUTOCOMMIT")
         with admin_engine.connect() as connection:
             connection.execute(text(f'CREATE DATABASE "{database_name}"'))
-        test_url = str(base_url.set(database=database_name))
+        test_url = base_url.set(database=database_name).render_as_string(
+            hide_password=False
+        )
     engine = create_engine(test_url, pool_pre_ping=True)
     config = Config(os.path.join(os.path.dirname(__file__), "..", "alembic.ini"))
     config.set_main_option("sqlalchemy.url", test_url)

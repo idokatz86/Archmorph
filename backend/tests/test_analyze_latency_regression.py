@@ -2,6 +2,8 @@ from math import ceil
 import time
 from pathlib import Path
 
+import pytest
+
 from tests.perf_budget_test_utils import load_perf_budget_module
 
 
@@ -18,6 +20,7 @@ def _p95(values: list[float]) -> float:
     return ordered[index]
 
 
+@pytest.mark.latency_budget
 def test_ci_smoke_analyze_p95_stays_within_regression_budget(test_client, monkeypatch):
     monkeypatch.setenv("ARCHMORPH_CI_SMOKE_MODE", "1")
     monkeypatch.setenv("ENVIRONMENT", "test")

@@ -31,7 +31,7 @@ def test_bridge_readiness_accepts_reviewed_schema_without_ddl(revision):
     with admin_engine.connect() as connection:
         connection.execute(text(f'CREATE DATABASE "{name}"'))
     try:
-        url = str(base_url.set(database=name))
+        url = base_url.set(database=name).render_as_string(hide_password=False)
         engine = create_engine(url)
         config = Config(str(BACKEND / "alembic.ini"))
         with engine.connect() as connection:
@@ -87,7 +87,7 @@ def test_bridge_core_reads_are_real_postgres_read_only_and_tenant_scoped(revisio
     with admin_engine.connect() as connection:
         connection.execute(text(f'CREATE DATABASE "{name}"'))
     try:
-        url = str(base_url.set(database=name))
+        url = base_url.set(database=name).render_as_string(hide_password=False)
         engine = create_engine(url)
         config = Config(str(BACKEND / "alembic.ini"))
         with engine.connect() as connection:

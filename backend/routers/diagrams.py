@@ -311,6 +311,7 @@ def _persist_authenticated_analysis(
             {
                 "diagram_id": diagram_id,
                 "operation": operation,
+                "expected_version": expected_version,
                 "snapshot": request_snapshot,
             },
             sort_keys=True,

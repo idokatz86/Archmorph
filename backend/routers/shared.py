@@ -514,7 +514,8 @@ def get_api_key_service_principal(headers: dict) -> Optional[str]:
         # this process. These random-salted IDs are never durable principals.
         if not api_key:
             return None
-        digest = hmac.new(
+        # Per-process HMAC pseudonym for a high-entropy development key, not a password hash.
+        digest = hmac.new(  # codeql[py/weak-sensitive-data-hashing]
             _DEV_PRINCIPAL_SALT,
             api_key.encode("utf-8"),
             hashlib.sha256,
@@ -1227,6 +1228,7 @@ def persist_diagram_mutation(
                 "method": request.method,
                 "path": request.url.path,
                 "query": sorted(request.query_params.multi_items()),
+                "expected_version": expected_version,
                 "body_hash": hashlib.sha256(raw_body).hexdigest(),
                 "idempotency_key_hash": (
                     hashlib.sha256(supplied_idempotency_key.encode("utf-8")).hexdigest()
