@@ -12,10 +12,12 @@ from error_envelope import ArchmorphException
 from export_capabilities import (
     EXPORT_CAPABILITY_SCOPE,
     ExportCapability,
+    ExportCapabilityBinding,
     _digest,
     consume_export_capability,
     issue_export_capability,
     issue_export_capability_for_identity,
+    issue_export_capability_for_request,
 )
 from routers import shared as shared_router
 from routers.shared import EXPORT_CAPABILITY_STORE, SESSION_STORE
@@ -111,6 +113,95 @@ def _bound_token(diagram_id: str, *, ttl_seconds: int | None = None) -> str:
         tenant_id="cap-tenant",
         ttl_seconds=ttl_seconds,
     )
+
+
+def test_unbound_capability_issuance_marks_usage_audit_transient(monkeypatch):
+    audit_calls = []
+
+    def capture_audit(reason, diagram_id, token_digest=None, **kwargs):
+        audit_calls.append((reason, diagram_id, bool(token_digest), kwargs))
+
+    monkeypatch.setattr("export_capabilities._audit", capture_audit)
+
+    token = issue_export_capability("sample-public-capability")
+
+    assert token
+    assert audit_calls == [
+        (
+            "issued",
+            "sample-public-capability",
+            True,
+            {"durable_subject": False},
+        )
+    ]
+
+
+def test_bound_capability_issuance_keeps_usage_audit_durable(
+    diagram_id,
+    monkeypatch,
+):
+    audit_calls = []
+
+    def capture_audit(reason, audited_diagram_id, token_digest=None, **kwargs):
+        audit_calls.append(
+            (reason, audited_diagram_id, bool(token_digest), kwargs)
+        )
+
+    monkeypatch.setattr("export_capabilities._audit", capture_audit)
+
+    token = _bound_token(diagram_id)
+
+    assert token
+    assert audit_calls == [
+        (
+            "issued",
+            diagram_id,
+            True,
+            {"durable_subject": True},
+        )
+    ]
+
+
+@pytest.mark.asyncio
+async def test_request_issuance_reuses_verified_canonical_write_binding(
+    monkeypatch,
+):
+    binding = ExportCapabilityBinding(
+        principal_marker="api:tenant:owner",
+        owner_user_id="owner",
+        tenant_id="tenant",
+        analysis_id="analysis",
+        project_id="project",
+        analysis_version=3,
+    )
+
+    async def unexpected_resolver(*_args, **_kwargs):
+        raise AssertionError("canonical binding must not be queried twice")
+
+    monkeypatch.setattr(
+        "export_capabilities.export_capability_binding_for_request",
+        unexpected_resolver,
+    )
+    monkeypatch.setattr(
+        "export_capabilities._principal_marker",
+        lambda _request: binding.principal_marker,
+    )
+    monkeypatch.setattr(
+        "export_capabilities._request_export_contract",
+        lambda _request: ("any", "any"),
+    )
+    monkeypatch.setattr("export_capabilities._audit", lambda *_args, **_kwargs: None)
+
+    token = await issue_export_capability_for_request(
+        object(),
+        "diagram",
+        binding=binding,
+    )
+
+    assert token
+    record = EXPORT_CAPABILITY_STORE.peek(_digest(token))
+    assert record["analysis_id"] == binding.analysis_id
+    assert record["analysis_version"] == binding.analysis_version
 
 
 def test_export_without_capability_is_unauthorized(

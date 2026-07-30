@@ -40,6 +40,7 @@ from usage_metrics import (
 from export_capabilities import (
     attach_export_capability_for_persisted_job,
     attach_export_capability_for_request,
+    binding_from_analysis_write_result,
     decode_restore_capability,
     issue_restore_capability,
 )
@@ -373,9 +374,21 @@ def _persist_authenticated_analysis(
 
 
 def _persist_authenticated_analysis_in_worker(**kwargs):
+    include_capability_binding = kwargs.pop("_include_capability_binding", False)
+    caller_owner_user_id = kwargs["user_id"]
+    tenant_id = kwargs["tenant_id"]
+    owner_api_key_id = kwargs.get("owner_api_key_id")
     db = SessionLocal()
     try:
-        return _persist_authenticated_analysis(db, **kwargs)
+        write_result = _persist_authenticated_analysis(db, **kwargs)
+        if not include_capability_binding:
+            return write_result
+        return write_result, binding_from_analysis_write_result(
+            write_result,
+            caller_owner_user_id=caller_owner_user_id,
+            tenant_id=tenant_id,
+            owner_api_key_id=owner_api_key_id,
+        )
     finally:
         db.close()
 
@@ -983,15 +996,17 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     if ci_smoke.enabled():
         result = ci_smoke.clone_analysis(diagram_id)
+        capability_binding = None
         if user:
             result["_owner_user_id"] = principal["owner_user_id"]
             result["_tenant_id"] = user.tenant_id
         elif api_key_principal_id:
             result["_owner_api_key_id"] = api_key_principal_id
         if user:
-            await run_in_threadpool(
+            _write_result, capability_binding = await run_in_threadpool(
                 partial(
                     _persist_authenticated_analysis_in_worker,
+                    _include_capability_binding=True,
                     user_id=principal["owner_user_id"],
                     tenant_id=user.tenant_id,
                     diagram_id=diagram_id,
@@ -1001,9 +1016,10 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
                 )
             )
         elif api_key_principal_id:
-            await run_in_threadpool(
+            _write_result, capability_binding = await run_in_threadpool(
                 partial(
                     _persist_authenticated_analysis_in_worker,
+                    _include_capability_binding=True,
                     user_id=api_key_principal_id,
                     tenant_id=f"service:{api_key_principal_id.split(':', 1)[-1]}",
                     diagram_id=diagram_id,
@@ -1027,6 +1043,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
                 result,
                 request,
                 diagram_id,
+                binding=capability_binding,
             ),
             diagram_id,
             image_present=True,
@@ -1110,19 +1127,25 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     if len(SESSION_STORE) >= SESSION_STORE.maxsize:
         logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
                        str(len(SESSION_STORE)).replace('\n', '').replace('\r', ''), str(SESSION_STORE.maxsize).replace('\n', '').replace('\r', ''))
+    capability_binding = None
     if user:
-        await run_in_threadpool(partial(
-            _persist_authenticated_analysis_in_worker,
+        _write_result, capability_binding = await run_in_threadpool(
+            partial(
+                _persist_authenticated_analysis_in_worker,
+                _include_capability_binding=True,
                 user_id=principal["owner_user_id"],
                 tenant_id=user.tenant_id,
                 diagram_id=diagram_id,
                 session=result,
                 cache_required=True,
                 require_project_membership=True,
-        ))
+            )
+        )
     elif api_key_principal_id:
-        await run_in_threadpool(partial(
-            _persist_authenticated_analysis_in_worker,
+        _write_result, capability_binding = await run_in_threadpool(
+            partial(
+                _persist_authenticated_analysis_in_worker,
+                _include_capability_binding=True,
                 user_id=api_key_principal_id,
                 tenant_id=f"service:{api_key_principal_id.split(':', 1)[-1]}",
                 diagram_id=diagram_id,
@@ -1130,7 +1153,8 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
                 owner_api_key_id=api_key_principal_id,
                 cache_required=True,
                 require_project_membership=True,
-        ))
+            )
+        )
     else:
         SESSION_STORE[diagram_id] = result
     record_event_and_funnel_step(
@@ -1146,6 +1170,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             result,
             request,
             diagram_id,
+            binding=capability_binding,
         ),
         diagram_id,
         image_present=True,

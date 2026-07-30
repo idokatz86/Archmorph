@@ -81,6 +81,39 @@ class ExportCapabilityBinding:
         }
 
 
+def binding_from_analysis_write_result(
+    write_result,
+    *,
+    caller_owner_user_id: str,
+    tenant_id: str,
+    owner_api_key_id: Optional[str],
+) -> ExportCapabilityBinding:
+    """Build a capability binding from an already-committed canonical write."""
+    analysis = write_result.analysis
+    version = write_result.version
+    if (
+        not analysis.id
+        or not analysis.workspace_id
+        or not analysis.owner_user_id
+        or analysis.tenant_id != tenant_id
+        or version.analysis_id != analysis.id
+        or int(version.version_number or 0) <= 0
+    ):
+        raise ValueError("Canonical analysis write result is incomplete")
+    return ExportCapabilityBinding(
+        principal_marker=_principal_marker_from_identity(
+            owner_user_id=caller_owner_user_id,
+            tenant_id=tenant_id,
+            owner_api_key_id=owner_api_key_id,
+        ),
+        owner_user_id=analysis.owner_user_id,
+        tenant_id=tenant_id,
+        analysis_id=analysis.id,
+        project_id=analysis.workspace_id,
+        analysis_version=int(version.version_number),
+    )
+
+
 def _principal_marker(request: Request) -> Optional[str]:
     from routers.shared import get_request_durable_principal
 
@@ -288,14 +321,24 @@ def _digest(token: str) -> str:
     return hashlib.sha256(token.encode("utf-8")).hexdigest()  # codeql[py/weak-sensitive-data-hashing]
 
 
-def _audit(reason: str, diagram_id: str, token_digest: Optional[str] = None) -> None:
+def _audit(
+    reason: str,
+    diagram_id: str,
+    token_digest: Optional[str] = None,
+    *,
+    durable_subject: bool = True,
+) -> None:
     details = {"diagram_id": diagram_id, "reason": reason}
     if token_digest:
         details["token_digest_prefix"] = token_digest[:12]
     try:
         from usage_metrics import record_event
 
-        record_event("export_capability_audit", details)
+        record_event(
+            "export_capability_audit",
+            details,
+            durable_subject=durable_subject,
+        )
     except Exception:  # pragma: no cover - audit must not block auth decisions
         logger.debug("export capability audit failed", exc_info=True)
 
@@ -344,12 +387,22 @@ def issue_export_capability(
         ttl=ttl,
     )
     if not stored:
-        _audit("issue_store_failed", diagram_id, token_digest)
+        _audit(
+            "issue_store_failed",
+            diagram_id,
+            token_digest,
+            durable_subject=binding is not None,
+        )
         raise ArchmorphException(
             503,
             "Export capability issuance is temporarily unavailable",
         )
-    _audit("issued", diagram_id, token_digest)
+    _audit(
+        "issued",
+        diagram_id,
+        token_digest,
+        durable_subject=binding is not None,
+    )
     return token
 
 
@@ -386,9 +439,16 @@ async def issue_export_capability_for_request(
     ttl_seconds: Optional[int] = None,
     issued_intent: Optional[str] = None,
     issued_format: Optional[str] = None,
+    binding: Optional[ExportCapabilityBinding] = None,
 ) -> str:
     """Issue a capability bound to the request caller and durable diagram."""
-    binding = await export_capability_binding_for_request(request, diagram_id)
+    if binding is None:
+        binding = await export_capability_binding_for_request(request, diagram_id)
+    elif not secrets.compare_digest(
+        _principal_marker(request) or "",
+        binding.principal_marker,
+    ):
+        raise ArchmorphException(404, "Diagram not found")
     if (
         binding is None
         and export_capability_required()
@@ -413,6 +473,7 @@ async def attach_export_capability_for_request(
     *,
     issued_intent: Optional[str] = None,
     issued_format: Optional[str] = None,
+    binding: Optional[ExportCapabilityBinding] = None,
 ):
     """Attach a request- and resource-bound successor capability."""
     token = await issue_export_capability_for_request(
@@ -420,6 +481,7 @@ async def attach_export_capability_for_request(
         diagram_id,
         issued_intent=issued_intent,
         issued_format=issued_format,
+        binding=binding,
     )
     if isinstance(payload, dict):
         return {
