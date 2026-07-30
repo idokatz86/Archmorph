@@ -32,7 +32,11 @@ from routers.shared import (
 )
 import ci_smoke
 from job_queue import job_manager, AdmissionRejected, AdmissionStoreError, JobStoreError
-from usage_metrics import record_event, record_funnel_step
+from usage_metrics import (
+    record_event,
+    record_event_and_funnel_step,
+    record_funnel_step,
+)
 from export_capabilities import (
     attach_export_capability_for_persisted_job,
     attach_export_capability_for_request,
@@ -1011,14 +1015,11 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             )
         else:
             SESSION_STORE[diagram_id] = result
-        record_event(
+        record_event_and_funnel_step(
             "analyses_run",
             {"diagram_id": diagram_id, "services": result["services_detected"]},
-            durable_subject=principal is not None,
-        )
-        record_funnel_step(
-            diagram_id,
-            "analyze",
+            diagram_id=diagram_id,
+            step="analyze",
             durable_subject=principal is not None,
         )
         return _attach_lifecycle_receipt(
@@ -1132,14 +1133,11 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         ))
     else:
         SESSION_STORE[diagram_id] = result
-    record_event(
+    record_event_and_funnel_step(
         "analyses_run",
         {"diagram_id": diagram_id, "services": result["services_detected"]},
-        durable_subject=principal is not None,
-    )
-    record_funnel_step(
-        diagram_id,
-        "analyze",
+        diagram_id=diagram_id,
+        step="analyze",
         durable_subject=principal is not None,
     )
 

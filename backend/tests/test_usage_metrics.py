@@ -1,8 +1,15 @@
 """Tests for usage_metrics module (#281)."""
+from contextlib import contextmanager
 import uuid
 
 import usage_metrics
-from usage_metrics import record_event, get_metrics_summary, get_funnel_metrics, record_funnel_step
+from usage_metrics import (
+    get_funnel_metrics,
+    get_metrics_summary,
+    record_event,
+    record_event_and_funnel_step,
+    record_funnel_step,
+)
 
 
 class TestRecordEvent:
@@ -30,6 +37,26 @@ class TestRecordEvent:
             "analyze",
             durable_subject=False,
         )
+
+    def test_paired_durable_metrics_share_one_sql_fence(self, monkeypatch):
+        fence_calls = []
+
+        @contextmanager
+        def recording_fence(**kwargs):
+            fence_calls.append(kwargs)
+            yield True
+
+        monkeypatch.setattr(usage_metrics, "_subject_write_fence", recording_fence)
+        diagram_id = f"durable-{uuid.uuid4().hex}"
+
+        record_event_and_funnel_step(
+            "analyses_run",
+            {"diagram_id": diagram_id, "services": 1},
+            diagram_id=diagram_id,
+            step="analyze",
+        )
+
+        assert fence_calls == [{"diagram_id": diagram_id, "project_id": None}]
 
 
 class TestGetMetricsSummary:

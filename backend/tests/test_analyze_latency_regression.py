@@ -45,4 +45,5 @@ def test_ci_smoke_analyze_p95_stays_within_regression_budget(test_client, monkey
         assert response.status_code == 200
 
     result = perf_budget.evaluate_latency_budget(_p95(durations_ms), budget)
+    print(result.summary)
     assert result.passed, f"{result.summary}; violations={result.violations}"

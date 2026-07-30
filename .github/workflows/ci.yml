@@ -121,8 +121,10 @@ jobs:
             local tests="$2"
             local floor="$3"
             local safe_module="${module//./_}"
+            local test_paths=()
+            read -r -a test_paths <<< "$tests"
             echo "Running risk-based coverage floor for ${module} with ${tests} (floor=${floor}%)"
-            python -m pytest --tb=short -q "$tests" \
+            python -m pytest --tb=short -q "${test_paths[@]}" \
               --cov="$module" --cov-report=term-missing \
               --cov-report=xml:"coverage-risk/${safe_module}.xml" \
               --cov-config=.coveragerc --cov-context=test \
@@ -130,7 +132,7 @@ jobs:
           }
 
           run_risk_coverage_floor "diagram_export" "tests/test_diagram_export.py" "70"
-          run_risk_coverage_floor "export_capabilities" "tests/test_export_capabilities.py" "70"
+          run_risk_coverage_floor "export_capabilities" "tests/test_export_capabilities.py tests/test_browser_capability_audit.py" "70"
           run_risk_coverage_floor "iac_generator" "tests/test_iac_generator.py" "70"
           run_risk_coverage_floor "session_store" "tests/test_session_store.py" "50"
           run_risk_coverage_floor "job_queue" "tests/test_job_queue.py" "70"

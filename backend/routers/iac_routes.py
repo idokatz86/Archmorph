@@ -33,7 +33,11 @@ from routers.shared import (
 from export_capabilities import attach_export_capability_for_persisted_job
 from job_queue import JobStoreError, job_manager
 from openai_client import AZURE_OPENAI_DEPLOYMENT
-from usage_metrics import record_event, record_funnel_step
+from usage_metrics import (
+    record_event,
+    record_event_and_funnel_step,
+    record_funnel_step,
+)
 from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
 from iac_generator import generate_iac_code
 from iac_scaffold import generate_scaffold
@@ -292,8 +296,12 @@ async def generate_iac(
         )
         raise ArchmorphException(500, "IaC generation failed. Please try again.")
 
-    record_event(f"iac_generated_{format}", {"diagram_id": diagram_id})
-    record_funnel_step(diagram_id, "iac_generate")
+    record_event_and_funnel_step(
+        f"iac_generated_{format}",
+        {"diagram_id": diagram_id},
+        diagram_id=diagram_id,
+        step="iac_generate",
+    )
 
     # Persist the canonical IaC code server-side so chat turns can validate
     # the client is working against the same version (#842), and update the
@@ -575,8 +583,12 @@ async def _run_iac_job(
         if not job_manager.owns_current_lease(job_id):
             return
 
-        record_event(f"iac_generated_{iac_format}", {"diagram_id": diagram_id})
-        record_funnel_step(diagram_id, "iac_generate")
+        record_event_and_funnel_step(
+            f"iac_generated_{iac_format}",
+            {"diagram_id": diagram_id},
+            diagram_id=diagram_id,
+            step="iac_generate",
+        )
 
         # Keep async generation canonical state aligned with sync /generate,
         # unless the canonical code changed while this job was running.

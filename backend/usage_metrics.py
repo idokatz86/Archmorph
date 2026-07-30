@@ -1016,6 +1016,26 @@ def _prune_daily_metrics():
 # ─────────────────────────────────────────────────────────────
 # Record events (simple counters)
 # ─────────────────────────────────────────────────────────────
+def _record_event_locked(
+    event_type: str,
+    details: Optional[Dict],
+    *,
+    details_allowed: bool,
+    now: datetime,
+) -> None:
+    _record_aggregate_locked(event_type, now)
+    if not details_allowed:
+        return
+    event = {
+        "type": event_type,
+        "timestamp": now.isoformat(),
+        "details": _sanitize_event_details(details),
+    }
+    _metrics["recent_events"].append(event)
+    if len(_metrics["recent_events"]) > 200:
+        _metrics["recent_events"] = _metrics["recent_events"][-200:]
+
+
 def record_event(
     event_type: str,
     details: Optional[Dict] = None,
@@ -1041,23 +1061,49 @@ def record_event(
     )
     with subject_fence as details_allowed:
         with _lock:
-            now = datetime.now(timezone.utc)
-            _record_aggregate_locked(event_type, now)
-            if not details_allowed:
-                return
-            event = {
-                "type": event_type,
-                "timestamp": now.isoformat(),
-                "details": _sanitize_event_details(details),
-            }
-            _metrics["recent_events"].append(event)
-            if len(_metrics["recent_events"]) > 200:
-                _metrics["recent_events"] = _metrics["recent_events"][-200:]
+            _record_event_locked(
+                event_type,
+                details,
+                details_allowed=details_allowed,
+                now=datetime.now(timezone.utc),
+            )
 
 
 # ─────────────────────────────────────────────────────────────
 # Funnel tracking (session-based)
 # ─────────────────────────────────────────────────────────────
+def _record_funnel_step_locked(
+    diagram_id: str,
+    step: str,
+    *,
+    now: datetime,
+) -> None:
+    retained_diagram_id = _retained_identifier(diagram_id)
+    now_iso = now.isoformat()
+    sessions = _metrics["sessions"]
+
+    if retained_diagram_id not in sessions:
+        sessions[retained_diagram_id] = {
+            "steps": [],
+            "started": now_iso,
+            "last": now_iso,
+        }
+
+    session = sessions[retained_diagram_id]
+    if step not in session["steps"]:
+        session["steps"].append(step)
+        session["last"] = now_iso
+        _metrics["funnel_totals"][step] = (
+            _metrics["funnel_totals"].get(step, 0) + 1
+        )
+        _mark_dirty()
+
+    if len(sessions) > 500:
+        sorted_ids = sorted(sessions, key=lambda key: sessions[key]["last"])
+        for old_id in sorted_ids[: len(sessions) - 500]:
+            del sessions[old_id]
+
+
 def record_funnel_step(
     diagram_id: str,
     step: str,
@@ -1088,34 +1134,62 @@ def record_funnel_step(
     with subject_fence as session_allowed:
         if not session_allowed:
             return
-        retained_diagram_id = _retained_identifier(diagram_id)
         with _lock:
-            now = datetime.now(timezone.utc).isoformat()
-            sessions = _metrics["sessions"]
+            _record_funnel_step_locked(
+                diagram_id,
+                step,
+                now=datetime.now(timezone.utc),
+            )
 
-            if retained_diagram_id not in sessions:
-                sessions[retained_diagram_id] = {
-                    "steps": [],
-                    "started": now,
-                    "last": now,
-                }
 
-            session = sessions[retained_diagram_id]
-
-            # Only record each step once per session
-            if step not in session["steps"]:
-                session["steps"].append(step)
-                session["last"] = now
-                _metrics["funnel_totals"][step] = (
-                    _metrics["funnel_totals"].get(step, 0) + 1
+def record_event_and_funnel_step(
+    event_type: str,
+    details: Optional[Dict],
+    *,
+    diagram_id: str,
+    step: str,
+    durable_subject: bool = True,
+) -> None:
+    """Record one event and funnel transition under a single SQL fence."""
+    if step not in FUNNEL_STEPS:
+        record_event(
+            event_type,
+            details,
+            durable_subject=durable_subject,
+        )
+        return
+    raw_details = details or {}
+    detail_diagram_id = raw_details.get("diagram_id")
+    if detail_diagram_id and str(detail_diagram_id) != diagram_id:
+        raise ValueError("Event and funnel telemetry must describe one diagram")
+    project_id = (
+        diagram_id.removeprefix("project-")
+        if diagram_id.startswith("project-")
+        else None
+    )
+    subject_fence = (
+        _subject_write_fence(
+            diagram_id=None if project_id else diagram_id,
+            project_id=project_id,
+        )
+        if durable_subject
+        else nullcontext(True)
+    )
+    with subject_fence as details_allowed:
+        with _lock:
+            now = datetime.now(timezone.utc)
+            _record_event_locked(
+                event_type,
+                details,
+                details_allowed=details_allowed,
+                now=now,
+            )
+            if details_allowed:
+                _record_funnel_step_locked(
+                    diagram_id,
+                    step,
+                    now=now,
                 )
-                _mark_dirty()
-
-            # Prune old sessions (keep last 500)
-            if len(sessions) > 500:
-                sorted_ids = sorted(sessions, key=lambda k: sessions[k]["last"])
-                for old_id in sorted_ids[: len(sessions) - 500]:
-                    del sessions[old_id]
 
 
 def _payload_subject_absent(

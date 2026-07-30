@@ -20,7 +20,11 @@ from routers.shared import (
     require_diagram_access,
     verify_api_key_or_user_session,
 )
-from usage_metrics import record_event, record_funnel_step
+from usage_metrics import (
+    record_event,
+    record_event_and_funnel_step,
+    record_funnel_step,
+)
 from guided_questions import (
     generate_questions,
     apply_answers,
@@ -259,11 +263,15 @@ async def export_architecture_diagram(
             result = generate_landing_zone_svg(analysis, dr_variant=dr_variant)  # type: ignore[arg-type]
         except ValueError as exc:
             raise ArchmorphException(400, str(exc))
-        record_event("exports_landing_zone_svg", {
-            "diagram_id": diagram_id,
-            "dr_variant": dr_variant,
-        })
-        record_funnel_step(diagram_id, "export")
+        record_event_and_funnel_step(
+            "exports_landing_zone_svg",
+            {
+                "diagram_id": diagram_id,
+                "dr_variant": dr_variant,
+            },
+            diagram_id=diagram_id,
+            step="export",
+        )
         content = result.get("content", "")
         artifact = await persist_generated_export_async(
             request,
@@ -300,8 +308,12 @@ async def export_architecture_diagram(
     except ValueError as exc:
         raise ArchmorphException(400, str(exc))
 
-    record_event(f"exports_{format}", {"diagram_id": diagram_id})
-    record_funnel_step(diagram_id, "export")
+    record_event_and_funnel_step(
+        f"exports_{format}",
+        {"diagram_id": diagram_id},
+        diagram_id=diagram_id,
+        step="export",
+    )
     artifact = await persist_generated_export_async(
         request,
         diagram_id=diagram_id,
@@ -361,12 +373,16 @@ async def export_architecture_package(
     except ValueError as exc:
         raise ArchmorphException(400, str(exc))
 
-    record_event("exports_architecture_package", {
-        "diagram_id": diagram_id,
-        "format": format,
-        "diagram": diagram,
-    })
-    record_funnel_step(diagram_id, "export")
+    record_event_and_funnel_step(
+        "exports_architecture_package",
+        {
+            "diagram_id": diagram_id,
+            "format": format,
+            "diagram": diagram,
+        },
+        diagram_id=diagram_id,
+        step="export",
+    )
     package_content = result.get("content")
     if package_content is None and result.get("content_b64"):
         package_content = base64.b64decode(result["content_b64"], validate=True)
