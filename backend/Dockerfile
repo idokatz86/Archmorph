@@ -22,14 +22,19 @@ RUN python -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 
 COPY requirements.txt .
-RUN pip install --no-cache-dir --upgrade "pip>=26.0" setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade "pip>=26.0" "setuptools>=78.1.1" wheel && \
+    pip install --no-cache-dir -r requirements.txt && \
+    python -m pip uninstall --yes pip setuptools wheel
 
 # ── Stage 2: Runtime ─────────────────────────────────────────
 FROM ${PYTHON_BASE_IMAGE}
 
-# Upgrade system pip to fix CVE-2026-1703 and CVE-2025-8869
-RUN pip install --no-cache-dir --upgrade "pip>=26.0"
+# Runtime dependencies come from /opt/venv; package managers are not needed here.
+RUN if python -c "import pip" >/dev/null 2>&1; then \
+        python -m pip uninstall --yes pip setuptools wheel; \
+    else \
+        python -c "from importlib.util import find_spec; import sys; sys.exit(1 if any(find_spec(name) for name in ('setuptools', 'wheel')) else 0)"; \
+    fi
 
 # Runtime-only system deps (libpq for psycopg2, curl for healthcheck)
 # Apply current Debian security patches before installing runtime packages.
