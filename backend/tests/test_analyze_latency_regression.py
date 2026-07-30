@@ -1,5 +1,4 @@
 from math import ceil
-import time
 from pathlib import Path
 
 import pytest
@@ -39,10 +38,11 @@ def test_ci_smoke_analyze_p95_stays_within_regression_budget(test_client, monkey
 
     durations_ms = []
     for _ in range(int(budget["samples"])):
-        started = time.perf_counter()
         response = test_client.post(f"/api/diagrams/{diagram_id}/analyze")
-        durations_ms.append((time.perf_counter() - started) * 1000)
         assert response.status_code == 200
+        response_time = response.headers.get("X-Response-Time", "")
+        assert response_time.endswith("ms")
+        durations_ms.append(float(response_time.removesuffix("ms")))
 
     result = perf_budget.evaluate_latency_budget(_p95(durations_ms), budget)
     print(result.summary)

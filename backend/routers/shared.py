@@ -515,7 +515,7 @@ def get_api_key_service_principal(headers: dict) -> Optional[str]:
         if not api_key:
             return None
         # Per-process HMAC pseudonym for a high-entropy development key, not a password hash.
-        digest = hmac.new(  # codeql[py/weak-sensitive-data-hashing]
+        digest = hmac.new(  # lgtm[py/weak-sensitive-data-hashing]
             _DEV_PRINCIPAL_SALT,
             api_key.encode("utf-8"),
             hashlib.sha256,

@@ -318,7 +318,7 @@ def export_capability_required() -> bool:
 
 def _digest(token: str) -> str:
     # Tokens have high entropy; this digest is an indexed capability identifier.
-    return hashlib.sha256(token.encode("utf-8")).hexdigest()  # codeql[py/weak-sensitive-data-hashing]
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()  # lgtm[py/weak-sensitive-data-hashing]
 
 
 def _audit(

@@ -118,7 +118,7 @@ class AnalysisWriteResult:
 
 def _short_hash(data: str) -> str:
     """Return a 16-char hex digest of *data* for content-addressed dedup."""
-    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]  # codeql[py/weak-sensitive-data-hashing]
+    return hashlib.sha256(data.encode("utf-8")).hexdigest()[:16]  # lgtm[py/weak-sensitive-data-hashing]
 
 
 def _full_hash(data: bytes) -> str:
@@ -157,7 +157,7 @@ def _serialize_snapshot(snapshot: Dict[str, Any]) -> str:
 def snapshot_payload_hash(snapshot: Dict[str, Any]) -> str:
     """Return the full deterministic hash used by restore grants."""
     # Deterministic content-integrity digest, not password verification material.
-    return hashlib.sha256(_serialize_snapshot(snapshot).encode("utf-8")).hexdigest()  # codeql[py/weak-sensitive-data-hashing]
+    return hashlib.sha256(_serialize_snapshot(snapshot).encode("utf-8")).hexdigest()  # lgtm[py/weak-sensitive-data-hashing]
 
 
 def _require_durable_identity(owner_user_id: str, tenant_id: Optional[str]) -> None:
