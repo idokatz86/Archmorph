@@ -13,6 +13,7 @@ import logging
 import os
 from typing import Any, Dict, Optional
 
+from log_sanitizer import log_model_output_metadata
 from openai_client import cached_chat_completion, AZURE_OPENAI_DEPLOYMENT
 from prompt_guard import PROMPT_ARMOR
 from traceability_map import build_traceability_map, traceability_summary
@@ -405,8 +406,9 @@ def generate_hld(
             context += f"- {line}\n"
 
     # Call GPT-4o via cached wrapper (#183)
-    logger.info("Generating HLD for %s (%d services)", diagram_type, len(unique_mappings))
+    logger.info("Generating HLD service_count=%d", len(unique_mappings))
 
+    raw_text = ""
     try:
         response = cached_chat_completion(
             messages=[
@@ -417,18 +419,39 @@ def generate_hld(
             max_tokens=HLD_MAX_TOKENS,
             temperature=0.3,
             response_format={"type": "json_object"},
+            bypass_cache=True,
+            cache_diagram_id=analysis.get("diagram_id"),
+            cache_owner_user_id=analysis.get("_owner_user_id"),
+            cache_tenant_id=analysis.get("_tenant_id"),
         )
 
         raw_text = response.choices[0].message.content.strip()
-        logger.info("HLD response received (%s chars)", len(raw_text))
         hld = json.loads(raw_text)
 
         if not isinstance(hld, dict):
             raise ValueError(f"HLD generation failed: LLM returned valid JSON but not a dictionary. Got: type {type(hld)}")
 
+        log_model_output_metadata(
+            logger,
+            component="hld_generator",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status="parsed",
+        )
+
     except Exception as exc:
-        logger.error("HLD generation failed: %s", exc)
-        raise ValueError(f"HLD generation failed: {exc}") from exc
+        log_model_output_metadata(
+            logger,
+            component="hld_generator",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status=(
+                "invalid_json" if isinstance(exc, json.JSONDecodeError) else "failed"
+            ),
+            exception=exc,
+            level=logging.ERROR,
+        )
+        raise ValueError("HLD generation failed") from exc
 
     # Enrich with documentation links
     for svc in hld.get("services") or []:

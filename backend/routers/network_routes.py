@@ -6,9 +6,16 @@ from fastapi import APIRouter, Depends, Query, Request, Response
 from pydantic import Field
 from strict_models import StrictBaseModel
 from typing import Any, Dict, Optional
+import json
 import logging
 
-from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key
+from routers.shared import (
+    authorize_diagram_access_async,
+    limiter,
+    persist_diagram_mutation_async,
+    require_diagram_access,
+    verify_api_key,
+)
 from error_envelope import ArchmorphException
 from source_provider import normalize_source_provider
 from network_translator import (
@@ -23,10 +30,6 @@ from network_translator import (
 
 logger = logging.getLogger(__name__)
 router = APIRouter()
-
-# In-memory cache for generated topologies (keyed by diagram_id)
-_topology_cache: Dict[str, dict] = {}
-
 
 # ─────────────────────────────────────────────────────────────
 # Request / Response Models
@@ -61,7 +64,7 @@ async def generate_network_topology(
     constructs (VPC, subnets, security groups, route tables), and produces
     an Azure-equivalent VNet plan with NSGs, route tables, and NAT gateway.
     """
-    session = authorize_diagram_access(request, diagram_id, purpose="generate network topology")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="generate network topology")
 
     analysis = session.get("analysis")
     if not analysis:
@@ -104,7 +107,17 @@ async def generate_network_topology(
         raise ArchmorphException(400, str(exc))
 
     result = topology.to_dict()
-    _topology_cache[diagram_id] = result
+    updated_session = dict(session)
+    updated_session["network_topology"] = result
+    await persist_diagram_mutation_async(
+        request,
+        diagram_id,
+        updated_session,
+        artifact_type="network_topology",
+        artifact_format="json",
+        artifact_content=json.dumps(result, sort_keys=True, default=str),
+        label="network-topology-generated",
+    )
 
     logger.info("Network topology generated for %s: %s topology, %d subnets, %d NSGs",
                 diagram_id.replace('\n', '').replace('\r', ''), result["topology_type"],
@@ -130,7 +143,8 @@ async def get_network_topology(
 
     Returns 404 if no topology has been generated yet.
     """
-    cached = _topology_cache.get(diagram_id)
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view network topology")
+    cached = session.get("network_topology")
     if not cached:
         raise ArchmorphException(
             404,

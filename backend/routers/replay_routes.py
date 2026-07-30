@@ -1,38 +1,85 @@
-"""
-Replay routes — migration replay timeline.
+"""Migration replay routes with PostgreSQL-canonical, version-bound state."""
 
-Records step-by-step events during a migration analysis so users can
-replay the entire flow (service detection, question answering, IaC generation)
-as an interactive timeline.
-"""
+from __future__ import annotations
 
 import logging
-import time
-import uuid
+import json
+from functools import partial
 from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, Query, Request
 from pydantic import Field
-from strict_models import StrictBaseModel
 
+from database import SessionLocal
 from error_envelope import ArchmorphException
-from log_sanitizer import safe
+from route_effects import write_route_effects
 from routers.shared import (
-    authorize_diagram_access,
-    get_api_key_service_principal,
+    authorize_diagram_access_async,
+    get_request_durable_principal,
     limiter,
     verify_api_key,
 )
 from session_store import get_store
+from strict_models import StrictBaseModel
+from starlette.concurrency import run_in_threadpool
+from workspace_store import (
+    add_migration_replay_event,
+    create_migration_replay,
+    get_migration_replay,
+    list_migration_replays,
+    serialize_migration_replay,
+    create_export_artifact,
+)
 
 logger = logging.getLogger(__name__)
-
 router = APIRouter(prefix="/api/replay", tags=["Replay"])
 
-# ── Store ────────────────────────────────────────────────────
+# Disposable projection only. Authorization and recovery always use SQL.
 _replay_store = get_store("replays", maxsize=200, ttl=86400 * 30)
 
-# ── Models ───────────────────────────────────────────────────
+
+def _principal(request: Request) -> tuple[str, str]:
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal.get("tenant_id"):
+        raise ArchmorphException(401, "Authenticated durable principal required")
+    return principal["owner_user_id"], principal["tenant_id"]
+
+
+def _project(replay: dict) -> None:
+    if not _replay_store.set(replay["replay_id"], replay):
+        logger.warning("replay_projection_write_failed")
+
+
+async def _db_call(function, /, *args, **kwargs):
+    def invoke():
+        db = SessionLocal()
+        try:
+            return function(db, *args, **kwargs)
+        finally:
+            db.close()
+
+    return await run_in_threadpool(partial(invoke))
+
+
+def purge_diagram_replays(diagram_id: str) -> int:
+    """Delete disposable replay projections linked to a diagram."""
+    removed = 0
+    for replay_id in list(_replay_store.keys("*")):
+        replay = _replay_store.peek(replay_id) or {}
+        if replay.get("analysis_id") != diagram_id:
+            continue
+        if not _replay_store.delete(replay_id):
+            raise RuntimeError("Replay projection deletion could not be confirmed")
+        removed += 1
+    return removed
+
+
+def diagram_replays_absent(diagram_id: str) -> bool:
+    return not any(
+        (_replay_store.peek(replay_id) or {}).get("analysis_id") == diagram_id
+        for replay_id in _replay_store.keys("*")
+    )
+
 
 EventType = Literal[
     "step_entered",
@@ -54,67 +101,58 @@ class AddEventRequest(StrictBaseModel):
     data: dict = Field(default_factory=dict)
 
 
-def require_replay_access(request: Request, replay_id: str) -> dict:
-    from auth import get_user_from_request_headers
+async def require_replay_access(request: Request, replay_id: str) -> dict:
+    owner_user_id, tenant_id = _principal(request)
 
-    replay = _replay_store.get(replay_id)
-    if not replay:
-        raise ArchmorphException(404, "Replay not found")
-
-    if replay.get("owner_user_id") and replay.get("tenant_id"):
-        user = get_user_from_request_headers(dict(request.headers))
-        if not user:
-            raise ArchmorphException(401, "Authentication required")
-        if replay["owner_user_id"] != user.id or replay["tenant_id"] != user.tenant_id:
+    def load(db):
+        replay = get_migration_replay(
+            db,
+            replay_id=replay_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        if replay is None:
             raise ArchmorphException(404, "Replay not found")
-        return replay
+        return serialize_migration_replay(db, replay)
 
-    if replay.get("owner_api_key_id"):
-        api_key_principal_id = get_api_key_service_principal(dict(request.headers))
-        if not api_key_principal_id:
-            raise ArchmorphException(401, "Authentication required")
-        if replay["owner_api_key_id"] != api_key_principal_id:
-            raise ArchmorphException(404, "Replay not found")
-        return replay
-
-    authorize_diagram_access(request, replay["analysis_id"], purpose="view a replay")
-    return replay
+    result = await _db_call(load)
+    return result
 
 
-def require_replay_body_access(request: Request, body: AddEventRequest) -> dict:
-    return require_replay_access(request, body.replay_id)
-
-
-# ── Endpoints ────────────────────────────────────────────────
+async def require_replay_body_access(request: Request, body: AddEventRequest) -> dict:
+    return await require_replay_access(request, body.replay_id)
 
 
 @router.post("/record")
 @limiter.limit("10/minute")
 async def start_recording(
-    request: Request, body: StartRecordingRequest, _auth=Depends(verify_api_key)
+    request: Request,
+    body: StartRecordingRequest,
+    _auth=Depends(verify_api_key),
 ):
-    """Start a new replay recording linked to an analysis."""
-    session = authorize_diagram_access(request, body.analysis_id, purpose="start a replay recording")
-    replay_id = str(uuid.uuid4())
-    owner_user_id = session.get("_owner_user_id")
-    tenant_id = session.get("_tenant_id")
-    owner_api_key_id = session.get("_owner_api_key_id")
+    """Start a new replay recording linked to an immutable analysis version."""
+    await authorize_diagram_access_async(request, body.analysis_id, purpose="start a replay recording")
+    owner_user_id, tenant_id = _principal(request)
+    try:
+        def create_and_serialize(db):
+            replay = create_migration_replay(
+                db,
+                diagram_id=body.analysis_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                title=body.title or "Migration replay",
+            )
+            return serialize_migration_replay(db, replay)
 
-    replay = {
-        "replay_id": replay_id,
-        "analysis_id": body.analysis_id,
-        "title": body.title or f"Replay {replay_id[:8]}",
-        "owner_user_id": owner_user_id,
-        "tenant_id": tenant_id,
-        "owner_api_key_id": owner_api_key_id,
-        "events": [],
-        "created_at": time.time(),
-        "updated_at": time.time(),
-    }
-    _replay_store[replay_id] = replay
-
-    logger.info("Replay recording started: %s for analysis %s", replay_id, safe(body.analysis_id))
-    return {"replay_id": replay_id, "analysis_id": body.analysis_id}
+        replay_data = await _db_call(create_and_serialize)
+        _project(replay_data)
+        return {
+            "replay_id": replay_data["replay_id"],
+            "analysis_id": body.analysis_id,
+            "version_id": replay_data["version_id"],
+        }
+    except ValueError as exc:
+        raise ArchmorphException(409, str(exc)) from exc
 
 
 @router.post("/events")
@@ -123,22 +161,35 @@ async def add_event(
     request: Request,
     body: AddEventRequest,
     _auth=Depends(verify_api_key),
-    replay=Depends(require_replay_body_access),
+    _replay=Depends(require_replay_body_access),
 ):
-    """Add an event to an existing replay recording."""
+    """Append an event to a canonical replay recording."""
+    owner_user_id, tenant_id = _principal(request)
+    try:
+        def add_and_serialize(db):
+            event = add_migration_replay_event(
+                db,
+                replay_id=body.replay_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                event_type=body.event_type,
+                data=body.data,
+            )
+            replay = get_migration_replay(
+                db,
+                replay_id=body.replay_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+            )
+            if replay is None:
+                raise ValueError("Replay not found")
+            return event.id, event.sequence, serialize_migration_replay(db, replay)
 
-    event = {
-        "event_id": str(uuid.uuid4()),
-        "event_type": body.event_type,
-        "data": body.data,
-        "timestamp": time.time(),
-        "sequence": len(replay["events"]),
-    }
-    replay["events"].append(event)
-    replay["updated_at"] = time.time()
-    _replay_store[body.replay_id] = replay
-
-    return {"event_id": event["event_id"], "sequence": event["sequence"]}
+        event_id, sequence, replay_data = await _db_call(add_and_serialize)
+        _project(replay_data)
+        return {"event_id": event_id, "sequence": sequence}
+    except ValueError as exc:
+        raise ArchmorphException(404, "Replay not found") from exc
 
 
 @router.get("/{replay_id}")
@@ -149,11 +200,14 @@ async def get_replay(
     _auth=Depends(verify_api_key),
     replay=Depends(require_replay_access),
 ):
-    """Get full replay with all events."""
+    """Get the full canonical replay with all events."""
     return replay
 
 
-@router.get("/{replay_id}/export")
+@router.get(
+    "/{replay_id}/export",
+    openapi_extra=write_route_effects("artifact"),
+)
 @limiter.limit("10/minute")
 async def export_replay(
     request: Request,
@@ -161,22 +215,36 @@ async def export_replay(
     _auth=Depends(verify_api_key),
     replay=Depends(require_replay_access),
 ):
-    """Export replay as a JSON timeline."""
-
+    """Export replay JSON bound to the version recorded at replay start."""
+    events = replay["events"]
     timeline = {
         "format": "archmorph-replay-v1",
         "replay_id": replay["replay_id"],
         "analysis_id": replay["analysis_id"],
+        "version_id": replay["version_id"],
         "title": replay["title"],
         "created_at": replay["created_at"],
-        "total_events": len(replay["events"]),
+        "total_events": len(events),
         "duration_seconds": (
-            replay["events"][-1]["timestamp"] - replay["events"][0]["timestamp"]
-            if len(replay["events"]) >= 2
+            events[-1]["timestamp"] - events[0]["timestamp"]
+            if len(events) >= 2
             else 0
         ),
-        "events": replay["events"],
+        "events": events,
     }
+    owner_user_id, tenant_id = _principal(request)
+    artifact = await _db_call(
+        create_export_artifact,
+        diagram_id=replay["analysis_id"],
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        artifact_type="migration_replay_export",
+        format="json",
+        content=json.dumps(timeline, sort_keys=True, separators=(",", ":")).encode("utf-8"),
+        expected_version_id=replay["version_id"],
+    )
+    timeline["artifact_id"] = artifact.id
+    timeline["version_id"] = artifact.version_id
     return timeline
 
 
@@ -188,49 +256,14 @@ async def list_replays(
     limit: int = Query(20, ge=1, le=20),
     _auth=Depends(verify_api_key),
 ):
-    """List recent replays with pagination (max 20 per page)."""
-    from auth import get_user_from_request_headers
-
-    headers = dict(request.headers)
-    user = get_user_from_request_headers(headers)
-    api_key_principal_id = get_api_key_service_principal(headers)
-    if not user and not api_key_principal_id:
-        raise ArchmorphException(401, "Authentication required")
-
-    all_replays = sorted(
-        _replay_store.values(),
-        key=lambda r: r.get("created_at", 0),
-        reverse=True,
+    """List recent canonical replays with bounded pagination."""
+    owner_user_id, tenant_id = _principal(request)
+    result = await _db_call(
+        list_migration_replays,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        limit=limit,
+        offset=(page - 1) * limit,
     )
-    authorized_replays = []
-    for replay in all_replays:
-        replay_id = replay.get("replay_id")
-        if not replay_id:
-            continue
-        try:
-            require_replay_access(request, replay_id)
-        except ArchmorphException:
-            continue
-        authorized_replays.append(replay)
-    all_replays = authorized_replays
-    start = (page - 1) * limit
-    page_items = all_replays[start : start + limit]
-
-    # Return summaries without full event lists
-    summaries = [
-        {
-            "replay_id": r["replay_id"],
-            "analysis_id": r["analysis_id"],
-            "title": r["title"],
-            "event_count": len(r.get("events", [])),
-            "created_at": r["created_at"],
-        }
-        for r in page_items
-    ]
-
-    return {
-        "replays": summaries,
-        "total": len(all_replays),
-        "page": page,
-        "limit": limit,
-    }
+    result.update({"page": page, "limit": limit})
+    return result

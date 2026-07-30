@@ -3,20 +3,101 @@ Archmorph Architecture Versioning
 Track changes to architecture analyses over time with version history
 """
 
-import logging
 import hashlib
-from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
-from dataclasses import dataclass, field
-from enum import Enum
+import logging
+import threading
+from collections.abc import Iterator, MutableMapping
 from copy import deepcopy
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
+from enum import Enum
+from typing import Any, Dict, List, Optional
 
 from cachetools import TTLCache
+from durable_purge_fence import (
+    PurgeFenceUnavailableError,
+    PurgedScopeError,
+    diagram_is_durably_purged,
+    durably_purged_diagram_ids,
+    require_diagram_cache_access,
+)
 
 logger = logging.getLogger(__name__)
 
-# Version store (TTL: 7 days, max 500 diagrams)
-VERSION_STORE: TTLCache = TTLCache(maxsize=500, ttl=86400 * 7)
+class FencedVersionStore(MutableMapping[str, Any]):
+    """TTL mapping whose public reads and writes honor durable purge fences."""
+
+    def __init__(self, *, maxsize: int, ttl: int):
+        self._cache: TTLCache = TTLCache(maxsize=maxsize, ttl=ttl)
+        self._lock = threading.RLock()
+
+    def __getitem__(self, diagram_id: str) -> Any:
+        require_diagram_cache_access(diagram_id)
+        with self._lock:
+            return self._cache[diagram_id]
+
+    def __setitem__(self, diagram_id: str, value: Any) -> None:
+        require_diagram_cache_access(diagram_id)
+        with self._lock:
+            self._cache[diagram_id] = value
+
+    def __delitem__(self, diagram_id: str) -> None:
+        with self._lock:
+            del self._cache[diagram_id]
+
+    def __iter__(self) -> Iterator[str]:
+        self.apply_durable_fences()
+        with self._lock:
+            return iter(tuple(self._cache))
+
+    def __len__(self) -> int:
+        self.apply_durable_fences()
+        with self._lock:
+            return len(self._cache)
+
+    def clear(self) -> None:
+        with self._lock:
+            self._cache.clear()
+
+    def evict(self, diagram_id: str) -> bool:
+        with self._lock:
+            return self._cache.pop(diagram_id, None) is not None
+
+    def raw_get(self, diagram_id: str) -> Any:
+        with self._lock:
+            return self._cache.get(diagram_id)
+
+    def raw_contains(self, diagram_id: str) -> bool:
+        with self._lock:
+            return diagram_id in self._cache
+
+    def apply_durable_fences(self) -> int:
+        with self._lock:
+            candidates = tuple(self._cache)
+        fenced = durably_purged_diagram_ids(candidates)
+        return sum(int(self.evict(diagram_id)) for diagram_id in fenced)
+
+
+# Transient compatibility only (TTL: 7 days, max 500 diagrams). PostgreSQL is
+# authoritative for durable principals and purge lifecycle state.
+VERSION_STORE = FencedVersionStore(maxsize=500, ttl=86400 * 7)
+
+
+def purge_diagram_versions(diagram_id: str) -> bool:
+    """Delete transient compatibility version history for a diagram."""
+    return VERSION_STORE.evict(diagram_id)
+
+
+def diagram_versions_absent(diagram_id: str) -> bool:
+    if diagram_is_durably_purged(diagram_id):
+        VERSION_STORE.evict(diagram_id)
+        return True
+    return not VERSION_STORE.raw_contains(diagram_id)
+
+
+def apply_durable_purge_fences() -> int:
+    """Evict histories fenced before this worker started."""
+    return VERSION_STORE.apply_durable_fences()
 
 
 class ChangeType(str, Enum):
@@ -124,9 +205,17 @@ class VersionHistory:
 # ─────────────────────────────────────────────────────────────
 def get_or_create_history(diagram_id: str) -> VersionHistory:
     """Get or create version history for a diagram."""
-    if diagram_id not in VERSION_STORE:
-        VERSION_STORE[diagram_id] = VersionHistory(diagram_id=diagram_id)
-    return VERSION_STORE[diagram_id]
+    require_diagram_cache_access(diagram_id)
+    history = VERSION_STORE.raw_get(diagram_id)
+    if history is None:
+        history = VersionHistory(diagram_id=diagram_id)
+        VERSION_STORE[diagram_id] = history
+    return history
+
+
+def _get_history(diagram_id: str) -> Optional[VersionHistory]:
+    require_diagram_cache_access(diagram_id)
+    return VERSION_STORE.raw_get(diagram_id)
 
 
 def _detect_changes(
@@ -256,9 +345,15 @@ def create_version(
         message=message or f"Version {version_number}",
         created_by=created_by,
     )
-    
+
+    require_diagram_cache_access(diagram_id)
     history.versions.append(version)
     history.current_version = version_number
+    try:
+        require_diagram_cache_access(diagram_id)
+    except (PurgeFenceUnavailableError, PurgedScopeError):
+        VERSION_STORE.evict(diagram_id)
+        raise
     
     logger.info(
         "Created version %d for diagram %s with %d changes",
@@ -270,10 +365,13 @@ def create_version(
 
 def get_version(diagram_id: str, version_number: int) -> Optional[ArchitectureVersion]:
     """Get a specific version of an architecture."""
-    history = get_or_create_history(diagram_id)
+    history = _get_history(diagram_id)
+    if history is None:
+        return None
     
     for version in history.versions:
         if version.version_number == version_number:
+            require_diagram_cache_access(diagram_id)
             return version
     
     return None
@@ -281,9 +379,12 @@ def get_version(diagram_id: str, version_number: int) -> Optional[ArchitectureVe
 
 def get_latest_version(diagram_id: str) -> Optional[ArchitectureVersion]:
     """Get the latest version of an architecture."""
-    history = get_or_create_history(diagram_id)
+    history = _get_history(diagram_id)
+    if history is None:
+        return None
     
     if history.versions:
+        require_diagram_cache_access(diagram_id)
         return history.versions[-1]
     
     return None
@@ -365,13 +466,20 @@ def compare_versions(
 
 def get_version_history(diagram_id: str) -> Dict[str, Any]:
     """Get complete version history for a diagram."""
-    history = get_or_create_history(diagram_id)
-    return history.to_dict()
+    history = _get_history(diagram_id)
+    require_diagram_cache_access(diagram_id)
+    return (
+        history.to_dict()
+        if history is not None
+        else VersionHistory(diagram_id=diagram_id).to_dict()
+    )
 
 
 def get_changes_since(diagram_id: str, since_version: int) -> List[Dict[str, Any]]:
     """Get all changes since a specific version."""
-    history = get_or_create_history(diagram_id)
+    history = _get_history(diagram_id)
+    if history is None:
+        return []
     
     all_changes = []
     for version in history.versions:
@@ -380,5 +488,6 @@ def get_changes_since(diagram_id: str, since_version: int) -> List[Dict[str, Any
                 change_dict = change.to_dict()
                 change_dict["version"] = version.version_number
                 all_changes.append(change_dict)
-    
+
+    require_diagram_cache_access(diagram_id)
     return all_changes

@@ -38,6 +38,7 @@ function _sanitizeAnalysis(analysis) {
   if (!analysis || typeof analysis !== 'object') return analysis;
   const sanitized = { ...analysis };
   delete sanitized.export_capability;
+  delete sanitized.exportCapability;
   return sanitized;
 }
 
@@ -82,12 +83,14 @@ export function saveSession(diagramId, analysis, questions = [], answers = {}, e
   if (!shouldPersistSensitiveSessionCache(extra)) return;
   try {
     const payload = JSON.stringify({
-      diagramId, analysis: _sanitizeAnalysis(analysis), questions, answers,
+      diagramId, projectId: extra.projectId || null,
+      analysis: _sanitizeAnalysis(analysis), questions, answers,
       allQuestions: extra.allQuestions || [],
       questionAssumptions: extra.questionAssumptions || [],
       iacCode: extra.iacCode || null,
       iacFormat: extra.iacFormat || null,
       hldData: extra.hldData || null,
+      restoreCapability: extra.restoreCapability || null,
       sensitiveCacheOptIn: true,
       ts: Date.now(),
     });

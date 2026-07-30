@@ -28,6 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from difflib import SequenceMatcher
 
 from services import AZURE_SERVICES
+from log_sanitizer import log_model_output_metadata
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 from prompt_guard import validate_message, sanitize_message, PROMPT_ARMOR
 
@@ -246,6 +247,7 @@ def add_services_from_text(
         {"role": "user", "content": f"{context}\n\n## User Request\n{user_text}"},
     ]
     
+    raw_text = ""
     try:
         response = openai_retry(client.chat.completions.create)(
             model=AZURE_OPENAI_DEPLOYMENT,
@@ -257,16 +259,33 @@ def add_services_from_text(
         
         raw_text = response.choices[0].message.content.strip()
         result = json.loads(raw_text)
+        log_model_output_metadata(
+            logger,
+            component="service_builder",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status="parsed",
+        )
         
         detected_services = result.get("services", [])
         requirements = result.get("inferred_requirements", [])
         
     except Exception as exc:
-        logger.error("Service extraction failed: %s", exc)
+        log_model_output_metadata(
+            logger,
+            component="service_builder",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status=(
+                "invalid_json" if isinstance(exc, json.JSONDecodeError) else "failed"
+            ),
+            exception=exc,
+            level=logging.ERROR,
+        )
         return {
             **analysis,
             "services_added": [],
-            "add_services_error": str(exc),
+            "add_services_error": "Service extraction failed",
         }
     
     # Add detected services to analysis
@@ -360,9 +379,8 @@ def add_services_from_text(
         }
     
     logger.info(
-        "Added %d services from natural language: %s",
+        "Added %d services from natural-language request",
         len(services_added),
-        [s["name"] for s in services_added],
     )
     
     return updated_analysis
@@ -455,9 +473,8 @@ def deduplicate_questions(
             if any(kw in combined_text for kw in keywords):
                 inferred_answers[question_id] = answer_value
                 logger.info(
-                    "Inferred answer for %s: %s (from user text)",
+                    "Inferred answer for question_id=%s from user context",
                     question_id,
-                    answer_value,
                 )
                 break  # Take first match for this question
     

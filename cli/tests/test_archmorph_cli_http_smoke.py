@@ -7,6 +7,7 @@ import json
 import os
 import socket
 import sys
+import tempfile
 import threading
 import time
 import xml.etree.ElementTree as ET
@@ -21,6 +22,13 @@ os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
 os.environ.setdefault("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "1")
 os.environ.setdefault("ENVIRONMENT", "test")
+
+_SMOKE_TEMP_DIR = tempfile.TemporaryDirectory(prefix="archmorph-cli-http-smoke-")
+_SMOKE_DATABASE = Path(_SMOKE_TEMP_DIR.name) / "archmorph.db"
+os.environ["DATABASE_URL"] = f"sqlite:///{_SMOKE_DATABASE}"
+os.environ["USAGE_METRICS_DATA_DIR"] = str(
+    Path(_SMOKE_TEMP_DIR.name) / "metrics"
+)
 
 REPO_DIR = Path(__file__).resolve().parents[2]
 BACKEND_DIR = REPO_DIR / "backend"
@@ -80,7 +88,7 @@ def _free_port() -> int:
 
 
 def _start_server(port: int) -> tuple[uvicorn.Server, threading.Thread]:
-    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error", lifespan="off")
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="error", lifespan="on")
     server = uvicorn.Server(config)
     thread = threading.Thread(target=server.run, daemon=True)
     thread.start()
@@ -149,8 +157,10 @@ def test_archmorph_run_smokes_over_http(monkeypatch, tmp_path):
     monkeypatch.setattr(diagrams_router, "analyze_image", lambda *_args, **_kwargs: dict(SMOKE_ANALYSIS))
     monkeypatch.setattr(iac_generator, "cached_chat_completion", _mock_completion_for_iac)
 
+    assert not _SMOKE_DATABASE.exists()
     port = _free_port()
     server, thread = _start_server(port)
+    assert _SMOKE_DATABASE.exists()
     try:
         diagram = tmp_path / "aws.png"
         diagram.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\0" * 100)

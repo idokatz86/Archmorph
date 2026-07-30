@@ -42,7 +42,7 @@ printf '%s\\n' "$*" > "${MOCK_CURL_ARGS_FILE}"
 if [[ "${MOCK_CURL_MODE:-healthy}" == "unauthorized" ]]; then
   printf '%s' '{"error":{"code":"UNAUTHORIZED","message":"Invalid or missing API key","details":null}}'
 else
-  printf '%s' '{"status":"healthy","version":"4.0.0","checks":{"redis":"disabled_optional","redis_readiness":{"scale_blocked":false}},"service_catalog_refresh":{"stale":false},"scheduled_jobs":[]}'
+    printf '%s' '{"status":"healthy","version":"4.0.0","checks":{"database":"ok","database_readiness":{"ready_for_production":true},"redis":"ok","redis_readiness":{"scale_blocked":false}},"service_catalog_refresh":{"stale":false},"scheduled_jobs":[]}'
 fi
 """,
         encoding="utf-8",
@@ -84,6 +84,14 @@ def healthy_payload() -> dict:
         "status": "healthy",
         "version": "4.0.0",
         "checks": {
+            "database": "ok",
+            "database_readiness": {
+                "backend": "postgresql",
+                "postgres_configured": True,
+                "production_like": True,
+                "connection_ok": True,
+                "ready_for_production": True,
+            },
             "openai": "ok",
             "storage": "ok",
             "redis": "disabled_optional",
@@ -124,6 +132,18 @@ def test_health_gate_passes_healthy_with_optional_redis_warning():
     assert result.returncode == 0
     assert "Production health gate passed" in result.stdout
     assert "Redis is disabled as an optional dependency" in result.stdout
+
+
+def test_health_gate_fails_when_postgres_is_unavailable_even_if_status_is_healthy():
+    payload = healthy_payload()
+    payload["checks"]["database"] = "unavailable"
+    payload["checks"]["database_readiness"]["connection_ok"] = False
+    payload["checks"]["database_readiness"]["ready_for_production"] = False
+
+    result = run_gate(payload)
+
+    assert result.returncode == 1
+    assert "PostgreSQL canonical state dependency is unavailable" in result.stdout
 
 
 def test_health_gate_fails_required_redis_missing_even_if_status_is_wrongly_healthy():

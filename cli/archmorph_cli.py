@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import pathlib
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Any, Dict, List, Optional
 
 import click
@@ -409,11 +408,6 @@ def _strip_volatile_analysis_fields(analysis: dict) -> dict:
     return {key: value for key, value in analysis.items() if key not in VOLATILE_ANALYSIS_FIELDS}
 
 
-def _generate_iac_for_run(client: ArchmorphClient, diagram_id: str, iac_format: str, force: bool) -> dict:
-    worker_client = client.fork() if hasattr(client, "fork") else client
-    return worker_client.generate_iac_with_options(diagram_id, iac_format, force)
-
-
 # ── CLI definition ───────────────────────────────────────────
 @click.group()
 @click.option("--api-url", envvar="ARCHMORPH_API_URL", default=None, help="API base URL.")
@@ -590,21 +584,22 @@ def run_full_spine(
     iac_formats = [target for target in requested if target in {"terraform", "bicep"}]
     if iac_formats:
         click.echo(click.style(f"Generating IaC: {', '.join(iac_formats)}...", fg="cyan"))
-        with ThreadPoolExecutor(max_workers=min(len(iac_formats), 4)) as executor:
-            futures = {
-                executor.submit(_generate_iac_for_run, client, diagram_id, iac_format, force_iac): iac_format
-                for iac_format in iac_formats
-            }
-            for future in as_completed(futures):
-                iac_format = futures[future]
-                result = future.result()
-                code = result.get("code", "")
-                if not isinstance(code, str) or not code.strip():
-                    raise click.ClickException(f"{iac_format} generation returned empty code")
-                artifact_path = _iac_artifact_path(out_root, iac_format)
-                _write_text_artifact(artifact_path, code)
-                artifact_paths[iac_format] = str(artifact_path)
-                iac_outputs[iac_format] = code
+        # Each generation advances the same canonical analysis version. Keep
+        # these writes ordered so the next format starts from the committed
+        # version rather than racing a sibling request with a stale CAS token.
+        for iac_format in iac_formats:
+            result = client.generate_iac_with_options(
+                diagram_id,
+                iac_format,
+                force_iac,
+            )
+            code = result.get("code", "")
+            if not isinstance(code, str) or not code.strip():
+                raise click.ClickException(f"{iac_format} generation returned empty code")
+            artifact_path = _iac_artifact_path(out_root, iac_format)
+            _write_text_artifact(artifact_path, code)
+            artifact_paths[iac_format] = str(artifact_path)
+            iac_outputs[iac_format] = code
 
     cost_estimate = None
     if "alz-svg" in requested:

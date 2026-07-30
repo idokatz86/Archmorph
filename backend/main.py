@@ -28,6 +28,75 @@ from urllib.parse import urlsplit  # noqa: E402
 from slowapi.errors import RateLimitExceeded  # noqa: E402
 from starlette.responses import JSONResponse as _JSONResponse  # noqa: E402
 from csrf import requires_csrf_check, csrf_token_valid  # noqa: E402
+from analysis_payload_bounds import MAX_RESTORE_BODY_BYTES  # noqa: E402
+
+
+class RestoreBodyTooLarge(Exception):
+    """Internal signal raised before restore request parsing."""
+
+
+class RestoreBodyLimitMiddleware:
+    """Bound restore bodies while ASGI receive chunks are still raw bytes."""
+
+    def __init__(self, app, *, max_bytes: int = MAX_RESTORE_BODY_BYTES):
+        self.app = app
+        self.max_bytes = max_bytes
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http" or not str(scope.get("path", "")).endswith(
+            "/restore-session"
+        ):
+            await self.app(scope, receive, send)
+            return
+
+        headers = {
+            key.lower(): value
+            for key, value in scope.get("headers", [])
+        }
+        raw_length = headers.get(b"content-length")
+        if raw_length is not None:
+            try:
+                if int(raw_length) > self.max_bytes:
+                    await self._reject(scope, receive, send)
+                    return
+            except ValueError:
+                await self._reject(scope, receive, send, status_code=400)
+                return
+
+        received = 0
+
+        async def limited_receive():
+            nonlocal received
+            message = await receive()
+            if message.get("type") == "http.request":
+                received += len(message.get("body", b""))
+                if received > self.max_bytes:
+                    raise RestoreBodyTooLarge
+            return message
+
+        try:
+            await self.app(scope, limited_receive, send)
+        except RestoreBodyTooLarge:
+            await self._reject(scope, receive, send)
+
+    @staticmethod
+    async def _reject(scope, receive, send, *, status_code: int = 413):
+        response = _JSONResponse(
+            status_code=status_code,
+            content={
+                "error": {
+                    "code": "PAYLOAD_TOO_LARGE" if status_code == 413 else "BAD_REQUEST",
+                    "message": (
+                        "Restore request body is too large"
+                        if status_code == 413
+                        else "Invalid Content-Length"
+                    ),
+                    "details": {},
+                    "correlation_id": "",
+                }
+            },
+        )
+        await response(scope, receive, send)
 
 
 def _rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded) -> _JSONResponse:
@@ -92,7 +161,11 @@ configure_auto_instrumentation()
 from database import init_db  # noqa: E402
 from version import __version__  # noqa: E402
 from service_updater import start_scheduler, stop_scheduler  # noqa: E402
-from usage_metrics import flush_metrics  # noqa: E402
+from usage_metrics import (  # noqa: E402
+    apply_durable_purge_fences as apply_usage_purge_fences,
+    flush_metrics,
+)
+from restore_grant_cleanup import restore_grant_cleanup_lifecycle  # noqa: E402
 from analytics import track_request_latency  # noqa: E402
 from observability import (  # noqa: E402
     increment_counter as obs_increment_counter,
@@ -101,7 +174,12 @@ from observability import (  # noqa: E402
 from icons.routes import router as icon_router  # noqa: E402
 
 # Shared state — re-exported for backward compatibility (tests import these from main)
-from routers.shared import limiter, SESSION_STORE, IMAGE_STORE, SHARE_STORE  # noqa: E402, F401
+from routers.shared import (  # noqa: E402, F401
+    IMAGE_STORE,
+    SESSION_STORE,
+    SHARE_STORE,
+    limiter,
+)
 
 # Routers
 from routers.health import router as health_router  # noqa: E402
@@ -225,13 +303,23 @@ async def lifespan(app: FastAPI):
     logger.info("Starting Archmorph API %s — production mode", __version__)
     start_scheduler()
 
-    # ── Parallel startup tasks: DB init + icon loading (#337 cold-start) ──
+    # ── Parallel startup tasks: schema verification/local init + icons ──
     async def _init_database():
         try:
             await asyncio.to_thread(init_db)
-            logger.info("Database layer initialized")
+            from database import database_readiness
+
+            readiness = await asyncio.to_thread(database_readiness)
+            if readiness["production_like"] and not readiness["ready_for_production"]:
+                raise RuntimeError("Required PostgreSQL dependency is unavailable")
+            logger.info("Database layer initialized and schema head verified")
         except Exception as exc:
-            logger.warning("Database init failed (non-fatal, in-memory stores used): %s", exc)
+            from database import database_readiness
+
+            readiness = database_readiness()
+            if readiness["production_like"] or readiness["enforce_postgres"]:
+                raise RuntimeError("Required PostgreSQL dependency is unavailable") from exc
+            logger.warning("Database init failed in non-production mode: %s", exc)
 
     async def _init_icons():
         try:
@@ -245,6 +333,25 @@ async def lifespan(app: FastAPI):
             logger.warning("Icon auto-load skipped: %s", exc)
 
     await asyncio.gather(_init_database(), _init_icons())
+    from openai_client import apply_durable_purge_fences as apply_response_cache_fences
+    from versioning import apply_durable_purge_fences as apply_version_fences
+
+    await asyncio.gather(
+        asyncio.to_thread(apply_usage_purge_fences),
+        asyncio.to_thread(apply_response_cache_fences),
+        asyncio.to_thread(apply_version_fences),
+    )
+
+    from session_store import session_store_readiness
+
+    session_readiness = await asyncio.to_thread(session_store_readiness)
+    if session_readiness["require_redis"] and not session_readiness["ready_for_horizontal_scale"]:
+        raise RuntimeError("Required Redis dependency is unavailable")
+    from routers.shared import rate_limit_readiness
+
+    limiter_readiness = rate_limit_readiness()
+    if not limiter_readiness["ready"]:
+        raise RuntimeError("Shared rate-limit storage is required for this deployment")
 
     # ── Thread pool sizing (#177) ──
     # GPT vision calls use asyncio.to_thread() which shares the default executor.
@@ -267,13 +374,17 @@ async def lifespan(app: FastAPI):
         len(reconciliation["recovered"]),
         len(reconciliation["failed"]),
     )
+    await restore_grant_cleanup_lifecycle.start()
 
-    yield
-    logger.info("Shutting down Archmorph API")
-    await durable_job_worker.stop()
-    stop_scheduler()
-    flush_metrics()
-    _executor.shutdown(wait=False)
+    try:
+        yield
+    finally:
+        logger.info("Shutting down Archmorph API")
+        await durable_job_worker.stop()
+        await restore_grant_cleanup_lifecycle.stop()
+        stop_scheduler()
+        flush_metrics()
+        _executor.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -297,6 +408,7 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+app.add_middleware(RestoreBodyLimitMiddleware)
 
 # ─────────────────────────────────────────────────────────────
 # CORS configuration — validated at startup (#846)
@@ -374,7 +486,13 @@ app.add_middleware(
     allow_credentials=_CORS_ALLOW_CREDENTIALS,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
     allow_headers=["Content-Type", "Authorization", "X-API-Key", "X-CSRF-Token", "X-Export-Capability"],
-    expose_headers=["X-Artifact-SHA256", "X-Export-Capability-Next", "ETag"],
+    expose_headers=[
+        "X-Artifact-SHA256",
+        "X-Artifact-ID",
+        "X-Analysis-Version-ID",
+        "X-Export-Capability-Next",
+        "ETag",
+    ],
     max_age=3600,  # Cache preflight for 1 hour
 )
 
@@ -392,11 +510,13 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
     """
 
     _AUDIT_SKIP = frozenset({
-        "/health", "/api/health", "/favicon.ico",
+        "/health", "/healthz", "/readyz", "/api/health", "/api/schema-compatibility", "/favicon.ico",
         "/openapi.json", "/docs", "/redoc",
     })
     _ORIGIN_LOCK_SKIP = frozenset({
         "/healthz",
+        "/readyz",
+        "/api/schema-compatibility",
     })
 
     @staticmethod
@@ -454,9 +574,33 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
     @classmethod
     def _audit_actor_context(cls, request: Request) -> tuple[str, str, str]:
         ip_address = cls._client_ip(request)
+        credential_context = getattr(request.state, "credential_context", None)
+        if credential_context is None and request.headers.get("x-api-key"):
+            try:
+                from routers.shared import _authenticate_api_key, set_request_credential_context
+
+                credential_context = set_request_credential_context(
+                    request,
+                    _authenticate_api_key(
+                        request.headers.get("x-api-key"),
+                        required=False,
+                    ),
+                )
+            except Exception:
+                credential_context = None
+        if credential_context is not None and credential_context.kind.value in {
+            "static",
+            "managed",
+        }:
+            actor_id = credential_context.key_id or credential_context.principal_id
+            return actor_id, "api_key", ip_address
         user = get_user_from_request_headers(request.headers)
         if user:
-            return user.id, "authenticated", ip_address
+            from routers.shared import get_request_durable_principal
+
+            principal = get_request_durable_principal(request)
+            actor_id = (principal or {}).get("owner_user_id") or user.id
+            return actor_id, "authenticated", ip_address
 
         session_id = cls._daily_guest_session_id(request, ip_address)
         return session_id, "guest", ip_address
@@ -465,6 +609,9 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
         # ── Correlation ID ──
         cid = request.headers.get("X-Correlation-ID") or str(uuid.uuid4())
         token = correlation_id_var.set(cid)
+        from routers.shared import _credential_context_var
+
+        credential_token = _credential_context_var.set(None)
 
         start_time = time.perf_counter()
         try:
@@ -500,6 +647,7 @@ class ArchmorphMiddleware(BaseHTTPMiddleware):
                     response = await call_next(request)
         finally:
             correlation_id_var.reset(token)
+            _credential_context_var.reset(credential_token)
 
         duration_ms = (time.perf_counter() - start_time) * 1000
 

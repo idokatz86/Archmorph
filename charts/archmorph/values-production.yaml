@@ -2,14 +2,17 @@
 replicaCount: 3
 
 image:
-  # Tag MUST be set by CI/CD pipeline: --set image.tag=$GITHUB_SHA
-  # DO NOT use "latest" in production
+  # Digest MUST be set by CI/CD: --set-string image.digest=sha256:<digest>
   tag: ""
+  digest: ""
   pullPolicy: Always
 
 env:
   ENVIRONMENT: "prod"
+  ENFORCE_POSTGRES: "true"
+  REQUIRE_REDIS: "true"
   RATE_LIMIT_ENABLED: "true"
+  ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP: "false"
   ALLOWED_ORIGINS: "https://frontend.example.com"
 
 resources:
@@ -49,6 +52,51 @@ externalSecrets:
   secretStoreRef:
     name: example-secret-store
     kind: SecretStore
+  data:
+    - secretKey: AZURE_OPENAI_API_KEY
+      remoteRef:
+        key: openai-api-key
+    - secretKey: DATABASE_URL
+      remoteRef:
+        key: database-url
+    - secretKey: REDIS_URL
+      remoteRef:
+        key: redis-url
+    - secretKey: APPLICATIONINSIGHTS_CONNECTION_STRING
+      remoteRef:
+        key: appinsights-connection-string
+    - secretKey: ARCHMORPH_ADMIN_KEY
+      remoteRef:
+        key: admin-key
+    - secretKey: ARCHMORPH_API_KEY
+      remoteRef:
+        key: api-key
+    - secretKey: ARCHMORPH_API_KEY_ROTATED
+      remoteRef:
+        key: api-key-rotated
+    - secretKey: ARCHMORPH_API_KEY_PRINCIPAL_ID
+      remoteRef:
+        key: api-key-principal-id
+    - secretKey: JWT_SECRET
+      remoteRef:
+        key: jwt-secret
+
+requiredSecretKeys:
+  - secretKey: AZURE_OPENAI_API_KEY
+  - secretKey: DATABASE_URL
+  - secretKey: REDIS_URL
+  - secretKey: APPLICATIONINSIGHTS_CONNECTION_STRING
+  - secretKey: ARCHMORPH_ADMIN_KEY
+  - secretKey: ARCHMORPH_API_KEY
+  - secretKey: ARCHMORPH_API_KEY_ROTATED
+  - secretKey: ARCHMORPH_API_KEY_PRINCIPAL_ID
+  - secretKey: JWT_SECRET
+
+optionalSecretKeys: []
+
+migrations:
+  # Pre-provisioned by the production platform with no Kubernetes API RBAC.
+  serviceAccountName: "archmorph-production-migration"
 
 podAnnotations:
   prometheus.io/scrape: "true"

@@ -9,13 +9,13 @@ explain the generated infrastructure.
 """
 
 import json
+import hashlib
 import logging
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from cachetools import TTLCache
-
 from openai import RateLimitError, APITimeoutError, APIConnectionError, BadRequestError
+from log_sanitizer import log_model_output_metadata
 from openai_client import cached_chat_completion, AZURE_OPENAI_DEPLOYMENT
 from iac_generator import _apply_validation
 from prompt_guard import (
@@ -25,6 +25,7 @@ from prompt_guard import (
     validate_code_input,
     validate_message,
 )
+from session_store import get_store
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ ALWAYS respond with a JSON object containing exactly these fields:
 # ─────────────────────────────────────────────────────────────
 # In-memory conversation sessions  (keyed by diagram_id, TTL: 2 hours, max 200)
 # ─────────────────────────────────────────────────────────────
-IAC_CHAT_SESSIONS: TTLCache = TTLCache(maxsize=200, ttl=7200)
+IAC_CHAT_SESSIONS = get_store("iac_chat", maxsize=200, ttl=7200)
 
 
 # Coercion of GPT JSON-mode arrays to flat string lists. The shared
@@ -153,7 +154,11 @@ def process_iac_chat(
     message = sanitize_message(message)
     is_safe, reason = validate_message(message, max_length=5000, context="iac_chat")
     if not is_safe:
-        logger.warning("IaC chat input rejected for diagram %s: %s", diagram_id, reason or "injection detected")
+        logger.warning(
+            "IaC chat input rejected diagram_sha256=%s message_length=%d",
+            hashlib.sha256(diagram_id.encode("utf-8")).hexdigest()[:12],
+            len(message),
+        )
         return {
             "reply": reason or "I can only help with Terraform and Bicep infrastructure code. Please rephrase your request.",
             "code": current_code,
@@ -216,12 +221,14 @@ def process_iac_chat(
 
     # Call GPT-4o via cached wrapper (with fallback model support)
     logger.info(
-        "IaC chat request for diagram %s: %s (%d history msgs)",
-        diagram_id,
-        message[:80],
+        "IaC chat request diagram_sha256=%s message_length=%d message_sha256=%s history_count=%d",
+        hashlib.sha256(diagram_id.encode("utf-8")).hexdigest()[:12],
+        len(message),
+        hashlib.sha256(message.encode("utf-8")).hexdigest(),
         len(recent_history),
     )
 
+    raw_text = ""
     try:
         response = cached_chat_completion(
             messages=messages,
@@ -230,11 +237,21 @@ def process_iac_chat(
             temperature=0.2,
             response_format={"type": "json_object"},
             bypass_cache=True,
+            cache_diagram_id=diagram_id,
+            cache_owner_user_id=(analysis_context or {}).get("_owner_user_id"),
+            cache_tenant_id=(analysis_context or {}).get("_tenant_id"),
         )
 
         raw_text = response.choices[0].message.content.strip()
         
         if response.choices[0].finish_reason == "length":
+            log_model_output_metadata(
+                logger,
+                component="iac_chat",
+                model=AZURE_OPENAI_DEPLOYMENT,
+                output=raw_text,
+                parse_status="truncated",
+            )
             logger.warning("IaC chat response was truncated due to token limit.")
             return {
                 "reply": "My response was cut off because the infrastructure code became too large to process in one go (token limit reached). Please ask me to make granular changes one step at a time.",
@@ -244,8 +261,6 @@ def process_iac_chat(
                 "error": True,
             }
             
-        logger.info("IaC chat response received (%d chars)", len(raw_text))
-
         result = json.loads(raw_text)
 
         reply = sanitize_response(result.get("message", "Code updated."))
@@ -266,8 +281,24 @@ def process_iac_chat(
         changes = _coerce_to_str_list(result.get("changes_summary", []))
         services = _coerce_to_str_list(result.get("services_added", []))
 
+        log_model_output_metadata(
+            logger,
+            component="iac_chat",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status="parsed",
+        )
+
     except json.JSONDecodeError as exc:
-        logger.error("Failed to parse IaC chat JSON: %s\nText snippet: %s", exc, raw_text[-500:])
+        log_model_output_metadata(
+            logger,
+            component="iac_chat",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status="invalid_json",
+            exception=exc,
+            level=logging.ERROR,
+        )
         return {
             "reply": "I generated the code, but there was an error parsing the format. The output might contain unescaped characters. Please try rephrasing your request.",
             "code": current_code,
@@ -277,7 +308,15 @@ def process_iac_chat(
         }
     except (RateLimitError, APITimeoutError, APIConnectionError) as exc:
         err_type = type(exc).__name__
-        logger.error("IaC chat OpenAI call failed (retryable): %s - %s", err_type, exc)
+        log_model_output_metadata(
+            logger,
+            component="iac_chat",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status="failed",
+            exception=exc,
+            level=logging.ERROR,
+        )
         return {
             "reply": f"The AI provider is temporarily unavailable ({err_type}). Please wait a moment and try again.",
             "code": current_code,
@@ -287,11 +326,19 @@ def process_iac_chat(
         }
     except BadRequestError as exc:
         err_msg = str(exc).lower()
-        logger.error("IaC chat bad request: %s", exc)
+        log_model_output_metadata(
+            logger,
+            component="iac_chat",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status="failed",
+            exception=exc,
+            level=logging.ERROR,
+        )
         if "context_length_exceeded" in err_msg or "maximum context length" in err_msg:
             user_msg = "Your codebase has grown too large for the AI model's context window. Try making smaller, more targeted requests."
         else:
-            user_msg = f"The AI provider rejected the request: {exc}"
+            user_msg = "The AI provider rejected the request. Please revise it and try again."
         return {
             "reply": user_msg,
             "code": current_code,
@@ -301,7 +348,15 @@ def process_iac_chat(
         }
     except Exception as exc:
         err_type = type(exc).__name__
-        logger.error("IaC chat unexpected error: %s - %s", err_type, exc)
+        log_model_output_metadata(
+            logger,
+            component="iac_chat",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status="failed",
+            exception=exc,
+            level=logging.ERROR,
+        )
         return {
             "reply": f"An unexpected error occurred ({err_type}). Please try again.",
             "code": current_code,
@@ -341,6 +396,10 @@ def clear_iac_chat(diagram_id: str) -> bool:
     """Clear IaC chat session for a diagram."""
     key = f"{diagram_id}:iac"
     if key in IAC_CHAT_SESSIONS:
-        del IAC_CHAT_SESSIONS[key]
-        return True
+        return IAC_CHAT_SESSIONS.delete(key)
     return False
+
+
+def has_iac_chat(diagram_id: str) -> bool:
+    """Return whether transient IaC chat state remains for a diagram."""
+    return f"{diagram_id}:iac" in IAC_CHAT_SESSIONS

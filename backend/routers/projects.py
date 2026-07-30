@@ -1,60 +1,133 @@
-"""Project-level routes for multi-diagram architecture analysis (#241)."""
+"""Project routes backed by owner/tenant-scoped PostgreSQL state."""
 
-from typing import Literal
 import asyncio
+from functools import partial
+from typing import Literal
 
 from fastapi import APIRouter, Depends, Request
 
 from error_envelope import ArchmorphException
 from iac_generator import generate_iac_code
 from project_merge import merge_project_analyses
-from project_store import get_project, list_analyzed_diagrams, set_combined_analysis
+from project_store import (
+    PROJECT_EDIT_ROLES,
+    PROJECT_READ_ROLES,
+    add_project_member,
+    get_project,
+    list_project_members,
+    load_project_analyses,
+    remove_project_member,
+)
 from routers.iac_routes import _check_architecture_blockers
-from routers.shared import SESSION_STORE, limiter, verify_api_key_or_user_session
+from routers.shared import (
+    PROJECT_STORE,
+    get_request_durable_principal,
+    limiter,
+    require_api_read_or_user_session,
+    require_api_write_or_user_session,
+)
+from strict_models import StrictBaseModel
+from starlette.concurrency import run_in_threadpool
 from usage_metrics import record_event, record_funnel_step
 
 router = APIRouter()
 
 
-def _combined_analysis_for_project(project_id: str) -> dict:
-    project = get_project(project_id)
-    if not project:
-        raise ArchmorphException(404, f"No project found for {project_id}. Upload a diagram first.")
+class ProjectMemberRequest(StrictBaseModel):
+    """A directory-verified project member assignment."""
 
-    analyzed_ids = list_analyzed_diagrams(project)
-    analyses = [SESSION_STORE.get(diagram_id) for diagram_id in analyzed_ids]
-    analyses = [analysis for analysis in analyses if isinstance(analysis, dict)]
+    user_id: str
+    role: Literal["viewer", "editor"] = "viewer"
+
+
+def _principal(request: Request) -> dict:
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal.get("tenant_id"):
+        raise ArchmorphException(401, "Authenticated tenant context is required")
+    return principal
+
+
+def _not_found() -> ArchmorphException:
+    return ArchmorphException(404, "Project not found")
+
+
+async def _db_call(function, /, *args, **kwargs):
+    """Run one project repository unit in a session created on its worker."""
+    def invoke():
+        from database import SessionLocal
+
+        db = SessionLocal()
+        try:
+            return function(db, *args, **kwargs)
+        finally:
+            db.close()
+
+    return await run_in_threadpool(partial(invoke))
+
+
+def _combined_analysis_for_project(
+    db,
+    project_id: str,
+    principal: dict,
+    allowed_roles: frozenset[str],
+) -> dict:
+    project = get_project(
+        db,
+        project_id,
+        owner_user_id=principal["owner_user_id"],
+        tenant_id=principal["tenant_id"],
+        project_store=PROJECT_STORE,
+        allowed_roles=allowed_roles,
+    )
+    if project is None:
+        raise _not_found()
+    analyses = load_project_analyses(
+        db,
+        project_id,
+        owner_user_id=principal["owner_user_id"],
+        tenant_id=principal["tenant_id"],
+        allowed_roles=allowed_roles,
+    )
     if not analyses:
-        raise ArchmorphException(404, f"No analyzed diagrams found for project {project_id}. Run /analyze first.")
-
-    if project.get("combined_status") == "ready" and project.get("combined_analysis"):
-        return project["combined_analysis"]
-
-    combined = merge_project_analyses(project_id, analyses)
-    set_combined_analysis(project_id, combined)
-    return combined
+        raise ArchmorphException(404, "No analyzed diagrams found for this project")
+    return merge_project_analyses(project_id, analyses)
 
 
 @router.get("/api/projects/{project_id}")
 @limiter.limit("30/minute")
-async def get_project_status(request: Request, project_id: str, _auth=Depends(verify_api_key_or_user_session)):
-    """Return project metadata and per-diagram analysis status."""
-    project = get_project(project_id)
-    if not project:
-        raise ArchmorphException(404, f"No project found for {project_id}. Upload a diagram first.")
+async def get_project_status(
+    request: Request,
+    project_id: str,
+    _auth=Depends(require_api_read_or_user_session),
+):
+    """Return authorized project metadata and durable diagram status."""
+    principal = _principal(request)
+    project = await _db_call(
+        get_project,
+        project_id,
+        owner_user_id=principal["owner_user_id"],
+        tenant_id=principal["tenant_id"],
+        project_store=PROJECT_STORE,
+    )
+    if project is None:
+        raise _not_found()
     return project
 
 
 @router.get("/api/projects/{project_id}/analysis")
 @limiter.limit("15/minute")
-async def get_project_analysis(request: Request, project_id: str, _auth=Depends(verify_api_key_or_user_session)):
-    """Return a deterministic combined analysis for all analyzed project diagrams."""
-    combined = _combined_analysis_for_project(project_id)
-    record_event("project_analysis_merged", {
-        "project_id": project_id,
-        "diagrams": len(combined.get("source_diagram_ids", [])),
-        "services": combined.get("services_detected", 0),
-    })
+async def get_project_analysis(
+    request: Request,
+    project_id: str,
+    _auth=Depends(require_api_read_or_user_session),
+):
+    """Return a deterministic merge of authorized durable analysis snapshots."""
+    combined = await _db_call(
+        _combined_analysis_for_project,
+        project_id,
+        _principal(request),
+        PROJECT_READ_ROLES,
+    )
     return combined
 
 
@@ -65,12 +138,16 @@ async def generate_project_iac(
     project_id: str,
     format: Literal["terraform", "bicep"] = "terraform",
     force: bool = False,
-    _auth=Depends(verify_api_key_or_user_session),
+    _auth=Depends(require_api_write_or_user_session),
 ):
-    """Generate unified Infrastructure as Code from combined project analysis."""
-    combined = _combined_analysis_for_project(project_id)
+    """Generate IaC only from authorized, PostgreSQL-canonical analyses."""
+    combined = await _db_call(
+        _combined_analysis_for_project,
+        project_id,
+        _principal(request),
+        PROJECT_EDIT_ROLES,
+    )
     _check_architecture_blockers(f"project-{project_id}", combined, force)
-
     try:
         code = await asyncio.to_thread(
             generate_iac_code,
@@ -78,9 +155,78 @@ async def generate_project_iac(
             iac_format=format,
             params=combined.get("iac_parameters", {}),
         )
-    except Exception:
-        raise ArchmorphException(500, "Project IaC generation failed. Please try again.")
-
+    except Exception as exc:
+        raise ArchmorphException(500, "Project IaC generation failed. Please try again.") from exc
     record_event(f"project_iac_generated_{format}", {"project_id": project_id})
     record_funnel_step(f"project-{project_id}", "iac_generate")
     return {"project_id": project_id, "format": format, "code": code, "analysis": combined}
+
+
+@router.get("/api/projects/{project_id}/members")
+@limiter.limit("30/minute")
+async def get_project_members(
+    request: Request,
+    project_id: str,
+    _auth=Depends(require_api_read_or_user_session),
+):
+    principal = _principal(request)
+    members = await _db_call(
+        list_project_members,
+        project_id,
+        owner_user_id=principal["owner_user_id"],
+        tenant_id=principal["tenant_id"],
+    )
+    if members is None:
+        raise _not_found()
+    return {"project_id": project_id, "members": members}
+
+
+@router.put("/api/projects/{project_id}/members/{member_user_id}")
+@limiter.limit("20/minute")
+async def put_project_member(
+    request: Request,
+    project_id: str,
+    member_user_id: str,
+    body: ProjectMemberRequest,
+    _auth=Depends(require_api_write_or_user_session),
+):
+    principal = _principal(request)
+    if body.user_id != member_user_id:
+        raise ArchmorphException(400, "Path and body member identity must match")
+    try:
+        member = await _db_call(
+            add_project_member,
+            project_id,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+            member_user_id=member_user_id,
+            role=body.role,
+        )
+    except ValueError as exc:
+        raise ArchmorphException(400, "Member must belong to the project tenant") from exc
+    if member is None:
+        raise _not_found()
+    return {"project_id": project_id, "member": member.to_dict()}
+
+
+@router.delete("/api/projects/{project_id}/members/{member_user_id}")
+@limiter.limit("20/minute")
+async def delete_project_member(
+    request: Request,
+    project_id: str,
+    member_user_id: str,
+    _auth=Depends(require_api_write_or_user_session),
+):
+    principal = _principal(request)
+    removed = await _db_call(
+        remove_project_member,
+        project_id,
+        member_user_id,
+        owner_user_id=principal["owner_user_id"],
+        tenant_id=principal["tenant_id"],
+    )
+    if removed is None:
+        raise _not_found()
+    if not removed:
+        raise ArchmorphException(404, "Project member not found")
+    return {"project_id": project_id, "member_user_id": member_user_id, "status": "removed"}

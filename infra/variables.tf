@@ -3,6 +3,28 @@ variable "subscription_id" {
   type        = string
 }
 
+variable "release_automation_principal_id" {
+  description = "Object ID of the reviewed workload identity allowed to coordinate production rollout Blob leases. Supply only through private configuration."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.release_automation_principal_id))
+    error_message = "release_automation_principal_id must be a UUID-shaped Microsoft Entra object ID."
+  }
+}
+
+variable "rollout_priority_principal_id" {
+  description = "Object ID of the priority-only GitHub OIDC identity. It receives only coordination-container data-plane access."
+  type        = string
+  sensitive   = true
+
+  validation {
+    condition     = can(regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$", var.rollout_priority_principal_id))
+    error_message = "rollout_priority_principal_id must be a UUID-shaped Microsoft Entra object ID."
+  }
+}
+
 variable "location" {
   description = "Azure region for resources"
   type        = string
@@ -56,6 +78,17 @@ variable "enable_production_infra_hardening" {
   default     = true
 }
 
+variable "key_vault_rbac_authorization_enabled" {
+  description = "Reviewed Key Vault authorization mode. Set true only after all workload identities have equivalent RBAC grants; false retains access-policy mode during migration."
+  type        = bool
+  default     = true
+
+  validation {
+    condition     = !var.enable_production_infra_hardening || var.environment != "prod" || var.key_vault_rbac_authorization_enabled
+    error_message = "Production infrastructure hardening requires reviewed Key Vault RBAC authorization."
+  }
+}
+
 variable "db_admin_username" {
   description = "PostgreSQL administrator username"
   type        = string
@@ -106,6 +139,57 @@ variable "preserve_legacy_openai_key" {
   validation {
     condition     = !var.preserve_legacy_openai_key || (var.openai_api_key != null && length(var.openai_api_key) > 0)
     error_message = "openai_api_key must be provided when preserve_legacy_openai_key is true."
+  }
+}
+
+variable "archmorph_api_key" {
+  description = "Base Archmorph static API credential. Supply only through private sensitive configuration."
+  type        = string
+  sensitive   = true
+  nullable    = true
+  default     = null
+}
+
+variable "manage_archmorph_api_key" {
+  description = "Manage the base Archmorph API key in Key Vault and wire it to Container Apps."
+  type        = bool
+  default     = false
+}
+
+variable "archmorph_api_key_rotated" {
+  description = "Optional current Archmorph static API credential used during rotation. Supply only through private sensitive configuration."
+  type        = string
+  sensitive   = true
+  nullable    = true
+  default     = null
+}
+
+variable "manage_archmorph_api_key_rotated" {
+  description = "Manage the current rotated Archmorph API key in Key Vault and wire it to Container Apps."
+  type        = bool
+  default     = false
+}
+
+variable "archmorph_api_key_principal_id" {
+  description = "Stable non-secret static service principal identifier. It must remain unchanged across credential rotations."
+  type        = string
+  nullable    = true
+  default     = null
+
+  validation {
+    condition     = var.archmorph_api_key_principal_id == null || can(regex("^[A-Za-z0-9][A-Za-z0-9._:-]{2,99}$", var.archmorph_api_key_principal_id))
+    error_message = "archmorph_api_key_principal_id must be null or a stable 3-100 character identifier."
+  }
+}
+
+variable "archmorph_api_key_allow_legacy_overlap" {
+  description = "Allow the base static API credential while a rotated credential is configured. Set false for cutover."
+  type        = bool
+  default     = false
+
+  validation {
+    condition     = !var.archmorph_api_key_allow_legacy_overlap || var.manage_archmorph_api_key_rotated
+    error_message = "Legacy overlap requires manage_archmorph_api_key_rotated=true."
   }
 }
 
@@ -163,9 +247,17 @@ variable "paired_region_overrides" {
 }
 
 variable "backend_container_image" {
-  description = "Container image reference for backend app (tag or immutable digest). Empty uses ACR latest."
+  description = "Container image reference for backend app. Production/staging require an immutable digest; dev may use a non-latest tag."
   type        = string
-  default     = ""
+
+  validation {
+    condition = (
+      var.environment == "dev"
+      ? (length(trimspace(var.backend_container_image)) > 0 && !endswith(lower(var.backend_container_image), ":latest"))
+      : can(regex("^[^[:space:]@]+@sha256:[0-9a-f]{64}$", var.backend_container_image))
+    )
+    error_message = "Production/staging backend_container_image must be an immutable registry/repository@sha256:<64 lowercase hex> reference; latest is never allowed."
+  }
 }
 
 variable "acr_prod_sku" {
@@ -262,9 +354,15 @@ variable "storage_cmk_key_vault_key_id" {
 }
 
 variable "health_probe_path" {
-  description = "Health probe path for infra checks. Defaults to the anonymous health endpoint."
+  description = "Anonymous liveness probe path. Must not depend on PostgreSQL or Redis."
   type        = string
   default     = "/healthz"
+}
+
+variable "readiness_probe_path" {
+  description = "Anonymous readiness probe path for required PostgreSQL and Redis dependencies."
+  type        = string
+  default     = "/readyz"
 }
 
 variable "app_insights_sampling_percentage_prod" {

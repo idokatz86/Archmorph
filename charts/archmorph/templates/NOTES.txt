@@ -21,3 +21,7 @@
 
 2. Verify the deployment:
   curl http://localhost:{{ .Values.service.port }}/api/health
+
+3. A blocking pre-install/pre-upgrade Job resolves the runtime database Secret,
+  runs SELECT 1, and verifies the exact current schema before the migration Job.
+  Application pods verify compatibility and never create or alter tables.

@@ -18,6 +18,7 @@ from job_queue import job_manager
 from sse import sse_response
 from routers.shared import (
     get_api_key_service_principal,
+    get_request_durable_principal,
     limiter,
 )
 
@@ -30,13 +31,21 @@ if TYPE_CHECKING:
     from job_queue import Job
 
 
-def _ensure_job_access(job: "Job", user: Optional["User"], api_key_principal_id: Optional[str]) -> None:
+def _ensure_job_access(
+    job: "Job",
+    user: Optional["User"],
+    api_key_principal_id: Optional[str],
+    *,
+    durable_principal: Optional[dict] = None,
+) -> None:
     if user:
         if not job.owner_user_id or not job.tenant_id:
             raise ArchmorphException(404, "Job not found")
-        if job.owner_user_id != user.id:
+        canonical_owner = (durable_principal or {}).get("owner_user_id") or user.id
+        legacy_owners = set((durable_principal or {}).get("legacy_owner_user_ids", []))
+        if job.owner_user_id not in {canonical_owner, *legacy_owners}:
             raise ArchmorphException(404, "Job not found")
-        if job.tenant_id != user.tenant_id:
+        if job.tenant_id != (durable_principal or {}).get("tenant_id", user.tenant_id):
             raise ArchmorphException(404, "Job not found")
         return
 
@@ -65,20 +74,20 @@ def _job_principal_from_request(
     request: Request,
     *,
     allow_stream_token: bool = False,
-) -> Tuple[Optional["User"], Optional[str]]:
+) -> Tuple[Optional["User"], Optional[str], Optional[dict]]:
     from auth import get_user_from_request_headers
 
     headers = dict(request.headers)
     if allow_stream_token:
         stream_token = request.query_params.get("token")
-        if stream_token and "authorization" not in headers:
-            headers["authorization"] = f"Bearer {stream_token}"
+        if stream_token:
+            raise ArchmorphException(400, "Query-string bearer tokens are not accepted; use Authorization header")
     user = get_user_from_request_headers(headers)
     if user:
-        return user, None
+        return user, None, get_request_durable_principal(request)
     api_key_principal_id = get_api_key_service_principal(headers)
     if api_key_principal_id:
-        return None, api_key_principal_id
+        return None, api_key_principal_id, get_request_durable_principal(request)
     raise ArchmorphException(401, "Authentication required")
 
 
@@ -89,8 +98,8 @@ async def get_job_status(request: Request, job_id: str):
     job = job_manager.get(job_id)
     if not job:
         raise ArchmorphException(404, f"Job {job_id} not found")
-    user, api_key_principal_id = _job_principal_from_request(request)
-    _ensure_job_access(job, user, api_key_principal_id)
+    user, api_key_principal_id, principal = _job_principal_from_request(request)
+    _ensure_job_access(job, user, api_key_principal_id, durable_principal=principal)
     return job.to_dict()
 
 
@@ -110,8 +119,8 @@ async def stream_job(request: Request, job_id: str):
     job = job_manager.get(job_id)
     if not job:
         raise ArchmorphException(404, f"Job {job_id} not found")
-    user, api_key_principal_id = _job_principal_from_request(request, allow_stream_token=True)
-    _ensure_job_access(job, user, api_key_principal_id)
+    user, api_key_principal_id, principal = _job_principal_from_request(request, allow_stream_token=True)
+    _ensure_job_access(job, user, api_key_principal_id, durable_principal=principal)
     return sse_response(job_manager.stream(job_id))
 
 
@@ -122,8 +131,8 @@ async def cancel_job(request: Request, job_id: str):
     job = job_manager.get(job_id)
     if not job:
         raise ArchmorphException(404, f"Job {job_id} not found")
-    user, api_key_principal_id = _job_principal_from_request(request)
-    _ensure_job_access(job, user, api_key_principal_id)
+    user, api_key_principal_id, principal = _job_principal_from_request(request)
+    _ensure_job_access(job, user, api_key_principal_id, durable_principal=principal)
     cancelled = job_manager.cancel(job_id)
     if not cancelled:
         raise ArchmorphException(
@@ -142,12 +151,16 @@ async def list_jobs(
     limit: int = Query(50, ge=1, le=200),
 ):
     """List jobs with optional filters."""
-    user, api_key_principal_id = _job_principal_from_request(request)
+    user, api_key_principal_id, principal = _job_principal_from_request(request)
     jobs = job_manager.list_jobs(diagram_id=diagram_id, status=status, limit=limit)
     if user:
         jobs = [
             j for j in jobs
-            if j.get("owner_user_id") == user.id and j.get("tenant_id") == user.tenant_id
+            if j.get("owner_user_id") in {
+                principal["owner_user_id"],
+                *principal.get("legacy_owner_user_ids", []),
+            }
+            and j.get("tenant_id") == principal["tenant_id"]
         ]
     else:
         jobs = [j for j in jobs if j.get("owner_api_key_id") == api_key_principal_id]
@@ -176,6 +189,6 @@ async def get_queue_metrics(request: Request):
         from openai_client import get_openai_error_metrics
         metrics["openai"] = {**openai_defaults, **get_openai_error_metrics(), "available": True}
     except Exception:
-        logger.debug("OpenAI metrics unavailable for jobs summary", exc_info=True)
+        logger.debug("OpenAI metrics unavailable for jobs summary")
         metrics["openai"] = openai_defaults
     return metrics

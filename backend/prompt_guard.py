@@ -143,8 +143,8 @@ def validate_message(
         match = pattern.search(message)
         if match:
             logger.warning(
-                "Prompt guard [%s]: Injection pattern detected: '%s'",
-                context, match.group()[:80],
+                "Prompt guard [%s]: injection pattern detected",
+                context,
             )
             return False, None  # Don't reveal why — just reject silently
 
@@ -264,16 +264,16 @@ def sanitize_iac_param(
         if stripped.lower() in allowed_values:
             return stripped
         logger.warning(
-            "Prompt guard [iac_param]: %s value '%s' not in allowlist",
-            param_name, stripped[:60],
+            "Prompt guard [iac_param]: %s value not in allowlist",
+            param_name,
         )
         return default
 
     # Generic whitelist validation
     if not _IAC_PARAM_RE.match(stripped):
         logger.warning(
-            "Prompt guard [iac_param]: %s value '%s' contains disallowed characters",
-            param_name, stripped[:60],
+            "Prompt guard [iac_param]: %s value contains disallowed characters",
+            param_name,
         )
         return default
 

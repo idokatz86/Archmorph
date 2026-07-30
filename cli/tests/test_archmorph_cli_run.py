@@ -128,6 +128,7 @@ def test_run_emits_full_spine_artifacts(monkeypatch, tmp_path):
     assert "export_capability_expires_in" not in analysis
     assert client.restored_analysis["cli_run"]["target_resource_group"] == "rg-demo"
     assert "export_capability" not in client.restored_analysis
+    assert client.generated == ["terraform", "bicep"]
     assert 'resource "azurerm_resource_group"' in (out_dir / "terraform" / "main.tf").read_text()
     assert "targetScope" in (out_dir / "bicep" / "main.bicep").read_text()
     ET.fromstring((out_dir / "alz.svg").read_text())

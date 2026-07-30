@@ -879,10 +879,12 @@ npx swa deploy dist --deployment-token <token> --env production
 ### Helm Chart (Self-Hosted Kubernetes)
 
 ```bash
-helm install archmorph charts/archmorph/ \
-  --set backend.image=<acr>.azurecr.io/archmorph-api:latest \
-  --set frontend.image=<acr>.azurecr.io/archmorph-frontend:latest \
-  --namespace archmorph --create-namespace
+# Materialize the configured runtime Secret first, then run one serialized release.
+helm upgrade --install archmorph charts/archmorph/ \
+    --set image.repository=<acr>.azurecr.io/archmorph-api \
+    --set-string image.digest=sha256:<digest> \
+    --atomic --wait \
+    --namespace archmorph --create-namespace
 ```
 
 ### Estimated Costs

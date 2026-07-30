@@ -258,17 +258,18 @@ class TestAnalyze:
 
 
 class TestPurge:
-    def _upload(self, client):
+    def _upload(self, client, headers):
         content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
         resp = client.post(
             "/api/projects/proj-001/diagrams",
+            headers=headers,
             files={"file": ("test.png", io.BytesIO(content), "image/png")},
         )
         assert resp.status_code == 200
         return resp.json()["diagram_id"]
 
     def test_purge_clears_server_side_artifacts(self, client, clean_session, tenant_a_auth_headers):
-        did = self._upload(client)
+        did = self._upload(client, tenant_a_auth_headers)
         with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
             analyzed = client.post(f"/api/diagrams/{did}/analyze", headers=tenant_a_auth_headers)
         assert analyzed.status_code == 200
@@ -319,8 +320,7 @@ class TestPurge:
         assert did not in IMAGE_STORE
         assert did not in SESSION_STORE
         purged_job = job_manager.get(job.job_id)
-        assert purged_job is not None
-        assert purged_job.status.value == "cancelled"
+        assert purged_job is None
         assert shareable_reports.get_share_stats(share["share_id"]) is None
         assert f"{did}:iac" not in IAC_CHAT_SESSIONS
         assert not any(
@@ -339,7 +339,7 @@ class TestPurge:
         tenant_a_auth_headers,
         tenant_b_auth_headers,
     ):
-        did = self._upload(client)
+        did = self._upload(client, tenant_a_auth_headers)
         with patch("routers.diagrams.analyze_image", return_value=copy.deepcopy(MOCK_ANALYSIS)):
             analyzed = client.post(f"/api/diagrams/{did}/analyze", headers=tenant_a_auth_headers)
         assert analyzed.status_code == 200

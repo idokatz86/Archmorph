@@ -3,17 +3,24 @@ name: Manual Rollback
 on:
   workflow_dispatch:
     inputs:
-      revision_name:
-        description: 'Revision name to roll back to (leave empty for previous revision)'
+      release_run_id:
+        description: 'Exact successful release run ID (use with release_run_attempt)'
         required: false
+        default: ''
         type: string
-      traffic_percentage:
-        description: 'Traffic percentage to route to the target revision (default: 100)'
+      release_run_attempt:
+        description: 'Exact successful release run attempt containing immutable final evidence'
         required: false
-        default: '100'
+        default: ''
+        type: string
+      signed_final_manifest_base64:
+        description: 'Base64 signed final manifest for retained evidence after artifact expiry (exclusive with run inputs)'
+        required: false
+        default: ''
         type: string
 
 permissions:
+  actions: read
   id-token: write
   contents: read
 
@@ -23,16 +30,52 @@ env:
   AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
   AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
   CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
+  MIGRATION_JOB_NAME: ${{ secrets.MIGRATION_JOB_NAME }}
   API_URL: ${{ secrets.API_URL }}
   ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY }}
   ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
+  RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
+  RELEASE_WORKFLOW_NAME: CI/CD
+  ROLLOUT_COORDINATION_CLIENT_ID: ${{ secrets.ROLLOUT_COORDINATION_CLIENT_ID }}
+  ROLLOUT_COORDINATION_STORAGE_ACCOUNT: ${{ secrets.ROLLOUT_COORDINATION_STORAGE_ACCOUNT }}
+  ROLLOUT_COORDINATION_CONTAINER: ${{ vars.ROLLOUT_COORDINATION_CONTAINER || 'rollout-coordination' }}
 
 jobs:
+  publish-priority:
+    runs-on: ${{ fromJSON(vars.ROLLBACK_PRIORITY_RUNNER_LABELS) }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Azure Login for rollout coordination (OIDC)
+        uses: azure/login@v3
+        with:
+          client-id: ${{ env.ROLLOUT_COORDINATION_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Publish and maintain emergency rollback priority
+        run: |
+          set -euo pipefail
+          : "${ROLLOUT_COORDINATION_CLIENT_ID:?ROLLOUT_COORDINATION_CLIENT_ID is required}"
+          : "${ROLLOUT_COORDINATION_STORAGE_ACCOUNT:?ROLLOUT_COORDINATION_STORAGE_ACCOUNT is required}"
+          : "${ROLLOUT_COORDINATION_CONTAINER:?ROLLOUT_COORDINATION_CONTAINER is required}"
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            maintain-priority \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --max-seconds 3300 \
+            --interval-seconds 15
+
   rollback:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
+    runs-on: ${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}
+    timeout-minutes: 45
     environment: production
     steps:
+      - uses: actions/checkout@v6
+
       - name: Azure Login (OIDC)
         uses: azure/login@v3
         with:
@@ -40,80 +83,438 @@ jobs:
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
 
-      - name: Determine rollback revision
-        id: revision
-        env:
-          INPUT_REVISION: ${{ github.event.inputs.revision_name }}
+      - name: Claim independently published emergency rollback priority
+        id: rollback_priority
         run: |
-          if [ -n "$INPUT_REVISION" ]; then
-            echo "target=$INPUT_REVISION" >> $GITHUB_OUTPUT
-            echo "Using specified revision: $INPUT_REVISION"
-          else
-            # Get the list of revisions, pick the second one (previous active)
-            REVISIONS=$(az containerapp revision list \
-              --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --query "[?properties.active].name" -o tsv)
-            
-            CURRENT=$(az containerapp revision list \
-              --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-              --query "[?properties.trafficWeight > \`0\`].name" -o tsv | head -1)
+          set -euo pipefail
+          : "${ROLLOUT_COORDINATION_STORAGE_ACCOUNT:?ROLLOUT_COORDINATION_STORAGE_ACCOUNT is required}"
+          : "${ROLLOUT_COORDINATION_CONTAINER:?ROLLOUT_COORDINATION_CONTAINER is required}"
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            claim-intent \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --wait-seconds 900 \
+            --retry-seconds 5 \
+            --intent-output "$RUNNER_TEMP/rollback-intent-name" \
+            --lease-id-output "$RUNNER_TEMP/rollback-intent-lease-id"
+          ROLLBACK_INTENT=$(cat "$RUNNER_TEMP/rollback-intent-name")
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            heartbeat --mode rollback \
+            --intent "$ROLLBACK_INTENT" \
+            --intent-lease-id-file "$RUNNER_TEMP/rollback-intent-lease-id" \
+            --interval-seconds 15 --max-failures 3 &
+          echo "$!" > "$RUNNER_TEMP/rollback-intent-heartbeat-pid"
 
-            PREVIOUS=$(echo "$REVISIONS" | grep -v "^$CURRENT$" | head -1)
-            
-            if [ -z "$PREVIOUS" ]; then
-              echo "::error::No previous revision found for rollback"
-              exit 1
+      - name: Wait boundedly for migration execution quiescence
+        run: |
+          set -euo pipefail
+          : "${MIGRATION_JOB_NAME:?MIGRATION_JOB_NAME is required for rollback quiescence checks}"
+          az containerapp job list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --output json > rollback-containerapp-jobs.json
+          JOB_COUNT=$(jq --arg name "$MIGRATION_JOB_NAME" \
+            '[.[] | select(.name == $name)] | length' rollback-containerapp-jobs.json)
+          if [ "$JOB_COUNT" -ne 1 ]; then
+            echo "::error::Migration Job identity is absent or ambiguous; traffic remains unchanged"
+            exit 1
+          fi
+          QUIESCENT=false
+          for attempt in $(seq 1 60); do
+            az containerapp job execution list \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --output json > rollback-migration-executions.json
+            NONTERMINAL_COUNT=$(jq '[.[] | select(
+              (.properties.status // "Unknown") as $status
+              | ($status != "Succeeded" and $status != "Failed" and
+                 $status != "Stopped" and $status != "Cancelled" and
+                 $status != "Canceled")
+            )] | length' rollback-migration-executions.json)
+            if [ "$NONTERMINAL_COUNT" -eq 0 ]; then
+              QUIESCENT=true
+              break
             fi
-            echo "target=$PREVIOUS" >> $GITHUB_OUTPUT
-            echo "Rolling back to previous revision: $PREVIOUS (current: $CURRENT)"
+            if [ "$attempt" -lt 60 ]; then
+              sleep 5
+            fi
+          done
+          if [ "$QUIESCENT" != "true" ]; then
+            echo "::error::Manual rollback could not prove migration quiescence within five minutes; traffic remains unchanged"
+            exit 1
           fi
 
-      - name: Activate rollback revision
+      - name: Acquire exclusive emergency rollout ownership
         run: |
-          az containerapp revision activate \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --revision ${{ steps.revision.outputs.target }}
+          set -euo pipefail
+          ROLLBACK_INTENT=$(cat "$RUNNER_TEMP/rollback-intent-name")
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            wait-turn --intent "$ROLLBACK_INTENT" \
+            --wait-seconds 900 --retry-seconds 5
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            acquire --mode rollback --intent "$ROLLBACK_INTENT" \
+            --wait-seconds 900 --retry-seconds 5 \
+            --lease-id-output "$RUNNER_TEMP/rollout-lease-id"
+          if [ -s "$RUNNER_TEMP/rollback-intent-heartbeat-pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/rollback-intent-heartbeat-pid")" >/dev/null 2>&1 || true
+          fi
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            heartbeat --mode rollback \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+            --intent "$ROLLBACK_INTENT" \
+            --intent-lease-id-file "$RUNNER_TEMP/rollback-intent-lease-id" \
+            --interval-seconds 15 --max-failures 3 &
+          echo "$!" > "$RUNNER_TEMP/rollback-intent-heartbeat-pid"
 
-      - name: Shift traffic to rollback revision
+      - name: Reconfirm migration quiescence under exclusive ownership
+        run: |
+          set -euo pipefail
+          az containerapp job execution list \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --output json > rollback-migration-executions-owned.json
+          NONTERMINAL_COUNT=$(jq '[.[] | select(
+            (.properties.status // "Unknown") as $status
+            | ($status != "Succeeded" and $status != "Failed" and
+               $status != "Stopped" and $status != "Cancelled" and
+               $status != "Canceled")
+          )] | length' rollback-migration-executions-owned.json)
+          if [ "$NONTERMINAL_COUNT" -ne 0 ]; then
+            echo "::error::Migration execution appeared after exclusive ownership; traffic remains unchanged"
+            exit 1
+          fi
+
+      - name: Resolve explicit signed final rollback target
+        id: revision
         env:
-          INPUT_TRAFFIC: ${{ github.event.inputs.traffic_percentage || '100' }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_RUN_ID: ${{ github.event.inputs.release_run_id }}
+          RELEASE_RUN_ATTEMPT: ${{ github.event.inputs.release_run_attempt }}
+          SIGNED_FINAL_MANIFEST_BASE64: ${{ github.event.inputs.signed_final_manifest_base64 }}
+        run: |
+          set -euo pipefail
+          if [ "${#RELEASE_MANIFEST_HMAC_KEY}" -lt 32 ]; then
+            echo "::error::RELEASE_MANIFEST_HMAC_KEY must contain at least 32 bytes"
+            exit 1
+          fi
+          RUN_SOURCE=0
+          MANIFEST_SOURCE=0
+          if [ -n "$RELEASE_RUN_ID" ] || [ -n "$RELEASE_RUN_ATTEMPT" ]; then
+            RUN_SOURCE=1
+          fi
+          if [ -n "$SIGNED_FINAL_MANIFEST_BASE64" ]; then
+            MANIFEST_SOURCE=1
+          fi
+          if [ $((RUN_SOURCE + MANIFEST_SOURCE)) -ne 1 ]; then
+            echo "::error::Select exactly one signed final source: run ID+attempt or base64 manifest"
+            exit 1
+          fi
+          mkdir -p release-evidence
+          VERIFY_SELECTION=()
+          if [ "$RUN_SOURCE" -eq 1 ]; then
+            if ! [[ "$RELEASE_RUN_ID" =~ ^[1-9][0-9]*$ ]] || \
+              ! [[ "$RELEASE_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+              echo "::error::Both release_run_id and release_run_attempt must be positive integers"
+              exit 1
+            fi
+            ARTIFACT_NAME="backend-release-evidence-${RELEASE_RUN_ID}-${RELEASE_RUN_ATTEMPT}"
+            gh api "/repos/${GITHUB_REPOSITORY}/actions/runs/${RELEASE_RUN_ID}/attempts/${RELEASE_RUN_ATTEMPT}" \
+              > release-evidence/selected-release-run.json
+            if ! jq -e \
+              --arg workflow "$RELEASE_WORKFLOW_NAME" \
+              --argjson attempt "$RELEASE_RUN_ATTEMPT" '
+                .name == $workflow
+                and .run_attempt == $attempt
+                and .conclusion == "success"
+                and (.head_sha | type == "string" and test("^[0-9a-f]{40}$"))
+              ' release-evidence/selected-release-run.json >/dev/null; then
+              echo "::error::Selected release run/attempt is not a successful ${RELEASE_WORKFLOW_NAME} execution"
+              exit 1
+            fi
+            if ! gh run download "$RELEASE_RUN_ID" \
+              --name "$ARTIFACT_NAME" \
+              --dir release-evidence; then
+              echo "::error::Exact final evidence is unavailable or expired; supply a retained signed_final_manifest_base64 instead"
+              exit 1
+            fi
+            VERIFY_SELECTION=(
+              --expected-run-id "$RELEASE_RUN_ID"
+              --expected-run-attempt "$RELEASE_RUN_ATTEMPT"
+            )
+          else
+            if ! printf '%s' "$SIGNED_FINAL_MANIFEST_BASE64" \
+              | base64 --decode > release-evidence/final-release-manifest.json; then
+              echo "::error::signed_final_manifest_base64 is not valid base64"
+              exit 1
+            fi
+          fi
+          test -s release-evidence/final-release-manifest.json
+          TARGET=$(python scripts/containerapp_rollout.py verify-release-manifest \
+            --input release-evidence/final-release-manifest.json \
+            --required-role final \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow "$RELEASE_WORKFLOW_NAME" \
+            "${VERIFY_SELECTION[@]}" \
+            --field revision)
+          SIGNED_SOURCE_SHA=$(python scripts/containerapp_rollout.py verify-release-manifest \
+            --input release-evidence/final-release-manifest.json \
+            --required-role final \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow "$RELEASE_WORKFLOW_NAME" \
+            "${VERIFY_SELECTION[@]}" \
+            --field source_sha)
+          if [ "$RUN_SOURCE" -eq 1 ]; then
+            SELECTED_SOURCE_SHA=$(jq -er '.head_sha' release-evidence/selected-release-run.json)
+            if [ "$SIGNED_SOURCE_SHA" != "$SELECTED_SOURCE_SHA" ]; then
+              echo "::error::Signed final source SHA does not match the selected release run"
+              exit 1
+            fi
+          fi
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "$TARGET" \
+            -o json > rollback-target-revision.json
+          python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest release-evidence/final-release-manifest.json \
+            --revision-json rollback-target-revision.json \
+            --required-role final \
+            --require-zero-traffic >/dev/null
+          echo "target=$TARGET" >> "$GITHUB_OUTPUT"
+
+      - name: Capture exact prior traffic and rollback target
+        id: rollback_state
+        env:
           ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
         run: |
-          az containerapp ingress traffic set \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group ${{ env.AZURE_RESOURCE_GROUP }} \
-            --revision-weight "$ROLLBACK_TARGET=$INPUT_TRAFFIC"
-          echo "Shifted ${INPUT_TRAFFIC}% traffic to $ROLLBACK_TARGET"
+          set -euo pipefail
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            -o json > containerapp-before-rollback.json
+          az containerapp revision list \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --all \
+            -o json > revisions-before-rollback.json
+          jq '.properties.configuration.ingress.traffic' containerapp-before-rollback.json \
+            > pre-rollback-traffic-original.json
+          python scripts/containerapp_rollout.py explicit-traffic \
+            --input pre-rollback-traffic-original.json \
+            --container-app containerapp-before-rollback.json \
+            --revisions revisions-before-rollback.json \
+            --output pre-rollback-traffic-manifest.json
+          cat > rollback-target-traffic-manifest.json <<EOF
+          [{"revisionName":"${ROLLBACK_TARGET}","weight":100,"label":""}]
+          EOF
+
+      - name: Assert emergency ownership before target activation
+        run: |
+          ROLLBACK_INTENT=$(cat "$RUNNER_TEMP/rollback-intent-name")
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode rollback \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+            --intent "$ROLLBACK_INTENT" \
+            --intent-lease-id-file "$RUNNER_TEMP/rollback-intent-lease-id"
+
+      - name: Verify target schema compatibility before activation
+        id: compatibility
+        env:
+          ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
+        run: |
+          set -euo pipefail
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "$ROLLBACK_TARGET" \
+            -o json > rollback-target-revision.json
+          TARGET_ACTIVE=$(jq -r '.properties.active // false' rollback-target-revision.json)
+          activated_here=0
+          cleanup_preflight_target() {
+            if [ "$activated_here" -eq 1 ]; then
+              az containerapp revision deactivate \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --revision "$ROLLBACK_TARGET" || true
+            fi
+          }
+          trap cleanup_preflight_target ERR
+          TARGET_FQDN=$(python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest release-evidence/final-release-manifest.json \
+            --revision-json rollback-target-revision.json \
+            --required-role final \
+            --require-zero-traffic)
+          if [ "$TARGET_ACTIVE" != "true" ]; then
+            echo "Rollback target is inactive; activating it at zero traffic for schema preflight"
+            az containerapp revision activate \
+              --name "$CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --revision "$ROLLBACK_TARGET"
+            activated_here=1
+          fi
+
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "$ROLLBACK_TARGET" \
+            -o json > rollback-target-activated-revision.json
+          TARGET_FQDN=$(python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest release-evidence/final-release-manifest.json \
+            --revision-json rollback-target-activated-revision.json \
+            --required-role final \
+            --require-zero-traffic)
+
+          COMPATIBILITY_CODE="000"
+          for attempt in $(seq 1 20); do
+            if ! COMPATIBILITY_CODE=$(curl -sS -o schema-compatibility.json -w "%{http_code}" \
+              --max-time 30 "https://${TARGET_FQDN}/api/schema-compatibility"); then
+              COMPATIBILITY_CODE="000"
+            fi
+            if [ "$COMPATIBILITY_CODE" = "200" ] || [ "$COMPATIBILITY_CODE" = "409" ]; then
+              break
+            fi
+            if [ "$attempt" -lt 20 ]; then
+              sleep 10
+            fi
+          done
+          if [ "$COMPATIBILITY_CODE" != "200" ]; then
+            echo "::error::Target revision schema preflight returned HTTP ${COMPATIBILITY_CODE}; traffic remains unchanged"
+            [ -s schema-compatibility.json ] && cat schema-compatibility.json || true
+            exit 1
+          fi
+          CURRENT_SCHEMA=$(python scripts/containerapp_rollout.py verify-runtime-compatibility \
+            --manifest release-evidence/final-release-manifest.json \
+            --runtime schema-compatibility.json \
+            --required-role final)
+          cp schema-compatibility.json rollback-preflight-schema-compatibility.json
+          trap - ERR
+          echo "Rollback target supports current schema ${CURRENT_SCHEMA}; activation may proceed"
+
+      - name: Assert emergency ownership before rollback traffic mutation
+        run: |
+          ROLLBACK_INTENT=$(cat "$RUNNER_TEMP/rollback-intent-name")
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode rollback \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+            --intent "$ROLLBACK_INTENT" \
+            --intent-lease-id-file "$RUNNER_TEMP/rollback-intent-lease-id"
+
+      - name: Shift traffic to rollback revision
+        id: shift_rollback
+        env:
+          ROLLBACK_TARGET: ${{ steps.revision.outputs.target }}
+        run: |
+          set -euo pipefail
+          touch rollback-shift-attempted
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input rollback-target-traffic-manifest.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output rollback-routed-traffic.json
+          echo "Shifted 100% traffic to $ROLLBACK_TARGET"
 
       - name: Verify rollback health
+        id: verify_rollback
         run: |
+          set -euo pipefail
           echo "Waiting 30s for revision to stabilize..."
           sleep 30
           BASE="${API_URL%/}"
           BASE="${BASE%/api}"
+          if ! curl -fsS --max-time 30 "${BASE}/readyz" >/dev/null; then
+            echo "::error::Final target readiness check failed after rollback"
+            exit 1
+          fi
+          curl -fsS --max-time 30 "${BASE}/api/schema-compatibility" \
+            -o rollback-routed-schema-compatibility.json
+          python scripts/containerapp_rollout.py verify-runtime-compatibility \
+            --manifest release-evidence/final-release-manifest.json \
+            --runtime rollback-routed-schema-compatibility.json \
+            --required-role final >/dev/null
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "${{ steps.revision.outputs.target }}" \
+            -o json > rollback-routed-revision.json
+          python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest release-evidence/final-release-manifest.json \
+            --revision-json rollback-routed-revision.json \
+            --required-role final >/dev/null
+          ROUTED_REVISION=$(az containerapp revision list \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query "[?properties.trafficWeight==\`100\`].name | [0]" -o tsv)
+          [ "$ROUTED_REVISION" = "${{ steps.revision.outputs.target }}" ]
           HEALTH_API_KEY="${ARCHMORPH_API_KEY:-${ADMIN_KEY:-}}"
-          _CURL_ARGS=(-sS --max-time 30)
-          if [ -n "$HEALTH_API_KEY" ]; then
-            _CURL_ARGS+=(-H "X-API-Key: ${HEALTH_API_KEY}")
-          fi
-          if ! HTTP_CODE=$(curl "${_CURL_ARGS[@]}" -o health.json -w "%{http_code}" "${BASE}/api/health"); then
-            echo "::error::Health check curl failed after rollback"
-            cat health.json || true
+          : "${HEALTH_API_KEY:?ARCHMORPH_API_KEY or ADMIN_KEY is required}"
+          if ! HTTP_CODE=$(curl -sS --max-time 30 \
+            -H "X-API-Key: ${HEALTH_API_KEY}" \
+            -o rollback-health.json -w "%{http_code}" "${BASE}/api/health"); then
+            echo "::error::Final target health check failed after rollback"
             exit 1
           fi
-          if [ "$HTTP_CODE" != "200" ]; then
-            echo "::error::Health check returned HTTP ${HTTP_CODE} after rollback"
-            cat health.json || true
-            exit 1
+          [ "$HTTP_CODE" = "200" ]
+          jq -e '.status == "healthy"' rollback-health.json >/dev/null
+          echo "Rollback successful — exact signed final revision is healthy and schema-compatible"
+
+      - name: Restore exact prior traffic after rollback failure
+        if: always() && steps.rollback_state.outcome == 'success' && hashFiles('rollback-shift-attempted') != '' && steps.verify_rollback.outcome != 'success'
+        run: |
+          set -euo pipefail
+          RESTORE_STATUS=0
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input pre-rollback-traffic-manifest.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output restored-traffic.json || RESTORE_STATUS=$?
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "${{ steps.revision.outputs.target }}" \
+            --query '{name:name,state:properties.runningState,health:properties.healthState,traffic:properties.trafficWeight}' -o json || true
+          if [ "$RESTORE_STATUS" -ne 0 ]; then
+            echo "::error::Exact prior traffic restoration failed"
+            exit "$RESTORE_STATUS"
           fi
-          HEALTH=$(jq -r '.status' health.json)
-          VERSION=$(jq -r '.version' health.json)
-          if [ "$HEALTH" != "healthy" ]; then
-            echo "::error::Health check failed after rollback: $HEALTH"
-            cat health.json || true
-            exit 1
+
+      - name: Release emergency ownership and clear successful priority
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -s "$RUNNER_TEMP/rollback-intent-heartbeat-pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/rollback-intent-heartbeat-pid")" >/dev/null 2>&1 || true
           fi
-          echo "Rollback successful — version: $VERSION, status: $HEALTH"
+          FINISH_ARGS=()
+          if [ -s "$RUNNER_TEMP/rollout-lease-id" ]; then
+            FINISH_ARGS+=(--rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id")
+          fi
+          if [ -s "$RUNNER_TEMP/rollback-intent-name" ] && \
+             [ -s "$RUNNER_TEMP/rollback-intent-lease-id" ]; then
+            FINISH_ARGS+=(
+              --intent "$(cat "$RUNNER_TEMP/rollback-intent-name")"
+              --intent-lease-id-file "$RUNNER_TEMP/rollback-intent-lease-id"
+            )
+            if [ "${{ steps.verify_rollback.outcome }}" = "success" ]; then
+              FINISH_ARGS+=(--clear-intent)
+            fi
+          fi
+          if [ "${#FINISH_ARGS[@]}" -gt 0 ]; then
+            python scripts/azure_rollout_lease.py \
+              --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+              --container "$ROLLOUT_COORDINATION_CONTAINER" \
+              finish "${FINISH_ARGS[@]}" \
+              || echo "::warning::Emergency lease cleanup was not confirmed; finite lease expiry remains authoritative"
+          fi

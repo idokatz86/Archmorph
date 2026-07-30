@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 from typing import List, Optional, Dict, Any
 from pydantic import ConfigDict
@@ -6,7 +6,7 @@ from strict_models import StrictBaseModel
 
 from database import get_db
 from auth import User
-from routers.shared import require_authenticated_user_context
+from routers.shared import get_request_durable_principal, require_authenticated_user_context
 from rbac import RequireRole
 from models.model_registry import ModelEndpoint
 
@@ -39,8 +39,11 @@ class ModelEndpointResponseSchema(StrictBaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 @router.post("/", response_model=ModelEndpointResponseSchema, status_code=status.HTTP_201_CREATED)
-def register_model(payload: ModelEndpointCreateSchema, db: Session = Depends(get_db), user: User = Depends(RequireRole(['admin', 'super_admin']))):
-    org_id = user.tenant_id
+def register_model(payload: ModelEndpointCreateSchema, request: Request, db: Session = Depends(get_db), user: User = Depends(RequireRole(['admin', 'super_admin']))):
+    principal = get_request_durable_principal(request)
+    org_id = (principal or {}).get("tenant_id")
+    if not org_id:
+        raise HTTPException(status_code=401, detail="Authentication context missing organization")
     
     endpoint = ModelEndpoint(
         organization_id=org_id,
@@ -57,13 +60,17 @@ def register_model(payload: ModelEndpointCreateSchema, db: Session = Depends(get
     return endpoint
 
 @router.get("/", response_model=List[ModelEndpointResponseSchema])
-def list_models(db: Session = Depends(get_db), user: dict = Depends(require_authenticated_user_context)):
-    org_id = _org_id(user)
-    return db.query(ModelEndpoint).filter(ModelEndpoint.organization_id == org_id).all()
+def list_models(request: Request, db: Session = Depends(get_db), user: dict = Depends(require_authenticated_user_context), skip: int = 0, limit: int = 100):
+    principal = get_request_durable_principal(request)
+    org_id = (principal or {}).get("tenant_id") or _org_id(user)
+    return db.query(ModelEndpoint).filter(ModelEndpoint.organization_id == org_id).offset(max(0, skip)).limit(max(1, min(limit, 200))).all()
 
 @router.delete("/{model_id}")
-def delete_model(model_id: str, db: Session = Depends(get_db), user: User = Depends(RequireRole(['admin', 'super_admin']))):
-    org_id = user.tenant_id
+def delete_model(model_id: str, request: Request, db: Session = Depends(get_db), user: User = Depends(RequireRole(['admin', 'super_admin']))):
+    principal = get_request_durable_principal(request)
+    org_id = (principal or {}).get("tenant_id")
+    if not org_id:
+        raise HTTPException(status_code=401, detail="Authentication context missing organization")
     endpoint = db.query(ModelEndpoint).filter(
         ModelEndpoint.id == model_id,
         ModelEndpoint.organization_id == org_id

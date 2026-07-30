@@ -12,9 +12,11 @@ Do not use `terraform destroy` or `azd down` for normal rollback. Those commands
 
 - GitHub Actions access to run the manual rollback workflow.
 - Azure RBAC for the production subscription and resource group.
-- GitHub secrets present: `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_RESOURCE_GROUP`, `CONTAINER_APP_NAME`, `API_URL`, `ACR_NAME`, and `ACR_LOGIN_SERVER`, plus `ARCHMORPH_API_KEY` or `ADMIN_KEY` for authenticated health verification.
+- GitHub secrets present: `AZURE_SUBSCRIPTION_ID`, `AZURE_TENANT_ID`, `AZURE_CLIENT_ID`, `AZURE_RESOURCE_GROUP`, `CONTAINER_APP_NAME`, `MIGRATION_JOB_NAME`, `API_URL`, `ACR_NAME`, and `ACR_LOGIN_SERVER`, plus `ARCHMORPH_API_KEY` or `ADMIN_KEY` for authenticated health verification.
 - Azure CLI authenticated if using the manual fallback.
-- Release evidence for the last known good backend revision, frontend artifact, Git SHA, and container image tag or digest.
+- Release evidence for a signed final revision, frontend artifact, Git SHA,
+  immutable image digest, observed schema, canonical schema-contract digest,
+  exact run/attempt identity, and exact traffic manifest.
 
 ## Decision Points
 
@@ -39,12 +41,44 @@ Abort rollback and escalate if:
 Prefer the `Manual Rollback` workflow in `.github/workflows/rollback.yml`.
 
 1. Open GitHub Actions and choose `Manual Rollback`.
-2. Enter the target `revision_name` when known. Leave it empty to select the previous active revision automatically.
-3. Keep `traffic_percentage` at `100` for a full rollback unless doing a controlled partial shift.
-4. Run the workflow. The `rollback` job is bound to the GitHub `production` Environment, so GitHub will pause before Azure login and traffic movement until required reviewers approve the deployment (or an authorized emergency bypass is used under repository policy).
-5. For emergency rollback, page the designated production environment approver immediately. If GitHub Actions or environment approval is unavailable, use the Azure CLI fallback below and record why the protected workflow could not be used.
-6. Confirm the workflow activates the target revision, shifts traffic, and verifies authenticated `${API_URL}/api/health`.
-7. Capture the workflow URL, target revision, version, approval/bypass evidence, and health output in release evidence.
+2. Enter the exact successful `release_run_id` and `release_run_attempt` whose
+   immutable artifact is named for both values. If retention expired, supply the
+   retained HMAC-signed final manifest as base64 instead. Supply exactly one
+   source; the workflow never searches for a latest or historical fallback.
+3. The workflow verifies `role=final` and binds source SHA, immutable image
+  digest, observed schema, canonical contract digest, build provenance,
+  repository/workflow, platform, and run identity. Partial rollback is not supported.
+4. Run the workflow. The `rollback` job is bound to the GitHub `production`
+   Environment, so required reviewers approve Azure login and traffic movement.
+5. For emergency rollback, page the designated production environment approver.
+   If the protected workflow is unavailable, use the fallback below and record why.
+6. Confirm the target starts at zero traffic. The workflow compares its image,
+   source SHA, role, schema bounds, and contract digest to the signed manifest,
+   then queries `/api/schema-compatibility` before any traffic change. Runtime
+   values are compared with signed evidence, never with values read from the same
+   untrusted response.
+7. Only after compatibility succeeds, confirm the workflow shifts 100% traffic,
+   verifies the exact final contract again, and proves authenticated API health
+   returns HTTP 200 with `status=healthy`.
+8. If routed verification fails, confirm exact pre-rollback weights are restored
+   and verified before the workflow fails.
+9. Capture the workflow URL, target revision, image/source/contract digests,
+   current schema, approval evidence, and health output.
+
+On dispatch, a separate no-approval job uses the dedicated least-privilege
+`ROLLOUT_COORDINATION_CLIENT_ID` OIDC identity to publish and refresh the priority
+Blob on the separately capacity-reserved `ROLLBACK_PRIORITY_RUNNER_LABELS` pool
+before the production approval job can start. This occurs outside the
+replaceable GitHub concurrency queue. The publisher maintains priority for a
+bounded 55-minute approval/handoff window; the approved job claims the finite
+lease, and the publisher exits. The workflow then waits up to five minutes for all migration executions to
+be terminal, waits for deterministic priority among multiple rollback dispatches,
+acquires the exclusive rollout Blob lease, and repeats the migration check. A new
+deploy, Helm release, or Terraform apply must stop at its next schema-safe checkpoint
+while that intent is live. A cancelled or lost runner stops renewing; the finite
+lease expires and the next owner garbage-collects the stale intent. Successful
+rollback releases and deletes its own intent. No account key, SAS, resource ID,
+URL, or secret is written to coordination evidence.
 
 The workflow normalizes `API_URL`, calls `/api/health`, sends `X-API-Key` from `ARCHMORPH_API_KEY` with `ADMIN_KEY` fallback when present, and uses the production Environment OIDC subject so Azure trust is scoped to approved production runs instead of branch name alone.
 
@@ -58,7 +92,12 @@ Set context:
 az account set --subscription "$AZURE_SUBSCRIPTION_ID"
 ```
 
-List revisions and identify the last known good target:
+Retrieve and verify the signed final manifest from successful release evidence.
+Use its explicit revision/image pair. List revisions only to confirm that target
+still exists; never derive a target by selecting the first or second active row:
+
+Bridge manifests are not manual rollback targets. They exist only inside the
+supervised migration recovery path while a schema transition is unresolved.
 
 ```bash
 az containerapp revision list \
@@ -68,7 +107,14 @@ az containerapp revision list \
   --output table
 ```
 
-Activate the target revision:
+Before activation, read the target's schema metadata and call its zero-traffic
+preflight endpoint. If the retained target is inactive, the workflow may activate
+it with zero traffic only so the endpoint can start; on incompatibility it
+deactivates that revision again. Stop if metadata is absent, the endpoint is
+unavailable, or the current revision is outside the declared accepted range. Do
+**not** change traffic before compatibility succeeds.
+
+Activate the compatible target revision:
 
 ```bash
 az containerapp revision activate \
@@ -96,7 +142,9 @@ curl -fsS \
   "${BASE}/api/health" | jq .
 ```
 
-Expected result: `.status == "healthy"`, scheduled jobs are fresh or intentionally disabled, Redis is `ok` or accepted as `disabled_optional`, and version/SHA match the intended rollback target.
+Expected final rollback result: readiness is 200, schema compatibility is
+`compatible` with `release_role=final` and exactly the signed contract, the routed
+revision matches the manifest, and authenticated API health is 200/`healthy`.
 
 ## ACR Image Pinning
 
@@ -126,7 +174,14 @@ If a new hotfix deployment is required, pin the target image by digest in the de
 
 ## Frontend Rollback
 
-Static Web Apps does not have the same revision traffic model as Container Apps. Use one of these paths:
+Static Web Apps does not have the same revision traffic model as Container Apps.
+CI downloads the prior successful `frontend-dist` before deployment and restores
+it automatically when routed verification fails. For manual recovery:
+
+For the first bridge rollout, a prior complete artifact may not exist. In that
+case frontend failure blocks the release without a speculative restore; the
+routed bridge remains compatible with the previous frontend until a verified
+frontend artifact succeeds.
 
 - Redeploy the previously tested Static Web Apps artifact from the successful CI/CD run.
 - Revert the bad frontend commit and let CI/CD publish the recovered artifact.
@@ -143,6 +198,30 @@ After frontend rollback, verify:
 
 Application rollback should not automatically downgrade the production database.
 
+Archmorph uses expand/contract application compatibility across a bounded
+rollback window:
+
+- Each image exposes `minimum_revision`, `maximum_revision`, and explicit
+  `accepted_revisions` at `/api/schema-compatibility`.
+- The deployment workflow stores the same minimum/maximum values in the
+  Container Apps revision environment metadata.
+- Migration `014` retains `tenant_rehome_aliases` and `tenant_rehome_audit`.
+  Resolved exact-scope analysis aliases remain read-through compatible through
+  the current `014` application rollback window so a compatible previous app can
+  follow retained identities without reversing the rewrite. Future migration
+  heads are incompatible by default until this contract and its tests change.
+- Quarantined, ambiguous, or foreign-scope aliases remain fail-closed. The alias
+  mapping is evidence, not authority to guess a provider or tenant.
+- Contract cleanup that removes alias read-through is a later migration and must
+  occur only after the rollback window and retained revision expiry.
+
+The migration evidence preserves what changed and where retained rows moved. It
+does **not** mean a downgrade can reconstruct deleted, merged, or deduplicated
+identities. Migration `014` therefore refuses downgrade whenever tenant rewrite
+alias/audit evidence exists; only an unused empty schema can participate in the
+automated Alembic downgrade cycle. Never claim that destructive identity
+rewrites are reversible.
+
 Run Alembic downgrade only when all of these are true:
 
 - The migration is explicitly reversible and data-safe.
@@ -150,9 +229,87 @@ Run Alembic downgrade only when all of these are true:
 - Product and data owners accept any data loss or shape change.
 - The rollback target cannot run safely with the current schema.
 
-Default posture: keep the database at the current schema, roll the application back to a compatible revision, and fix forward with a new migration when needed.
+Default posture: keep the database at the current schema, roll the application
+back only to a preflight-compatible revision, or fix forward with a compatible
+image/new migration. If no retained revision accepts the current schema, do not
+change traffic; deploy a forward-fix revision that declares and proves support.
 
-CI now runs an Alembic smoke against PostgreSQL plus pgvector: heads, offline upgrade SQL generation, upgrade to head, downgrade to base, and re-upgrade. A migration that cannot complete this cycle must not be promoted.
+GitHub concurrency is only an optimization for ordinary CI runs; it is not the
+production lock. Container Apps deployment, manual rollback, Helm release, and
+Terraform apply use the same renewable Azure Blob lease through managed identity.
+Rollback priority is a separately leased durable intent, so a newer deploy cannot
+replace a pending emergency rollback. Active deploys check priority before bootstrap,
+bridge traffic, migration start, final traffic, and frontend mutation; after DDL
+starts they retain ownership until the exact execution is terminal and the bridge
+is schema-safe. A preflight failure exits before traffic mutation; a post-shift
+failure restores the exact prior manifest while ownership is still proven.
+
+### Interrupted migration supervision
+
+After a migration Job starts, CI immediately binds its exact execution name,
+Job name, resource group, and immutable image digest into HMAC-signed rollout
+state and uploads attempt-specific recovery evidence. Every automated recovery
+and rerun verifies that state before querying or stopping an execution. Never
+select the newest execution, infer revision `013`, or stop all Job executions.
+
+Immediately before start, CI also uploads a signed boundary containing the exact
+pre-existing execution inventory plus a unique non-secret execution marker. If
+the runner is cancelled after Azure accepts start but before the returned name is
+uploaded, a rerun may bind an execution only when one new execution proves that
+marker, the reviewed Alembic target, and the immutable image digest. Zero,
+multiple, missing-retention, malformed, or mismatched candidates remain
+recovery-required; no unrelated execution is stopped.
+
+If the bound execution is running, processing, unknown, or cannot be queried,
+the recovery path uses only these exact-execution control-plane forms:
+
+```bash
+az containerapp job execution show \
+  --job-execution-name "$EXECUTION" \
+  --name "$JOB" \
+  --resource-group "$RG" \
+  --query properties.status \
+  --output tsv
+
+az containerapp job stop \
+  --name "$JOB" \
+  --resource-group "$RG" \
+  --job-execution-name "$EXECUTION"
+```
+
+Poll the same execution to a terminal state before re-reading schema and choosing
+traffic. A missing execution is safe only when its terminal status already exists
+in verified signed state. If stop or quiescence cannot be proven, leave traffic
+on the schema-compatible bridge/green revision, mark recovery required, and page
+Platform Engineering. Manual rollback refuses all traffic mutation while any
+unsupervised nonterminal migration execution exists.
+
+Release workflows emit only bounded control-plane state, exception classes, and
+secret-free local lifecycle evidence. They do not stream Container App
+application logs into GitHub output. Detailed application diagnostics remain in
+the access-controlled Log Analytics/Application Insights workspace; inspect them
+there under incident RBAC and retention policy, and attach only redacted metadata
+to the private incident record.
+
+## Migration alert ownership
+
+Platform Engineering owns `archmorph-migration-job-failure`,
+`archmorph-migration-missing-evidence`, and the customer-degraded bridge alert.
+All notify the critical action group. A retained bridge explicitly reports
+`customer_mode=degraded_read_only`, pages Platform Engineering, keeps reviewed
+authenticated core reads available, and requires fix-forward recovery.
+Failure, timeout, cancellation, or absence of
+`ARCHMORPH_MIGRATION_EVIDENCE=` blocks rollout. Fix forward; never auto-downgrade.
+The alert queries use secret-free Application Insights lifecycle events rather
+than relying on provider-specific Container Apps Job log columns.
+
+CI runs Alembic structural compatibility checks against PostgreSQL plus pgvector:
+heads, offline upgrade SQL generation, and an empty-schema-only
+`014 -> 013 -> 014` cycle. That cycle proves migration structure, not production
+rollback. A separate nonempty-data regression proves revision `014` refuses to
+discard durable rows. Production recovery remains fix-forward or a retained
+schema-compatible bridge/final revision; do not infer data reversibility from
+the empty-schema CI gate.
 
 ## Health And Smoke Verification
 
@@ -199,10 +356,12 @@ Both requests must stay unauthenticated (`401` with `UNTRUSTED_SWA_PRINCIPAL`, o
 
 Use this checklist for quarterly operator drills:
 
-1. Identify current bad revision and previous known good revision.
-2. Run `Manual Rollback` workflow with the target revision.
+1. Identify the exact release run and attempt containing the signed known-good
+  final manifest, or its retained signed copy after artifact expiry.
+2. Run `Manual Rollback` with that exact evidence source.
 3. Confirm traffic is `100` percent on the rollback revision.
-4. Verify authenticated `/api/health` and release version/SHA.
+4. Verify exact image/source/schema metadata, final-role compatibility, and
+  authenticated 200/`healthy` behavior.
 5. Verify frontend root, translator, playground, and one Architecture Package export.
 6. Record elapsed time, workflow URL, target revision, image digest, and any manual steps.
 

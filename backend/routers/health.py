@@ -14,8 +14,11 @@ import logging
 import os
 import threading
 import time
-from fastapi import APIRouter, Depends
+from typing import cast, Literal
+
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
+from strict_models import StrictBaseModel
 
 from version import __version__
 from services import AWS_SERVICES, AZURE_SERVICES, GCP_SERVICES, CROSS_CLOUD_MAPPINGS
@@ -26,6 +29,28 @@ from routers.shared import ENVIRONMENT, verify_api_key
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
+
+
+class ReadinessChecks(StrictBaseModel):
+    database: Literal["ready", "unavailable"]
+    database_schema: Literal["ready", "unavailable"]
+    redis: Literal["ready", "unavailable"]
+
+
+class ReadinessResponse(StrictBaseModel):
+    status: Literal["ready", "not_ready"]
+    checks: ReadinessChecks
+
+
+class SchemaCompatibilityResponse(StrictBaseModel):
+    status: Literal["compatible", "incompatible"]
+    current_revision: str | None
+    minimum_revision: str
+    maximum_revision: str
+    accepted_revisions: list[str]
+    migration_target_revision: str
+    alias_read_through_until: str
+    release_role: Literal["bridge", "final"]
 
 # ── Cached dependency checks (avoid blocking I/O on every request) ─────
 _dep_checks_cache: dict | None = None
@@ -76,8 +101,9 @@ async def _catalog_health() -> tuple[dict, dict]:
         return _catalog_health_from_state(prefer_blob=False)
     except Exception as exc:  # noqa: BLE001
         logger.warning(
-            "Failed to load service catalog health from blob; falling back to disk: %s",
-            exc,
+            "Failed to load service catalog health from blob error_type=%s; "
+            "falling back to disk",
+            type(exc).__name__,
         )
         return _catalog_health_from_state(prefer_blob=False)
 
@@ -93,6 +119,19 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
     checks: dict[str, str] = {}
     degraded = False
     unhealthy = False
+
+    # ── PostgreSQL (canonical durable state) ──────────────
+    try:
+        from database import database_readiness
+
+        database = database_readiness()
+        checks["database_readiness"] = database
+        checks["database"] = "ok" if database["ready_for_production"] else "unavailable"
+        if database["production_like"] and not database["ready_for_production"]:
+            unhealthy = True
+    except Exception:
+        checks["database"] = "error"
+        unhealthy = True
 
     # ── OpenAI client ─────────────────────────────────────
     try:
@@ -145,9 +184,8 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
                 checks["storage"] = "ok"
             except Exception as exc:
                 logger.warning(
-                    "Storage health probe unreachable: %s: %s",
+                    "Storage health probe unreachable error_type=%s",
                     type(exc).__name__,
-                    exc,
                 )
                 checks["storage"] = "unreachable"
                 degraded = True
@@ -163,32 +201,38 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
     # ── Redis (optional unless REQUIRE_REDIS/ENFORCE_REDIS is set) ────────
     try:
         from session_store import (
-            REQUIRE_REDIS,
-            _create_redis_client,
             redis_configured,
             session_store_readiness,
         )
+        redis_readiness = session_store_readiness()
+        redis_required = bool(redis_readiness["require_redis"])
         if redis_configured():
-            try:
-                _create_redis_client(socket_connect_timeout=2)
+            if redis_readiness["redis_reachable"]:
                 checks["redis"] = "ok"
-            except Exception as exc:
-                # Connection failed — private endpoint not reachable or misconfigured
+            else:
                 logger.warning(
-                    "Redis health probe unreachable: %s: %s",
-                    type(exc).__name__,
-                    exc,
+                    "Redis health probe unreachable (error_type=%s)",
+                    redis_readiness.get("redis_error") or "unknown",
                 )
                 checks["redis"] = "unreachable"
-                degraded = True
+                if redis_required:
+                    unhealthy = True
+                else:
+                    degraded = True
         else:
-            checks["redis"] = "missing_required" if REQUIRE_REDIS else "disabled_optional"
-            if REQUIRE_REDIS:
-                degraded = True
-        checks["redis_readiness"] = session_store_readiness()
+            checks["redis"] = "missing_required" if redis_required else "disabled_optional"
+            if redis_required:
+                unhealthy = True
+        checks["redis_readiness"] = redis_readiness
+        from routers.shared import rate_limit_readiness
+
+        limiter_readiness = rate_limit_readiness()
+        checks["rate_limit_readiness"] = limiter_readiness
+        if not limiter_readiness["ready"]:
+            unhealthy = True
     except Exception:
         checks["redis"] = "error"
-        degraded = True
+        unhealthy = True
 
     # ── Service catalog sanity ────────────────────────────
     catalog_ok = len(AWS_SERVICES) > 0 and len(AZURE_SERVICES) > 0 and len(CROSS_CLOUD_MAPPINGS) > 0
@@ -221,8 +265,130 @@ async def healthz():
     return JSONResponse(content={"status": "alive"})
 
 
+@router.get(
+    "/readyz",
+    response_model=ReadinessResponse,
+    responses={
+        200: {
+            "description": "Required PostgreSQL and Redis dependencies are ready",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "ready",
+                        "checks": {
+                            "database": "ready",
+                            "database_schema": "ready",
+                            "redis": "ready",
+                        },
+                    }
+                }
+            },
+        },
+        503: {
+            "model": ReadinessResponse,
+            "description": "A required dependency is unavailable",
+            "content": {
+                "application/json": {
+                    "example": {
+                        "status": "not_ready",
+                        "checks": {
+                            "database": "unavailable",
+                            "database_schema": "unavailable",
+                            "redis": "unavailable",
+                        },
+                    }
+                }
+            },
+        },
+    },
+)
+async def readyz(response: Response) -> ReadinessResponse:
+    """Anonymous sanitized readiness for required PostgreSQL and Redis."""
+    database_ready = False
+    database_schema_ready = False
+    redis_ready = False
+    try:
+        from database import database_readiness
+
+        database = database_readiness()
+        database_ready = bool(database["ready_for_production"])
+        database_schema_ready = bool(
+            database.get("schema_compatible", database.get("schema_at_head", False))
+            and database["required_schema_present"]
+        )
+    except Exception:
+        database_ready = False
+        database_schema_ready = False
+    try:
+        from session_store import session_store_readiness
+        from routers.shared import rate_limit_readiness
+
+        redis = session_store_readiness()
+        redis_ready = bool(
+            redis["ready_for_horizontal_scale"]
+            and rate_limit_readiness()["ready"]
+        )
+    except Exception:
+        redis_ready = False
+
+    ready = database_ready and redis_ready
+    response.status_code = 200 if ready else 503
+    return ReadinessResponse(
+        status="ready" if ready else "not_ready",
+        checks=ReadinessChecks(
+            database="ready" if database_ready else "unavailable",
+            database_schema="ready" if database_schema_ready else "unavailable",
+            redis="ready" if redis_ready else "unavailable",
+        ),
+    )
+
+
+@router.get(
+    "/api/schema-compatibility",
+    response_model=SchemaCompatibilityResponse,
+    responses={
+        200: {"description": "This application revision supports the current database schema"},
+        409: {
+            "model": SchemaCompatibilityResponse,
+            "description": "This application revision cannot safely serve the current database schema",
+        },
+    },
+)
+async def schema_compatibility(response: Response) -> SchemaCompatibilityResponse:
+    """Sanitized activation preflight for green and rollback revisions."""
+    from database import database_readiness
+    from schema_compatibility import schema_is_supported, supported_schema_metadata
+
+    metadata = supported_schema_metadata()
+    try:
+        readiness = database_readiness()
+        current_revision = readiness.get("current_revision")
+        compatible = bool(
+            readiness.get("postgres_configured")
+            and readiness.get("connection_ok")
+            and readiness.get("required_schema_present")
+            and schema_is_supported(current_revision)
+        )
+    except Exception:
+        current_revision = None
+        compatible = False
+    response.status_code = 200 if compatible else 409
+    return SchemaCompatibilityResponse(
+        status="compatible" if compatible else "incompatible",
+        current_revision=current_revision if isinstance(current_revision, str) else None,
+        minimum_revision=str(metadata["minimum_revision"]),
+        maximum_revision=str(metadata["maximum_revision"]),
+        accepted_revisions=[str(item) for item in metadata["accepted_revisions"]],
+        migration_target_revision=str(metadata["migration_target_revision"]),
+        alias_read_through_until=str(metadata["alias_read_through_until"]),
+        release_role=cast(Literal["bridge", "final"], metadata["release_role"]),
+    )
+
+
 @router.get("/api/health")
 async def health(_auth=Depends(verify_api_key)):
+    from restore_grant_cleanup import restore_grant_cleanup_lifecycle
+
     update_status, freshness = await _catalog_health()
     scheduled_jobs = get_scheduled_jobs()
     checks, degraded, unhealthy = _run_dependency_checks()
@@ -277,6 +443,7 @@ async def health(_auth=Depends(verify_api_key)):
         "service_catalog_refresh": freshness,
         "scheduled_jobs": scheduled_jobs,
         "scheduler_running": update_status.get("scheduler_running", False),
+        "restore_grant_cleanup": restore_grant_cleanup_lifecycle.status(),
     }
 
     return JSONResponse(content=body, status_code=http_status)

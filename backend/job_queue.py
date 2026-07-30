@@ -245,7 +245,8 @@ class JobManager:
         self._ttl_seconds = ttl_seconds
         self._max_events_per_job = max_events_per_job or int(os.getenv("JOB_EVENT_RING_SIZE", "200"))
         self._jobs_store = get_store("jobs", maxsize=max_jobs, ttl=ttl_seconds)
-        # One key per job_id: {next_seq, dropped_events, events:[{id,event,data,ts}]}
+        # One key per job_id. Scope metadata is duplicated here intentionally:
+        # purge/discovery must not depend on the execution envelope surviving.
         self._events_store = get_store("job_events", maxsize=max_jobs, ttl=ttl_seconds)
         # O(1) per-principal active counters for admission checks.
         self._active_counts_store = get_store("job_active_counts", maxsize=max_jobs * 3, ttl=ttl_seconds)
@@ -618,14 +619,28 @@ class JobManager:
             if not self._jobs_store.set(job.job_id, job.to_storage_dict()):
                 raise JobStoreError("Durable job state could not be persisted")
             job_persisted = True
-            if not self._events_store.set(job.job_id, {"next_seq": 0, "dropped_events": 0, "events": []}):
+            if not self._events_store.set(job.job_id, self._event_ring_scope(job)):
                 logger.warning("Initial event state unavailable for accepted job %s; it will be created lazily", job.job_id)
             self._notify_submission_listeners()
-            logger.info("Job submitted: %s (type=%s, diagram=%s)", job.job_id, job_type, diagram_id)
+            diagram_sha256 = (
+                hashlib.sha256(str(diagram_id).encode("utf-8")).hexdigest()[:12]
+                if diagram_id is not None
+                else "none"
+            )
+            logger.info(
+                "Job submitted: %s type=%s diagram_sha256=%s",
+                job.job_id,
+                job_type,
+                diagram_sha256,
+            )
             return job
-        except Exception:
+        except Exception as exc:
             if job_persisted:
-                logger.exception("Accepted job persistence completed before a later submission error")
+                logger.error(
+                    "Accepted job persisted before later submission failure "
+                    "error_type=%s",
+                    type(exc).__name__,
+                )
                 return job
             if idempotency_key:
                 self._release_idempotency(idempotency_key, job.job_id)
@@ -647,7 +662,7 @@ class JobManager:
             try:
                 listener()
             except Exception:
-                logger.debug("Durable worker submission notification failed", exc_info=True)
+                logger.debug("Durable worker submission notification failed")
 
     def _reserve_idempotency(self, input_hash: str, job_id: str) -> Optional[Job]:
         """Atomically reserve an input hash, returning an existing reusable job."""
@@ -749,6 +764,13 @@ class JobManager:
         if payload:
             return self._hydrate_from_store(job_id, payload)
         return self._jobs.get(job_id)
+
+    def get_persisted(self, job_id: str) -> Optional[Job]:
+        """Load a job only from its shared persisted execution envelope."""
+        payload = self._jobs_store.get(job_id)
+        if not isinstance(payload, dict):
+            return None
+        return Job.from_dict(payload)
 
     def _hydrate_from_store(self, job_id: str, payload: Dict[str, Any]) -> Job:
         """Refresh the local job object from shared-store state."""
@@ -1142,9 +1164,16 @@ class JobManager:
         job = self.get(job_id)
         if not job or job.status in (JobStatus.COMPLETED, JobStatus.FAILED, JobStatus.CANCELLED):
             return
+        error_length = len(error)
+        error_sha256 = hashlib.sha256(error.encode("utf-8")).hexdigest()
         if job.durable:
             if self._owned_terminal_transition(job_id, JobStatus.FAILED, error=error):
-                logger.error("Job failed: %s — %s", job_id, error)
+                logger.error(
+                    "Job failed: %s error_length=%d error_sha256=%s",
+                    job_id,
+                    error_length,
+                    error_sha256,
+                )
             return
         job.status = JobStatus.FAILED
         self._release_active_counters(job)
@@ -1154,7 +1183,12 @@ class JobManager:
         job.updated_at = job.completed_at
         self._jobs_store.set(job.job_id, job.to_storage_dict())
         self._emit(job, "error", {"error": error})
-        logger.error("Job failed: %s — %s", job_id, error)
+        logger.error(
+            "Job failed: %s error_length=%d error_sha256=%s",
+            job_id,
+            error_length,
+            error_sha256,
+        )
 
     def cancel(self, job_id: str) -> bool:
         """Cancel a job. Returns True if cancelled, False if already done."""
@@ -1381,6 +1415,8 @@ class JobManager:
                 events = events[overflow:]
                 dropped_events += overflow
             return {
+                **state,
+                **self._event_ring_metadata(job),
                 "next_seq": next_seq + 1,
                 "dropped_events": dropped_events,
                 "events": events,
@@ -1398,6 +1434,74 @@ class JobManager:
         job._events = list(state.get("events", []))
         for waiter in self._waiters.get(job.job_id, []):
             waiter.set()
+
+    @staticmethod
+    def _event_ring_metadata(job: Job) -> Dict[str, Any]:
+        return {
+            "scope_schema_version": 1,
+            "job_id": job.job_id,
+            "diagram_id": job.diagram_id,
+            "owner_user_id": job.owner_user_id,
+            "tenant_id": job.tenant_id,
+            "owner_api_key_id": job.owner_api_key_id,
+        }
+
+    @classmethod
+    def _event_ring_scope(cls, job: Job) -> Dict[str, Any]:
+        return {
+            **cls._event_ring_metadata(job),
+            "next_seq": 0,
+            "dropped_events": 0,
+            "events": [],
+        }
+
+    def _scoped_event_ring(
+        self,
+        job_id: str,
+        *,
+        owner_user_id: Optional[str],
+        tenant_id: Optional[str],
+    ) -> Optional[Dict[str, Any]]:
+        """Return an exact-scope ring, reconstructing safe legacy metadata.
+
+        Legacy rings without scope metadata are reconstructed only from a
+        matching envelope. A pre-existing orphan cannot be attributed safely,
+        so it is quarantined by writing an explicit non-owner scope marker and
+        remains invisible to customer purge manifests.
+        """
+        ring = self._events_store.peek(job_id)
+        if not isinstance(ring, dict):
+            return None
+        if ring.get("scope_schema_version") == 1:
+            return ring
+        envelope = self._jobs_store.peek(job_id)
+        if isinstance(envelope, dict) and envelope.get("job_id") == job_id:
+            job = Job.from_dict(envelope)
+            reconstructed = {**self._event_ring_scope(job), **ring}
+            reconstructed.update({
+                "scope_schema_version": 1,
+                "job_id": job_id,
+                "diagram_id": job.diagram_id,
+                "owner_user_id": job.owner_user_id,
+                "tenant_id": job.tenant_id,
+                "owner_api_key_id": job.owner_api_key_id,
+            })
+            if not self._events_store.set(job_id, reconstructed):
+                raise JobStoreError("Legacy job event metadata reconstruction failed")
+            return reconstructed
+        quarantined = {
+            **ring,
+            "scope_schema_version": 1,
+            "job_id": job_id,
+            "diagram_id": None,
+            "owner_user_id": None,
+            "tenant_id": None,
+            "owner_api_key_id": None,
+            "quarantined": True,
+        }
+        if not self._events_store.set(job_id, quarantined):
+            raise JobStoreError("Legacy orphan event quarantine failed")
+        return quarantined
 
     def _evict_completed(self) -> None:
         """Remove oldest completed/failed/cancelled jobs to free space."""
@@ -1473,24 +1577,169 @@ class JobManager:
             },
         }
 
-    def purge_diagram(self, diagram_id: str) -> int:
-        """Delete all jobs and buffered events linked to a diagram."""
-        deleted = 0
-        for job_id in list(self._jobs_store.keys("*")):
-            payload = self._jobs_store.get(job_id) or {}
-            if payload.get("diagram_id") != diagram_id:
-                continue
+    def manifest_diagram(
+        self,
+        diagram_id: str,
+        *,
+        owner_user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+    ) -> Dict[str, List[str]]:
+        """Capture every scoped job and event-ring ID before deletion."""
+        job_ids: set[str] = set()
+        event_ids: set[str] = set()
+        candidate_ids = sorted(
+            set(self._jobs_store.keys("*")) | set(self._events_store.keys("*"))
+        )[: self._max_jobs]
+        for job_id in candidate_ids:
+            payload = self._jobs_store.peek(job_id) or {}
+            event_ring = self._scoped_event_ring(
+                job_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+            )
+            envelope_matches = bool(
+                payload.get("diagram_id") == diagram_id
+                and (
+                    owner_user_id is None
+                    or payload.get("owner_user_id") in {None, owner_user_id}
+                )
+                and (
+                    tenant_id is None
+                    or payload.get("tenant_id") in {None, tenant_id}
+                )
+            )
+            event_matches = bool(
+                event_ring
+                and event_ring.get("diagram_id") == diagram_id
+                and (owner_user_id is None or event_ring.get("owner_user_id") == owner_user_id)
+                and (tenant_id is None or event_ring.get("tenant_id") == tenant_id)
+            )
+            if envelope_matches:
+                job_ids.add(job_id)
+            if event_matches:
+                event_ids.add(job_id)
+        # A queued/running job can emit a final cancellation event during purge,
+        # so every job key is also a potential event-ring key.
+        return {"job_ids": sorted(job_ids), "event_ids": sorted(event_ids | job_ids)}
+
+    def purge_diagram(
+        self,
+        diagram_id: str,
+        *,
+        owner_user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        manifest: Optional[Dict[str, List[str]]] = None,
+    ) -> Dict[str, int]:
+        """Delete event rings before envelopes using a retained ID manifest."""
+        retained = manifest or self.manifest_diagram(
+            diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        job_ids = list(dict.fromkeys(retained.get("job_ids", [])))
+        event_ids = list(dict.fromkeys(retained.get("event_ids", [])))
+        deleted_events = 0
+        deleted_jobs = 0
+        for job_id in job_ids:
+            payload = self._jobs_store.peek(job_id) or {}
+            if payload and payload.get("diagram_id") != diagram_id:
+                raise JobStoreError("Job purge manifest scope mismatch")
+            if payload and owner_user_id is not None and payload.get("owner_user_id") not in {
+                None,
+                owner_user_id,
+            }:
+                raise JobStoreError("Job purge owner scope mismatch")
+            if payload and tenant_id is not None and payload.get("tenant_id") not in {
+                None,
+                tenant_id,
+            }:
+                raise JobStoreError("Job purge tenant scope mismatch")
             job = Job.from_dict(payload)
-            if job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+            if payload and job.status in (JobStatus.QUEUED, JobStatus.RUNNING):
                 self.cancel(job_id)
-                deleted += 1
-                continue
+            if payload and job.input_hash:
+                self._release_idempotency(
+                    self._idempotency_key(
+                        job.input_hash,
+                        owner_user_id=job.owner_user_id,
+                        tenant_id=job.tenant_id,
+                        owner_api_key_id=job.owner_api_key_id,
+                    ),
+                    job_id,
+                )
+            self._release_counter_reservation(job_id)
             self._jobs.pop(job_id, None)
-            self._jobs_store.delete(job_id)
-            self._events_store.delete(job_id)
+        # Cancellation may have emitted a final event. Delete and confirm all
+        # retained rings before deleting the only durable envelope/index.
+        for job_id in set(event_ids) | set(job_ids):
+            event_ring = self._events_store.peek(job_id)
+            if event_ring is None:
+                continue
+            if not isinstance(event_ring, dict):
+                raise JobStoreError("Job event purge metadata is invalid")
+            if event_ring.get("diagram_id") != diagram_id:
+                raise JobStoreError("Job event purge manifest scope mismatch")
+            if owner_user_id is not None and event_ring.get("owner_user_id") not in {
+                None,
+                owner_user_id,
+            }:
+                raise JobStoreError("Job event purge owner scope mismatch")
+            if tenant_id is not None and event_ring.get("tenant_id") not in {
+                None,
+                tenant_id,
+            }:
+                raise JobStoreError("Job event purge tenant scope mismatch")
+            if not self._events_store.delete(job_id):
+                raise JobStoreError("Job event deletion could not be confirmed")
+            deleted_events += 1
+        for job_id in job_ids:
+            payload = self._jobs_store.peek(job_id) or {}
+            if self._jobs_store.peek(job_id) is not None and not self._jobs_store.delete(job_id):
+                raise JobStoreError("Job deletion could not be confirmed")
             self._waiters.pop(job_id, None)
-            deleted += 1
-        return deleted
+            if payload:
+                deleted_jobs += 1
+        if not self.diagram_absent(
+            diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            manifest=retained,
+        ):
+            raise JobStoreError("Job purge fixed point was not confirmed")
+        return {"envelopes": deleted_jobs, "event_rings": deleted_events}
+
+    def diagram_absent(
+        self,
+        diagram_id: str,
+        *,
+        owner_user_id: Optional[str] = None,
+        tenant_id: Optional[str] = None,
+        manifest: Optional[Dict[str, List[str]]] = None,
+    ) -> bool:
+        """Confirm both scoped envelopes and retained event-ring IDs are absent."""
+        current = self.manifest_diagram(
+            diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        retained_event_ids = set((manifest or {}).get("event_ids", []))
+        retained_event_present = any(
+            self._events_store.peek(job_id) is not None
+            for job_id in retained_event_ids
+        )
+        independently_scoped_event_present = any(
+            isinstance((ring := self._events_store.peek(job_id)), dict)
+            and ring.get("diagram_id") == diagram_id
+            and (owner_user_id is None or ring.get("owner_user_id") == owner_user_id)
+            and (tenant_id is None or ring.get("tenant_id") == tenant_id)
+            for job_id in self._events_store.keys("*")[: self._max_jobs]
+        )
+        return bool(
+            not current["job_ids"]
+            and not current["event_ids"]
+            and not retained_event_present
+            and not independently_scoped_event_present
+        )
 
 
 def _sse_format(event: str, data: Any) -> str:
@@ -1683,7 +1932,6 @@ class DurableJobWorker:
                 "Durable job execution failed (job_type=%s, error_type=%s)",
                 job.job_type,
                 type(exc).__name__,
-                exc_info=True,
             )
             with self.manager.lease_context(lease_token):
                 self.manager.fail(job_id, "Durable job execution failed")

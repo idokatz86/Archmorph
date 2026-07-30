@@ -40,7 +40,7 @@ spec:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
-          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          image: {{ include "archmorph.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
@@ -49,16 +49,30 @@ spec:
           envFrom:
             - configMapRef:
                 name: {{ include "archmorph.fullname" . }}-config
-          {{- if .Values.externalSecrets.enabled }}
           env:
-            {{- range .Values.externalSecrets.data }}
+            - name: ARCHMORPH_RELEASE_ROLE
+              value: "final"
+            {{- if .Values.releaseEvidence.sourceSha }}
+            - name: ARCHMORPH_SOURCE_SHA
+              value: {{ .Values.releaseEvidence.sourceSha | quote }}
+            - name: ARCHMORPH_SCHEMA_CONTRACT_DIGEST
+              value: {{ .Values.releaseEvidence.schemaContractDigest | quote }}
+            {{- end }}
+            {{- range .Values.requiredSecretKeys }}
             - name: {{ .secretKey }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ include "archmorph.fullname" $ }}-secrets
+                  name: {{ include "archmorph.secretName" $ }}
                   key: {{ .secretKey }}
             {{- end }}
-          {{- end }}
+            {{- range .Values.optionalSecretKeys }}
+            - name: {{ .secretKey }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "archmorph.secretName" $ }}
+                  key: {{ .secretKey }}
+                  optional: true
+            {{- end }}
           {{- with .Values.livenessProbe }}
           livenessProbe:
             {{- toYaml . | nindent 12 }}

@@ -1,0 +1,125 @@
+"""Migration contracts for canonical state hardening (#1237)."""
+
+from __future__ import annotations
+
+import importlib.util
+from pathlib import Path
+from types import SimpleNamespace
+
+import pytest
+
+from auth import AuthProvider, legacy_owner_tenant_scope, provider_subject_tenant_scope
+
+
+MIGRATION_PATH = (
+    Path(__file__).resolve().parents[1]
+    / "alembic"
+    / "versions"
+    / "014_canonical_state_hardening.py"
+)
+SPEC = importlib.util.spec_from_file_location("canonical_state_migration_014", MIGRATION_PATH)
+assert SPEC and SPEC.loader
+migration = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(migration)
+
+
+def test_legacy_provider_rows_rehome_to_current_opaque_identity_scope():
+    assert migration._legacy_scope("github_42") == provider_subject_tenant_scope(
+        AuthProvider.GITHUB,
+        "42",
+    )
+    assert migration._legacy_scope("aad_subject-a") == provider_subject_tenant_scope(
+        AuthProvider.MICROSOFT,
+        "subject-a",
+    )
+
+
+def test_unknown_legacy_owner_uses_deterministic_quarantine_free_scope():
+    owner = "historical-owner-without-provider-prefix"
+    assert migration._legacy_scope(owner) == legacy_owner_tenant_scope(owner)
+    assert migration._legacy_scope(owner).startswith("legacy:")
+
+
+def test_legacy_github_tenant_alias_targets_current_scope():
+    assert migration._legacy_tenant_scope(
+        "github_42",
+        "github:github_42",
+    ) == provider_subject_tenant_scope(AuthProvider.GITHUB, "42")
+
+
+def test_ambiguous_default_tenant_waits_for_verified_access_rehome():
+    assert migration._legacy_tenant_scope("github_42", "default_tenant") is None
+    assert migration._legacy_tenant_scope("raw-b2c-subject", "default_tenant") is None
+
+
+def test_migration_contains_conflict_audit_and_uniqueness_guards():
+    source = MIGRATION_PATH.read_text(encoding="utf-8")
+
+    assert '"conflict_retained"' in source
+    assert "tenant_rehome_audit" in source
+    assert "tenant_rehome_aliases" in source
+    assert "api_key_credentials" in source
+    assert "fk_analysis_versions_restored_from" in source
+    assert "fk_decisions_analysis_version" in source
+    assert "migration_replays" in source
+    assert "migration_replay_events" in source
+    assert "ck_workspaces_status" in source
+    assert "project_members" in source
+    assert "analysis_mutation_receipts" in source
+    assert "analysis_restore_receipts" in source
+    assert "diagram_lifecycle" in source
+    assert "restore_grants" in source
+    assert "purge_operations" in source
+    assert "ix_purge_operations_scope_lookup" in source
+    assert "ix_purge_operations_status_id" in source
+    assert "_deduplicate_analyses" in source
+    assert "_deduplicate_artifacts" in source
+    assert "ux_analyses_owner_tenant_diagram" in source
+    assert "ux_artifacts_version_type_hash" in source
+    assert "ux_workspaces_default_owner_tenant" in source
+    assert "uq_deployment_state_project_environment" in source
+    assert "fk_deployment_state_project" in source
+    assert "ck_deployment_state_environment" in source
+    assert "_canonicalize_deployment_states" in source
+    assert "no winner was selected" in source
+    assert "retain VARCHAR(100)" in source
+    assert "tenant rewrite alias/audit evidence is append-only" in source
+    assert 'op.drop_table("analysis_mutation_receipts")' in source
+    assert 'op.drop_table("analysis_restore_receipts")' in source
+    assert 'op.drop_table("purge_operations")' in source
+    assert 'op.drop_table("restore_grants")' in source
+    assert 'op.drop_table("diagram_lifecycle")' in source
+    assert "ix_analysis_versions_analysis_num" in (
+        MIGRATION_PATH.parent.joinpath("013_durable_workspaces.py").read_text(encoding="utf-8")
+    )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "expected_empty"),
+    [
+        ({}, True),
+        ({"state_json": {"serial": 0}}, False),
+        ({"state_json": []}, False),
+        ({"state_json": False}, False),
+        ({"previous_state_json": {"serial": 0}}, False),
+        ({"lock_id": ""}, False),
+        ({"lock_info": {"ID": "lock"}}, False),
+        ({"locked_at": "timestamp-present"}, False),
+    ],
+)
+def test_terraform_state_migration_deduplicates_only_truly_empty_rows(
+    overrides,
+    expected_empty,
+):
+    values = {
+        "state_json": {},
+        "previous_state_json": None,
+        "lock_id": None,
+        "lock_info": {},
+        "locked_at": None,
+        **overrides,
+    }
+    assert (
+        migration._deployment_state_row_is_empty(SimpleNamespace(**values))
+        is expected_empty
+    )

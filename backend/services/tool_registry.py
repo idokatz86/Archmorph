@@ -71,9 +71,12 @@ class ToolRegistry:
             return json.dumps({"status": "success", "result": result})
         except json.JSONDecodeError:
             return json.dumps({"status": "error", "error": "Invalid JSON arguments."})
-        except Exception as e:
-            logger.error(f"Error executing tool {function_name}: {e}")
-            return json.dumps({"status": "error", "error": str(e)})
+        except Exception as exc:
+            logger.error(
+                "Tool execution failed error_type=%s",
+                type(exc).__name__,
+            )
+            return json.dumps({"status": "error", "error": str(exc)})
 
     # ---- Domain Action Methods ----
 

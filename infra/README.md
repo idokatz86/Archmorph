@@ -9,7 +9,89 @@ This directory contains the checked-in Terraform configuration for the Azure-hos
 | Resource group, Container Apps, Container Registry, PostgreSQL, Redis, monitoring, and primary Blob Storage | `infra/main.tf` | Region, names, and overrides come from reviewed variables and private deployment settings |
 | Azure OpenAI account and model deployments | `infra/main.tf` | Region/model changes require a reviewed import, quota check, and rollback plan |
 | Metrics storage container | `infra/main.tf` | Uses the Terraform-managed primary storage account and managed-identity RBAC |
+| Rollout coordination container | `infra/main.tf` | Private Blob container; finite leases and rollback intents use the reviewed release workload identity only |
 | Terraform remote state | Partial `azurerm` backend blocks | Resource group, account, container, and key come from private CI/operator configuration |
+| Migration Job bootstrap | `infra/migration-bootstrap` | Separate state owns only the dedicated identity, secret-scoped/AcrPull RBAC, propagation wait, and manual Job |
+
+## Bridge-first application rollout
+
+Production rollout is split across two Terraform states and an explicit bridge:
+
+1. Capture all ingress weights and labels. Resolve `latestRevision` to the
+  current immutable blue revision before another revision is created.
+2. Deploy the reviewed image at zero traffic as a bridge accepting schemas
+  `013` and `014`. For the first rollout, CI builds this from the immutable
+  exact current immutable release image plus a reviewed readiness/read-only
+  overlay. This feature branch therefore supplies both final and bridge
+  capability from one digest lineage; CI never advertises the arbitrary old
+  production revision as rollback-safe.
+  Verify direct readiness/schema metadata on `013`, route to it, and retain its
+  HMAC-signed revision/image/schema/build-provenance manifest. The bridge serves
+  reviewed authenticated core workspace/analysis/version/artifact/decision reads
+  with canonical tenant isolation and PostgreSQL read-only transactions across
+  both schemas. Writes, effectful GETs, and unproven routes return retryable 503.
+3. **Phase A — migration bootstrap:** `infra/migration-bootstrap` reads existing
+  Container Apps environment, ACR, Key Vault, and versionless database-secret
+  metadata. It creates a dedicated user-assigned identity, `AcrPull`, Key Vault
+  Secrets User scoped to the single database Secret in RBAC mode. In legacy
+  access-policy mode it creates a `Get`-only vault-wide policy because Key Vault
+  access policies cannot scope one secret. It also creates a propagation wait
+  and one manual-trigger Job pinned to the reviewed digest and exact head.
+  The Secret URI is constructed from Key Vault metadata; Terraform never reads
+  or stores the `DATABASE_URL` value.
+  This root has no `azurerm_container_app`, ingress, traffic, or probe resource,
+  so a failed bootstrap or migration cannot mutate the live app revision.
+4. Run the Job in preflight-only mode first. The same identity, image, and Key
+  Vault reference must resolve `DATABASE_URL`, execute `SELECT 1`, and prove
+  schema `013` before Alembic may mutate data.
+5. **Phase B — application revision:** after migration `014` succeeds, CI clones
+  the current template, adds the immutable digest, `/readyz`, and final schema
+  metadata, asserts green remains at zero traffic, smokes it directly, then
+  shifts. The signed bridge—not an arbitrary active revision—is retained.
+
+Never use `terraform -target` for Phase A. CI performs `init`, `validate`, a full
+saved `plan`, then applies that exact plan under a renewable Azure Blob rollout
+lease. A pre-existing migration Job is explicitly adopted into the
+separate state before plan; repeated deployments then converge idempotently.
+Concurrent Job executions are rejected before bootstrap and again before start.
+CI also reads the primary state and refuses bootstrap when that state still owns
+the Job. Apply the primary root's reviewed `removed { destroy = false }` change
+first; a resource must never be managed by both states.
+
+Private deployment configuration must supply a distinct
+`MIGRATION_TFSTATE_KEY`, migration Job/identity names, Key Vault name, database
+Secret name, and existing prerequisite names. Do not publish their concrete
+values. It must also supply the rollout coordination account/container,
+release-automation and priority-only principal object IDs, and
+`PRODUCTION_RUNNER_LABELS` for a
+reviewed GitHub-hosted runner with private endpoint reachability. Public storage
+network access has no CI cutover override and fails closed. Before traffic shift, failures leave the routed bridge unchanged. After
+shift, any routed verification failure restores and verifies the exact prior
+manifest, captures diagnostics, and fails. No live apply is required locally.
+
+For the first apply that creates the dedicated coordination container, point the
+private coordination settings at the existing private Terraform backend
+account/container and its reserved `.archmorph-rollout/` prefix. The release
+identity already needs Blob data-plane access there. After the reviewed apply
+creates the dedicated private container and scoped role, update the private
+settings to the `rollout_coordination_container_name` output. Do not bootstrap by
+opening either storage account to public traffic or by using an account key/SAS.
+Configure `ROLLOUT_COORDINATION_CLIENT_ID` as a distinct GitHub OIDC application
+with only the scoped coordination-container role and a trust condition limited to
+the rollback workflow's approved default-branch subject. It publishes priority
+before the separate production Environment approval; it has no Container Apps,
+AKS, Terraform state, Key Vault, or traffic permission.
+`ROLLBACK_PRIORITY_RUNNER_LABELS` must select a separately capacity-reserved
+private runner pool; do not share its sole runner with normal deploy/apply jobs.
+
+Production hardening requires `key_vault_rbac_authorization_enabled=true`. Apply
+that mode only after every workload identity has equivalent reviewed RBAC; the
+policy-mode migration fallback is intentionally temporary and vault-wide.
+The production apply job also requires the private
+`TF_ENABLE_PRODUCTION_INFRA_HARDENING=true` and
+`TF_KEY_VAULT_RBAC_AUTHORIZATION_ENABLED=true` variables. Plan-only runs may
+model the legacy policy-mode transition; apply is blocked until the reviewed
+RBAC/hardening cutover is explicit.
 
 ## Partial backend initialization
 
@@ -78,7 +160,7 @@ Run these commands when editing files under `infra/`:
 ```bash
 cd infra
 find . -path './.terraform' -prune -o -name '*.tf' -print0 | xargs -0 terraform fmt -check
-for dir in . staging dr observability; do
+for dir in . staging dr observability migration-bootstrap; do
   terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
   terraform -chdir="$dir" validate -no-color
 done
@@ -98,3 +180,15 @@ checkov --quiet --framework terraform --directory infra --external-checks-dir in
 ```
 
 The policy gate enforces baseline tags on taggable Azure resources, blocks PostgreSQL Flexible Server public network access, and requires Storage infrastructure encryption. It intentionally runs only `CKV_ARCHMORPH_*` checks so CI catches project-defined guardrails without mixing unrelated upstream Checkov advisories into this gate.
+
+## Migration alert ownership
+
+Platform Engineering owns `archmorph-migration-job-failure` and
+`archmorph-migration-missing-evidence`. Both notify the critical action group.
+Treat failure, timeout, cancellation, or missing
+`ARCHMORPH_MIGRATION_EVIDENCE=` as a blocked rollout; never shift app traffic or
+run an automatic schema downgrade.
+CI emits `migration_started`, `migration_succeeded`, `migration_failed`, and
+`migration_timed_out` as secret-free Application Insights events. Missing
+start/success pairing is the alert source of truth; Job log retrieval remains a
+separate synchronous release gate.

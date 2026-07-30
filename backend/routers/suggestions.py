@@ -12,7 +12,7 @@ from typing import Optional
 import asyncio
 import logging
 
-from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_admin_key, verify_api_key
+from routers.shared import authorize_diagram_access_async, limiter, require_diagram_access, verify_admin_key, verify_api_key
 from source_provider import normalize_source_provider
 from usage_metrics import record_event
 from ai_suggestion import (
@@ -109,7 +109,7 @@ async def api_dependency_graph(
     request: Request, diagram_id: str, _=Depends(verify_api_key)
 ):
     """Build a dependency graph from an existing analysis."""
-    session = authorize_diagram_access(request, diagram_id, purpose="view a dependency graph")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view a dependency graph")
     mappings = session.get("mappings", [])
     graph = build_dependency_graph(mappings)
     return {"diagram_id": diagram_id, **graph}

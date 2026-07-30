@@ -1,6 +1,7 @@
 from math import ceil
-import time
 from pathlib import Path
+
+import pytest
 
 from tests.perf_budget_test_utils import load_perf_budget_module
 
@@ -18,6 +19,7 @@ def _p95(values: list[float]) -> float:
     return ordered[index]
 
 
+@pytest.mark.latency_budget
 def test_ci_smoke_analyze_p95_stays_within_regression_budget(test_client, monkeypatch):
     monkeypatch.setenv("ARCHMORPH_CI_SMOKE_MODE", "1")
     monkeypatch.setenv("ENVIRONMENT", "test")
@@ -36,10 +38,12 @@ def test_ci_smoke_analyze_p95_stays_within_regression_budget(test_client, monkey
 
     durations_ms = []
     for _ in range(int(budget["samples"])):
-        started = time.perf_counter()
         response = test_client.post(f"/api/diagrams/{diagram_id}/analyze")
-        durations_ms.append((time.perf_counter() - started) * 1000)
         assert response.status_code == 200
+        response_time = response.headers.get("X-Response-Time", "")
+        assert response_time.endswith("ms")
+        durations_ms.append(float(response_time.removesuffix("ms")))
 
     result = perf_budget.evaluate_latency_budget(_p95(durations_ms), budget)
+    print(result.summary)
     assert result.passed, f"{result.summary}; violations={result.violations}"

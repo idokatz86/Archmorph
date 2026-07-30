@@ -5,6 +5,7 @@ K6_SCRIPT = Path(__file__).parent / "performance" / "api_load_test.js"
 SLA_SPINE_SCRIPT = Path(__file__).parent / "performance" / "sla_spine_locust.py"
 LANDING_ZONE_LOCUST = Path(__file__).parents[2] / "tests" / "perf" / "locustfile_landing_zone.py"
 SLA_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "sla-spine.yml"
+BACKEND_PERFORMANCE_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "backend-performance.yml"
 PERF_SOAK_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "perf-soak.yml"
 CI_WORKFLOW = Path(__file__).parents[2] / ".github" / "workflows" / "ci.yml"
 ALERTS_TF = Path(__file__).parents[2] / "infra" / "observability" / "alerts.tf"
@@ -35,6 +36,19 @@ def test_k6_requests_tag_static_endpoints():
     assert "tags:" in script
     assert "endpoint:" in script
     assert "ep.name" in script
+
+
+def test_k6_ci_uses_non_reloading_backend_and_expected_unauthenticated_chat():
+    workflow = BACKEND_PERFORMANCE_WORKFLOW.read_text(encoding="utf-8")
+
+    assert '-e API_KEY=' not in workflow
+    assert "docker compose up -d postgres redis" in workflow
+    assert "--name archmorph-k6-backend" in workflow
+    assert "uvicorn main:app --host 0.0.0.0 --port 8000" in workflow
+    assert "--reload" not in workflow
+    assert "401 is expected for chat endpoints" in K6_SCRIPT.read_text(
+        encoding="utf-8"
+    )
 
 
 def test_sla_spine_locust_enforces_endpoint_p95s():
@@ -75,6 +89,10 @@ def test_sla_spine_workflow_posts_pr_summary_and_runs_locust():
     assert "ARCHMORPH_API_KEY=sla-spine-api-key" in workflow
     assert "SLO_SPINE_API_KEY: sla-spine-api-key" in workflow
     assert "ENVIRONMENT=test" in workflow
+    assert "image: pgvector/pgvector:pg16" in workflow
+    assert "--add-host host.docker.internal:host-gateway" in workflow
+    assert "DATABASE_URL=postgresql://archmorph:archmorph_dev@host.docker.internal:5432/archmorph" in workflow
+    assert "DATABASE_URL=sqlite" not in workflow
     assert "Full-Spine SLO Gate" in workflow
     assert "issues: write" in workflow
 
@@ -100,11 +118,17 @@ def test_ci_workflow_enforces_risk_based_backend_coverage_floors():
     assert "Risk-based module coverage floors" in workflow
     assert "run_risk_coverage_floor" in workflow
     assert 'run_risk_coverage_floor "diagram_export" "tests/test_diagram_export.py" "70"' in workflow
-    assert 'run_risk_coverage_floor "export_capabilities" "tests/test_export_capabilities.py" "70"' in workflow
+    assert (
+        'run_risk_coverage_floor "export_capabilities" '
+        '"tests/test_export_capabilities.py tests/test_browser_capability_audit.py" "70"'
+        in workflow
+    )
     assert 'run_risk_coverage_floor "iac_generator" "tests/test_iac_generator.py" "70"' in workflow
     assert 'run_risk_coverage_floor "session_store" "tests/test_session_store.py" "50"' in workflow
     assert 'run_risk_coverage_floor "job_queue" "tests/test_job_queue.py" "70"' in workflow
     assert 'run_risk_coverage_floor "services.azure_pricing" "tests/test_pricing_blob.py" "35"' in workflow
+    assert 'read -r -a test_paths <<< "$tests"' in workflow
+    assert '"${test_paths[@]}"' in workflow
     assert "--cov-fail-under=\"$floor\"" in workflow
     assert "coverage-risk-report" in workflow
 

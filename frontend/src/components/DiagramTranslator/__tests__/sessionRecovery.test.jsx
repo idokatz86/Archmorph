@@ -290,7 +290,22 @@ describe('DiagramTranslator — Export Bug Verification', () => {
 
     mockApi.post.mockImplementation((path, _body, _signal, _timeout, headers = {}) => {
       if (path === '/diagrams/diag-stale-cap/restore-session') {
-        return Promise.resolve({ status: 'restored', diagram_id: 'diag-stale-cap', export_capability: 'fresh-capability' })
+        return Promise.resolve({
+          status: 'restored',
+          diagram_id: 'diag-stale-cap',
+          export_capability: 'fresh-capability',
+          analysis: {
+            diagram_id: 'diag-stale-cap',
+            diagram_type: 'AWS Architecture',
+            services_detected: 1,
+            source_provider: 'aws',
+            target_provider: 'azure',
+            zones: [],
+            mappings: [],
+            _analysis_version: 2,
+            server_value: 'canonical-v2',
+          },
+        })
       }
       if (path === '/diagrams/diag-stale-cap/export-architecture-package?format=html') {
         exportHeaders.push(headers)
@@ -315,6 +330,12 @@ describe('DiagramTranslator — Export Bug Verification', () => {
       '/diagrams/diag-stale-cap/restore-session',
       expect.objectContaining({ analysis: expect.objectContaining({ diagram_id: 'diag-stale-cap' }) }),
     )
+    expect(mockUpdateSessionCache).toHaveBeenCalledWith({
+      analysis: expect.objectContaining({
+        _analysis_version: 2,
+        server_value: 'canonical-v2',
+      }),
+    })
     expect(download.createObjectURL).toHaveBeenCalled()
     expect(download.anchorClick).toHaveBeenCalled()
 
@@ -556,7 +577,7 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
 
     await waitFor(() => expect(mockEnsureBackendSession).toHaveBeenCalledTimes(1))
     await waitFor(() => expect(mockApi.post).toHaveBeenCalledTimes(4))
-    expect(mockApi.post).toHaveBeenCalledWith('/projects/demo-project/diagrams', expect.any(FormData), expect.any(AbortSignal))
+    expect(mockApi.post).toHaveBeenCalledWith('/projects/diagrams', expect.any(FormData), expect.any(AbortSignal))
   })
 
   it('refreshes the backend session and retries when a signed-in analysis request gets 401', async () => {
@@ -607,7 +628,7 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     }
 
     mockApi.post
-      .mockResolvedValueOnce({ diagram_id: 'diag-admission', project_id: 'demo-project', export_capability: 'cap-token' })
+      .mockResolvedValueOnce({ diagram_id: 'diag-admission', project_id: 'proj-server-admission', export_capability: 'cap-token' })
       .mockRejectedValueOnce(admissionErr)
     mockApi.get.mockResolvedValue({ diagrams: [] })
 
@@ -634,7 +655,7 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     abortErr.name = 'AbortError'
 
     mockApi.post
-      .mockResolvedValueOnce({ diagram_id: 'diag-abort', project_id: 'demo-project', export_capability: 'cap-token' })
+      .mockResolvedValueOnce({ diagram_id: 'diag-abort', project_id: 'proj-server-abort', export_capability: 'cap-token' })
       .mockRejectedValueOnce(abortErr)
     mockApi.get.mockResolvedValue({ diagrams: [] })
 

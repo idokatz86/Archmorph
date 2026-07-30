@@ -55,6 +55,9 @@ def test_prod_plan_preflights_remote_state_blob_rbac_before_init():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     plan_steps = workflow["jobs"]["prod-plan"]["steps"]
 
+    mode = _step_by_name(plan_steps, "Validate requested production Key Vault mode")
+    assert "Production apply requires reviewed infrastructure hardening and Key Vault RBAC mode" in mode["run"]
+
     preflight_step = _step_by_name(plan_steps, "Preflight: verify remote-state Blob data-plane RBAC")
     preflight_script = preflight_step["run"]
     assert "az storage blob list" in preflight_script
@@ -64,7 +67,7 @@ def test_prod_plan_preflights_remote_state_blob_rbac_before_init():
     assert "STATE_CONTAINER_SCOPE" not in preflight_script
     assert "STATE_STORAGE_SCOPE" not in preflight_script
     assert "sed 's/^/az storage blob list: /'" not in preflight_script
-    assert 'STATE_RESOURCE_GROUP="${TFSTATE_RESOURCE_GROUP:-}"' in preflight_script
+    assert ': "${TFSTATE_RESOURCE_GROUP:-}"' in preflight_script
     assert 'STATE_STORAGE_ACCOUNT="${TFSTATE_STORAGE_ACCOUNT:-}"' in preflight_script
     assert "Required private Terraform backend setting" in preflight_script
     assert "BACKEND_CONFIG_FILE" not in preflight_script
@@ -181,6 +184,14 @@ def test_prod_workflow_supplies_legacy_openai_secret_variable():
 
     assert env["TF_VAR_preserve_legacy_openai_key"] is True
     assert env["TF_VAR_openai_api_key"] == "${{ secrets.AZURE_OPENAI_API_KEY }}"
+    assert env["TF_VAR_archmorph_api_key"] == "${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}"
+    assert env["TF_VAR_manage_archmorph_api_key"] is True
+    assert env["TF_VAR_archmorph_api_key_rotated"] == "${{ secrets.ARCHMORPH_API_KEY_ROTATED }}"
+    assert env["TF_VAR_manage_archmorph_api_key_rotated"] is True
+    assert env["TF_VAR_archmorph_api_key_principal_id"] == "${{ vars.ARCHMORPH_API_KEY_PRINCIPAL_ID }}"
+    assert env["TF_VAR_archmorph_api_key_allow_legacy_overlap"] == (
+        "${{ vars.ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP || 'false' }}"
+    )
 
 
 def test_prod_workflow_uses_private_prod_stack_inventory():
@@ -193,14 +204,48 @@ def test_prod_workflow_uses_private_prod_stack_inventory():
     assert env["TFSTATE_CONTAINER"] == "${{ secrets.TFSTATE_CONTAINER }}"
     assert env["TFSTATE_KEY"] == "${{ secrets.TFSTATE_KEY }}"
     assert env["TF_VAR_resource_group_environment"] == "${{ secrets.TF_RESOURCE_GROUP_ENVIRONMENT }}"
-    assert env["TF_VAR_enable_production_infra_hardening"] is False
+    assert env["TF_VAR_enable_production_infra_hardening"] == (
+        "${{ vars.TF_ENABLE_PRODUCTION_INFRA_HARDENING || 'false' }}"
+    )
     assert env["TF_VAR_redis_name_override"] == "${{ secrets.TF_REDIS_NAME_OVERRIDE }}"
     assert env["TF_VAR_workbook_id_override"] == "${{ secrets.TF_WORKBOOK_ID }}"
+    assert env["TF_VAR_key_vault_rbac_authorization_enabled"] == (
+        "${{ vars.TF_KEY_VAULT_RBAC_AUTHORIZATION_ENABLED || 'false' }}"
+    )
+    assert env["TF_VAR_release_automation_principal_id"] == (
+        "${{ secrets.RELEASE_AUTOMATION_PRINCIPAL_ID }}"
+    )
+    assert env["TF_VAR_rollout_priority_principal_id"] == (
+        "${{ secrets.ROLLOUT_PRIORITY_PRINCIPAL_ID }}"
+    )
+    assert env["ROLLOUT_COORDINATION_STORAGE_ACCOUNT"] == (
+        "${{ secrets.ROLLOUT_COORDINATION_STORAGE_ACCOUNT }}"
+    )
+
+
+def test_prod_apply_uses_durable_rollout_ownership_without_queueing_plan():
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    assert "concurrency" not in workflow
+    assert "concurrency" not in workflow["jobs"]["prod-plan"]
+    assert "concurrency" not in workflow["jobs"]["prod-apply"]
+    plan_names = [step.get("name") for step in workflow["jobs"]["prod-plan"]["steps"]]
+    apply_steps = workflow["jobs"]["prod-apply"]["steps"]
+    apply_names = [step.get("name") for step in apply_steps]
+    assert "Acquire durable production rollout ownership" not in plan_names
+    assert "Acquire durable production rollout ownership" in apply_names
+    assert apply_names.index("Yield to emergency rollback before Terraform mutation") < apply_names.index(
+        "Terraform Apply (reviewed plan artifact)"
+    )
+    assert "azure_rollout_lease.py" in WORKFLOW.read_text(encoding="utf-8")
 
 
 def test_prod_apply_downloads_and_applies_reviewed_plan_only():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     apply_steps = workflow["jobs"]["prod-apply"]["steps"]
+
+    hardening = _step_by_name(apply_steps, "Enforce reviewed production Key Vault hardening mode")
+    assert "TF_VAR_enable_production_infra_hardening" in hardening["run"]
+    assert "TF_VAR_key_vault_rbac_authorization_enabled" in hardening["run"]
 
     download_step = _step_by_name(apply_steps, "Download reviewed production plan artifact")
     assert download_step["uses"] == "actions/download-artifact@v8"

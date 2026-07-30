@@ -14,6 +14,8 @@ class UsageCounterRecord(Base):
     counter_name = Column(String(100), nullable=False, index=True)
     date = Column(String(10), nullable=False, index=True)      # YYYY-MM-DD
     count = Column(Integer, nullable=False, default=0)
+    owner_user_id = Column(String(100), nullable=True, index=True)
+    tenant_id = Column(String(100), nullable=True, index=True)
 
     __table_args__ = (
         Index("ix_usage_counters_name_date", "counter_name", "date", unique=True),
@@ -36,6 +38,8 @@ class FunnelStepRecord(Base):
     diagram_id = Column(String(50), nullable=False, index=True)
     step = Column(String(30), nullable=False, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    owner_user_id = Column(String(100), nullable=True, index=True)
+    tenant_id = Column(String(100), nullable=True, index=True)
 
     __table_args__ = (
         Index("ix_funnel_diagram_step", "diagram_id", "step", unique=True),

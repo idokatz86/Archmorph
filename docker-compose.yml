@@ -49,6 +49,7 @@ services:
       RATE_LIMIT_ENABLED: "false"
       DATABASE_URL: "postgresql://archmorph:archmorph_dev@postgres:5432/archmorph"
       REDIS_URL: "redis://redis:6379/0"
+      USAGE_METRICS_DATA_DIR: "/tmp/archmorph-metrics"
     volumes:
       # Hot-reload: mount source but exclude venv / __pycache__
       - ./backend:/app

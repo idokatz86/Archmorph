@@ -100,6 +100,18 @@ describe('sessionCache', () => {
     expect(result.questionAssumptions).toEqual(assumptions)
   })
 
+  it('preserves the server-issued project identity for safe reacquisition', () => {
+    saveSessionWithOptIn('d1', { zones: [] }, [], {}, { projectId: 'proj-server-issued' })
+
+    expect(loadSession('d1').projectId).toBe('proj-server-issued')
+  })
+
+  it('preserves the immutable server analysis version used for restore CAS', () => {
+    saveSessionWithOptIn('d1', { zones: [], _analysis_version: 7 }, [], {})
+
+    expect(loadSession('d1').analysis._analysis_version).toBe(7)
+  })
+
   it('stores timestamp for TTL checks', () => {
     const before = Date.now()
     saveSessionWithOptIn('d1', {}, [], {})
@@ -262,3 +274,16 @@ describe('sessionCache', () => {
     expect(sessionStorage.getItem('archmorph_img_blocked-diagram')).toBeNull()
   })
 })
+    it('persists the signed restore capability only in opted-in sensitive cache', () => {
+      saveSessionWithOptIn(
+        'restore-capability-diagram',
+        { zones: [] },
+        [],
+        {},
+        { restoreCapability: 'signed-restore-capability' },
+      );
+
+      const restored = loadSession('restore-capability-diagram', { persistSensitive: true });
+
+      expect(restored.restoreCapability).toBe('signed-restore-capability');
+    });

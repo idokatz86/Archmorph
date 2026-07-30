@@ -47,7 +47,13 @@ def cost_contract_session(monkeypatch, cost_contract_fixture):
         },
     }
 
-    def estimate_cost_fixture(mappings, *, region="westeurope", sku_strategy="Balanced"):
+    def estimate_cost_fixture(
+        mappings,
+        *,
+        region="westeurope",
+        sku_strategy="Balanced",
+        persist_cache=True,
+    ):
         assert len(mappings) == 2
         assert region == "westeurope"
         assert sku_strategy == "Balanced"

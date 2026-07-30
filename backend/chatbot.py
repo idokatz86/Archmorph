@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 
 from cachetools import TTLCache
 
+from log_sanitizer import log_model_output_metadata
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 from prompt_guard import PROMPT_ARMOR, sanitize_message, sanitize_response, validate_message
 from version import __version__
@@ -155,6 +156,7 @@ def _call_ai_assistant(
     # Add current message
     messages.append({"role": "user", "content": message})
     
+    raw_text = ""
     try:
         client = get_openai_client()
         
@@ -165,8 +167,8 @@ def _call_ai_assistant(
             temperature=0.7,
         )
         
-        reply_text = response.choices[0].message.content.strip()
-        reply_text = sanitize_response(reply_text)
+        raw_text = response.choices[0].message.content.strip()
+        reply_text = sanitize_response(raw_text)
         
         # Check for action JSON in response (#126 — handle nested braces)
         action = None
@@ -185,6 +187,13 @@ def _call_ai_assistant(
                 reply_text = reply_text[:action_match.start()] + reply_text[action_match.end():]
                 reply_text = reply_text.strip()
         
+        log_model_output_metadata(
+            logger,
+            component="chatbot",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status="parsed",
+        )
         return {
             "reply": reply_text,
             "action": action,
@@ -192,7 +201,15 @@ def _call_ai_assistant(
         }
         
     except Exception as exc:
-        logger.error("AI assistant error: %s", exc)
+        log_model_output_metadata(
+            logger,
+            component="chatbot",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status="failed",
+            exception=exc,
+            level=logging.ERROR,
+        )
         return {
             "reply": "I apologize, but I'm having trouble processing your request right now. Please try again in a moment, or report the issue at https://github.com/idokatz86/Archmorph/issues",
             "action": None,
@@ -239,7 +256,10 @@ def _create_github_issue(title: str, body: str, labels: List[str]) -> Dict[str, 
             "labels": [lbl.name for lbl in issue.labels],
         }
     except Exception as exc:
-        logger.error("GitHub issue creation failed: %s", exc)
+        logger.error(
+            "GitHub issue creation failed error_type=%s",
+            type(exc).__name__,
+        )
         return {"success": False, "error": "Failed to create GitHub issue. Please try again."}
 
 
@@ -278,7 +298,7 @@ def process_chat_message(
     message = sanitize_message(message)
     is_safe, reason = validate_message(message, max_length=5000, context="chatbot")
     if not is_safe:
-        logger.warning("Chatbot input rejected for session %s: %s", session_id, reason or "injection detected")
+        logger.warning("Chatbot input rejected")
         return {
             "reply": reason or "I can only help with Archmorph, cloud architecture, and migration topics. Please rephrase your question.",
             "action": None,

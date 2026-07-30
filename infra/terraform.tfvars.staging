@@ -12,6 +12,16 @@ db_admin_password = "CHANGE_ME_STAGING_PASSWORD_MIN16"
 alert_email  = "alerts@example.com"
 frontend_url = "https://frontend.example.com"
 
+# Required for reviewed plans; replace with the exact digest built by CI.
+backend_container_image = "example.azurecr.io/archmorph-api@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+
+# Supply credential values privately; never commit them. Keep this principal
+# stable across overlap and cutover revisions.
+archmorph_api_key_principal_id         = "example-static-service"
+archmorph_api_key_allow_legacy_overlap = false
+manage_archmorph_api_key               = true
+manage_archmorph_api_key_rotated       = true
+
 redis_capacity = 0  # Basic C0 for staging
 
 enable_dr = false  # No DR for staging

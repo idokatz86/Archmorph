@@ -3,7 +3,9 @@
 import os
 import sys
 import json
+import threading
 import time
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import pytest
@@ -51,6 +53,12 @@ class TestInMemoryStore:
         store["session:2"] = "b"
         store["image:1"] = "c"
         assert sorted(store.keys("session:*")) == ["session:1", "session:2"]
+
+    def test_values_returns_present_values(self):
+        store = InMemoryStore()
+        store["x"] = {"value": 1}
+        store["y"] = {"value": 2}
+        assert sorted(item["value"] for item in store.values()) == [1, 2]
 
     def test_len(self):
         store = InMemoryStore(maxsize=10, ttl=300)
@@ -149,6 +157,21 @@ class TestInMemoryStore:
         assert value == b"1234"
         assert store.get("k") == b"1234"
 
+    def test_pop_is_atomic_under_concurrency(self):
+        store = InMemoryStore()
+        store.set("capability", {"one_time": True})
+        barrier = threading.Barrier(12)
+
+        def consume(_index):
+            barrier.wait(timeout=5)
+            return store.pop("capability")
+
+        with ThreadPoolExecutor(max_workers=12) as pool:
+            results = list(pool.map(consume, range(12)))
+
+        assert results.count({"one_time": True}) == 1
+        assert results.count(None) == 11
+
 
 class TestFileStore:
     def test_update_if_success_writes_updated_value_and_refreshes_ttl(self, tmp_path, monkeypatch):
@@ -214,6 +237,23 @@ class TestFileStore:
         assert store.get("old") is None
         assert len(list(store._base.glob("*.json"))) == 1
 
+    def test_pop_is_atomic_across_file_store_instances(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SESSION_FILE_DIR", str(tmp_path))
+        writer = FileStore("file_pop_concurrency", ttl=120)
+        writer.set("capability", {"one_time": True})
+        barrier = threading.Barrier(8)
+
+        def consume(_index):
+            store = FileStore("file_pop_concurrency", ttl=120)
+            barrier.wait(timeout=5)
+            return store.pop("capability")
+
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            results = list(pool.map(consume, range(8)))
+
+        assert results.count({"one_time": True}) == 1
+        assert results.count(None) == 7
+
 
 class TestRedisStore:
     class _FakeRedis:
@@ -225,6 +265,15 @@ class TestRedisStore:
 
         def pipeline(self):
             return TestRedisStore._FakePipeline(self)
+
+        def delete(self, key):
+            return int(self.values.pop(key, None) is not None)
+
+        def exists(self, key):
+            return int(key in self.values)
+
+        def getdel(self, key):
+            return self.values.pop(key, None)
 
     class _FakePipeline:
         def __init__(self, redis_client):
@@ -317,6 +366,63 @@ class TestRedisStore:
         assert fake.execute_attempts == 2
         assert json.loads(fake.values["test:k"]) == {"version": 2}
 
+    def test_delete_confirms_redis_key_absence(self, monkeypatch):
+        import session_store
+
+        fake = self._FakeRedis()
+        monkeypatch.setattr(session_store, "_create_redis_client", lambda: fake)
+        store = RedisStore(prefix="test", ttl=120)
+        fake.values["test:k"] = json.dumps({"version": 1})
+
+        assert store.delete("k") is True
+        assert fake.exists("test:k") == 0
+
+    def test_delete_returns_false_when_redis_delete_fails(self, monkeypatch):
+        import session_store
+
+        fake = self._FakeRedis()
+        monkeypatch.setattr(session_store, "_create_redis_client", lambda: fake)
+        store = RedisStore(prefix="test", ttl=120)
+        fake.values["test:k"] = json.dumps({"version": 1})
+
+        class _FailingBreaker:
+            def call(self, *_args, **_kwargs):
+                raise RuntimeError("redis unavailable")
+
+        monkeypatch.setattr("circuit_breakers.redis_breaker", _FailingBreaker())
+
+        assert store.delete("k") is False
+        assert fake.exists("test:k") == 1
+
+    def test_pop_uses_atomic_getdel(self, monkeypatch):
+        import session_store
+
+        fake = self._FakeRedis()
+        monkeypatch.setattr(session_store, "_create_redis_client", lambda: fake)
+        store = RedisStore(prefix="test", ttl=120)
+        fake.values["test:k"] = json.dumps({"one_time": True})
+
+        assert store.pop("k") == {"one_time": True}
+        assert store.pop("k") is None
+
+    def test_pop_raises_when_getdel_cannot_be_confirmed(self, monkeypatch):
+        import session_store
+
+        fake = self._FakeRedis()
+        monkeypatch.setattr(session_store, "_create_redis_client", lambda: fake)
+        store = RedisStore(prefix="test", ttl=120)
+        fake.values["test:k"] = json.dumps({"one_time": True})
+
+        class _FailingBreaker:
+            def call(self, *_args, **_kwargs):
+                raise RuntimeError("redis unavailable")
+
+        monkeypatch.setattr("circuit_breakers.redis_breaker", _FailingBreaker())
+
+        with pytest.raises(RuntimeError, match="atomic deletion"):
+            store.pop("k")
+        assert fake.exists("test:k") == 1
+
 
 class TestGetStore:
     def test_returns_inmemory_by_default(self):
@@ -348,7 +454,7 @@ class TestGetStore:
         assert "scale_blocked" in readiness
 
     @patch.dict(os.environ, {
-        "ENVIRONMENT": "production",
+        "ENVIRONMENT": "development",
         "WEB_CONCURRENCY": "1",
         "UVICORN_WORKERS": "1",
         "CONTAINER_APP_REPLICA_COUNT": "1",
@@ -357,9 +463,9 @@ class TestGetStore:
         "REDIS_HOST": "",
         "REQUIRE_REDIS": "",
     })
-    def test_optional_redis_single_replica_does_not_block_scale(self):
+    def test_optional_redis_single_replica_development_does_not_block_scale(self):
         readiness = session_store_readiness()
-        assert readiness["backend"] == "file"
+        assert readiness["backend"] == "memory"
         assert readiness["requires_redis_for_scale"] is False
         assert readiness["scale_blocked"] is False
 
@@ -376,6 +482,20 @@ class TestGetStore:
         assert readiness["requires_redis_for_scale"] is True
         assert readiness["scale_blocked"] is True
         assert readiness["scale_blocked_reason"]
+
+    @patch.dict(os.environ, {
+        "ENVIRONMENT": "production",
+        "WEB_CONCURRENCY": "1",
+        "REDIS_URL": "",
+        "REDIS_HOST": "",
+        "REQUIRE_REDIS": "",
+        "ENFORCE_REDIS": "",
+    })
+    def test_production_requires_redis_by_default(self):
+        readiness = session_store_readiness()
+        assert readiness["require_redis"] is True
+        assert readiness["ready_for_horizontal_scale"] is False
+        assert readiness["scale_blocked"] is True
 
     @patch.dict(os.environ, {
         "ENVIRONMENT": "production",
@@ -408,9 +528,17 @@ class TestSessionStoreInterface:
         with pytest.raises(NotImplementedError):
             SessionStore().delete("k")
 
+    def test_pop_raises(self):
+        with pytest.raises(NotImplementedError):
+            SessionStore().pop("k")
+
     def test_keys_raises(self):
         with pytest.raises(NotImplementedError):
             SessionStore().keys()
+
+    def test_values_uses_keys_contract(self):
+        with pytest.raises(NotImplementedError):
+            SessionStore().values()
 
 
 def test_redisstore_warning_logs_are_sanitized(monkeypatch, caplog):

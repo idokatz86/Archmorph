@@ -8,23 +8,47 @@ from fastapi import APIRouter, Request, Depends
 from strict_models import StrictBaseModel
 from typing import Dict, Any
 import asyncio
+import base64
 import logging
 
 from routers.shared import (
     SESSION_STORE,
-    authorize_diagram_access,
+    authorize_diagram_access_async,
     limiter,
+    persist_diagram_mutation_async,
+    require_api_write_or_user_session,
     require_diagram_access,
     verify_api_key_or_user_session,
 )
-from usage_metrics import record_event, record_funnel_step
-from guided_questions import generate_questions, apply_answers, get_question_constraints, build_adaptive_question_set
+from usage_metrics import (
+    record_event,
+    record_event_and_funnel_step,
+    record_funnel_step,
+)
+from guided_questions import (
+    generate_questions,
+    apply_answers,
+    get_question_constraints,
+    build_adaptive_question_set,
+)
 from mcp_diagram_generator import mcp_client
-from service_builder import deduplicate_questions, get_smart_defaults_from_analysis, add_services_from_text
+from service_builder import (
+    deduplicate_questions,
+    get_smart_defaults_from_analysis,
+    add_services_from_text,
+)
 from architecture_package import generate_architecture_package
 from error_envelope import ArchmorphException
-from export_capabilities import attach_export_capability, consume_export_capability, verify_export_capability
-from analysis_payload_bounds import AnalysisPayloadTooLarge, validate_analysis_payload_bounds
+from export_capabilities import (
+    attach_export_capability_for_request,
+    consume_export_capability,
+    verify_export_capability,
+)
+from analysis_payload_bounds import (
+    AnalysisPayloadTooLarge,
+    validate_analysis_payload_bounds,
+)
+from export_artifacts import persist_generated_export_async
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +71,7 @@ async def get_guided_questions(request: Request, diagram_id: str, smart_dedup: b
     If smart_dedup=True, questions that have been implicitly answered
     by user context (e.g., natural language additions) are filtered out.
     """
-    analysis = authorize_diagram_access(request, diagram_id, purpose="view questions")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="view questions")
 
     detected = [
         m["source_service"]["name"] if isinstance(m["source_service"], dict) else m["source_service"]
@@ -102,7 +126,7 @@ async def add_services_natural_language(
     The services are added to the existing analysis, and users can continue
     to the guided questions or IaC generation.
     """
-    analysis = authorize_diagram_access(request, diagram_id, purpose="modify services")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="modify services")
 
     try:
         updated = await asyncio.to_thread(
@@ -111,7 +135,10 @@ async def add_services_natural_language(
             user_text=body.text,
         )
     except Exception as exc:
-        logger.error("Failed to add services for %s: %s", str(diagram_id).replace("\n", "").replace("\r", ""), str(exc).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
+        logger.error(
+            "Failed to add services error_type=%s",
+            type(exc).__name__,
+        )
         raise ArchmorphException(500, "Failed to process request. Please try again.")
 
     # Store user context for smart question deduplication
@@ -122,15 +149,23 @@ async def add_services_natural_language(
         "services_added": updated.get("services_added", []),
     })
 
-    SESSION_STORE[diagram_id] = updated
+    await persist_diagram_mutation_async(
+        request,
+        diagram_id,
+        updated,
+        label="analysis-services-added",
+    )
 
     record_event("services_added_nl", {
         "diagram_id": diagram_id,
         "services_count": len(updated.get("services_added", [])),
     })
 
+    committed = SESSION_STORE.peek(diagram_id) or updated
+
     return {
         "diagram_id": diagram_id,
+        "analysis_version": committed.get("_analysis_version"),
         "services_added": updated.get("services_added", []),
         "services_detected": updated.get("services_detected", 0),
         "inferred_requirements": updated.get("inferred_requirements", []),
@@ -150,13 +185,19 @@ async def apply_guided_answers(
     _auth=Depends(verify_api_key_or_user_session),
 ):
     """Apply user answers to refine the Azure architecture analysis."""
-    analysis = authorize_diagram_access(request, diagram_id, purpose="apply answers")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="apply answers")
 
     refined = apply_answers(analysis, answers)
-    SESSION_STORE[diagram_id] = refined
+    await persist_diagram_mutation_async(
+        request,
+        diagram_id,
+        refined,
+        label="guided-answers-applied",
+    )
     record_event("answers_applied", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "answers")
-    return refined
+    persisted = SESSION_STORE.peek(diagram_id)
+    return persisted or refined
 
 
 # ─────────────────────────────────────────────────────────────
@@ -170,7 +211,7 @@ async def export_architecture_diagram(
     format: str = "excalidraw",
     multi_page: bool = False,
     dr_variant: str = "primary",
-    _auth=Depends(verify_api_key_or_user_session),
+    _auth=Depends(require_api_write_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Generate an architecture diagram in Excalidraw, Draw.io, Visio, or
@@ -204,7 +245,7 @@ async def export_architecture_diagram(
             "dr_variant must be 'primary' or 'dr'",
         )
 
-    analysis = authorize_diagram_access(request, diagram_id, purpose="export diagram")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="export diagram")
 
     try:
         validate_analysis_payload_bounds(analysis)
@@ -222,13 +263,28 @@ async def export_architecture_diagram(
             result = generate_landing_zone_svg(analysis, dr_variant=dr_variant)  # type: ignore[arg-type]
         except ValueError as exc:
             raise ArchmorphException(400, str(exc))
-        record_event("exports_landing_zone_svg", {
-            "diagram_id": diagram_id,
-            "dr_variant": dr_variant,
-        })
-        record_funnel_step(diagram_id, "export")
+        record_event_and_funnel_step(
+            "exports_landing_zone_svg",
+            {
+                "diagram_id": diagram_id,
+                "dr_variant": dr_variant,
+            },
+            diagram_id=diagram_id,
+            step="export",
+        )
+        content = result.get("content", "")
+        artifact = await persist_generated_export_async(
+            request,
+            diagram_id=diagram_id,
+            artifact_type="architecture_diagram_landing_zone_svg",
+            format="landing-zone-svg",
+            content=content,
+        )
+        if artifact is not None:
+            result["artifact_id"] = artifact.id
+            result["version_id"] = artifact.version_id
         consume_export_capability(capability)
-        return attach_export_capability(result, diagram_id)
+        return await attach_export_capability_for_request(result, request, diagram_id)
 
     try:
         content = await mcp_client.generate_diagram(format, analysis)
@@ -252,23 +308,40 @@ async def export_architecture_diagram(
     except ValueError as exc:
         raise ArchmorphException(400, str(exc))
 
-    record_event(f"exports_{format}", {"diagram_id": diagram_id})
-    record_funnel_step(diagram_id, "export")
+    record_event_and_funnel_step(
+        f"exports_{format}",
+        {"diagram_id": diagram_id},
+        diagram_id=diagram_id,
+        step="export",
+    )
+    artifact = await persist_generated_export_async(
+        request,
+        diagram_id=diagram_id,
+        artifact_type=f"architecture_diagram_{format}",
+        format=format,
+        content=result["content"],
+    )
+    if artifact is not None:
+        result["artifact_id"] = artifact.id
+        result["version_id"] = artifact.version_id
     consume_export_capability(capability)
-    return attach_export_capability(result, diagram_id)
+    return await attach_export_capability_for_request(result, request, diagram_id)
 
 
 # ─────────────────────────────────────────────────────────────
 # Architecture Package Export (HTML / SVG)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/export-architecture-package", dependencies=[Depends(require_diagram_access)])
+@router.post(
+    "/api/diagrams/{diagram_id}/export-architecture-package",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("10/minute")
 async def export_architecture_package(
     request: Request,
     diagram_id: str,
     format: str = "html",
     diagram: str = "primary",
-    _auth=Depends(verify_api_key_or_user_session),
+    _auth=Depends(require_api_write_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Generate the customer-facing Architecture Package.
@@ -281,7 +354,7 @@ async def export_architecture_package(
     if diagram not in ("primary", "dr"):
         raise ArchmorphException(400, "diagram must be 'primary' or 'dr'")
 
-    analysis = authorize_diagram_access(request, diagram_id, purpose="export architecture package")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="export architecture package")
 
     try:
         validate_analysis_payload_bounds(analysis)
@@ -295,17 +368,36 @@ async def export_architecture_package(
             diagram=diagram,  # type: ignore[arg-type]
             analysis_id=diagram_id,
         )
-        SESSION_STORE[diagram_id] = analysis
     except AnalysisPayloadTooLarge as exc:
         raise ArchmorphException(413, str(exc), details=exc.details)
     except ValueError as exc:
         raise ArchmorphException(400, str(exc))
 
-    record_event("exports_architecture_package", {
-        "diagram_id": diagram_id,
-        "format": format,
-        "diagram": diagram,
-    })
-    record_funnel_step(diagram_id, "export")
+    record_event_and_funnel_step(
+        "exports_architecture_package",
+        {
+            "diagram_id": diagram_id,
+            "format": format,
+            "diagram": diagram,
+        },
+        diagram_id=diagram_id,
+        step="export",
+    )
+    package_content = result.get("content")
+    if package_content is None and result.get("content_b64"):
+        package_content = base64.b64decode(result["content_b64"], validate=True)
+    if package_content is None:
+        raise ArchmorphException(502, "Architecture package produced no content")
+    artifact = await persist_generated_export_async(
+        request,
+        diagram_id=diagram_id,
+        artifact_type=f"architecture_package_{format}_{diagram}",
+        format=format,
+        content=package_content,
+        force_blob=isinstance(package_content, bytes),
+    )
+    if artifact is not None:
+        result["artifact_id"] = artifact.id
+        result["version_id"] = artifact.version_id
     consume_export_capability(capability)
-    return attach_export_capability(result, diagram_id)
+    return await attach_export_capability_for_request(result, request, diagram_id)

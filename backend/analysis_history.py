@@ -10,14 +10,16 @@ Thread-safe via RLock to support concurrent requests across workers.
 import threading
 import logging
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Optional
+
+from session_store import get_store
 
 logger = logging.getLogger(__name__)
 
 _lock = threading.RLock()
 
 # user_id -> list[dict]  (most recent first)
-_history: Dict[str, List[Dict[str, Any]]] = {}
+_history = get_store("analysis_history", maxsize=500, ttl=86400 * 30)
 
 # diagram_id -> user_id  (for bookmark/delete lookups)
 _diagram_user_map: Dict[str, str] = {}
@@ -55,12 +57,13 @@ def save_analysis(
     }
 
     with _lock:
-        user_list = _history.setdefault(user_id, [])
+        user_list = list(_history.peek(user_id, []) or [])
         # Deduplicate by diagram_id — update if exists
         for i, existing in enumerate(user_list):
             if existing["diagram_id"] == diagram_id:
                 user_list[i] = summary
                 _diagram_user_map[diagram_id] = user_id
+                _history.set(user_id, user_list)
                 return summary
 
         user_list.insert(0, summary)
@@ -72,6 +75,7 @@ def save_analysis(
             del user_list[MAX_HISTORY_PER_USER:]
             for r in removed:
                 _diagram_user_map.pop(r["diagram_id"], None)
+        _history.set(user_id, user_list)
 
     return summary
 
@@ -120,21 +124,36 @@ def get_analysis(user_id: str, analysis_id: str) -> Optional[Dict[str, Any]]:
 def delete_analysis(user_id: str, analysis_id: str) -> bool:
     """Delete an analysis from a user's history. Returns True if found and removed."""
     with _lock:
-        user_list = _history.get(user_id, [])
+        user_list = list(_history.peek(user_id, []) or [])
         for i, a in enumerate(user_list):
             if a["diagram_id"] == analysis_id or a["id"] == analysis_id:
                 user_list.pop(i)
                 _diagram_user_map.pop(analysis_id, None)
+                if user_list:
+                    _history.set(user_id, user_list)
+                elif not _history.delete(user_id):
+                    raise RuntimeError("Analysis history deletion could not be confirmed")
                 return True
     return False
+
+
+def purge_diagram(diagram_id: str, owner_user_id: str) -> bool:
+    """Delete a diagram only from the specified owner's history."""
+    return delete_analysis(owner_user_id, diagram_id)
+
+
+def diagram_absent(diagram_id: str, owner_user_id: str) -> bool:
+    return get_analysis(owner_user_id, diagram_id) is None
 
 
 def toggle_bookmark(user_id: str, analysis_id: str) -> Optional[bool]:
     """Toggle bookmark on an analysis. Returns new bookmark state or None if not found."""
     with _lock:
-        for a in _history.get(user_id, []):
+        user_list = list(_history.get(user_id, []) or [])
+        for a in user_list:
             if a["diagram_id"] == analysis_id or a["id"] == analysis_id:
                 a["bookmarked"] = not a.get("bookmarked", False)
+                _history.set(user_id, user_list)
                 return a["bookmarked"]
     return None
 

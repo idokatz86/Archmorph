@@ -9,6 +9,12 @@ image:
   # Default tag uses Chart.AppVersion via the deployment template.
   # Override with --set image.tag=<sha> in CI/CD.  Never use "latest" (#162).
   tag: ""
+  # Production/staging must set an immutable sha256 digest. Tags are dev-only.
+  digest: ""
+
+releaseEvidence:
+  sourceSha: ""
+  schemaContractDigest: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -82,11 +88,13 @@ env:
   ENVIRONMENT: "dev"
   AZURE_OPENAI_DEPLOYMENT: "gpt-4o"
   RATE_LIMIT_ENABLED: "true"
+  ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP: "false"
   ALLOWED_ORIGINS: "http://localhost:5173"
 
 # Secrets (referenced from external-secrets or Kubernetes secrets)
 externalSecrets:
   enabled: false
+  refreshInterval: 1h
   secretStoreRef:
     name: azure-keyvault
     kind: SecretStore
@@ -97,12 +105,73 @@ externalSecrets:
     - secretKey: DATABASE_URL
       remoteRef:
         key: database-url
+    - secretKey: REDIS_URL
+      remoteRef:
+        key: redis-url
     - secretKey: APPLICATIONINSIGHTS_CONNECTION_STRING
       remoteRef:
         key: appinsights-connection-string
     - secretKey: ARCHMORPH_ADMIN_KEY
       remoteRef:
         key: admin-key
+    - secretKey: ARCHMORPH_API_KEY
+      remoteRef:
+        key: api-key
+    - secretKey: ARCHMORPH_API_KEY_ROTATED
+      remoteRef:
+        key: api-key-rotated
+    - secretKey: ARCHMORPH_API_KEY_PRINCIPAL_ID
+      remoteRef:
+        key: api-key-principal-id
+    - secretKey: JWT_SECRET
+      remoteRef:
+        key: jwt-secret
+
+# Use this when External Secrets Operator is not installed. The named Secret
+# must contain every key in requiredSecretKeys before the Deployment is applied.
+existingSecret:
+  name: ""
+
+requiredSecretKeys:
+  - secretKey: AZURE_OPENAI_API_KEY
+  - secretKey: DATABASE_URL
+  - secretKey: REDIS_URL
+  - secretKey: APPLICATIONINSIGHTS_CONNECTION_STRING
+  - secretKey: ARCHMORPH_ADMIN_KEY
+  - secretKey: ARCHMORPH_API_KEY
+  - secretKey: ARCHMORPH_API_KEY_PRINCIPAL_ID
+  - secretKey: JWT_SECRET
+
+optionalSecretKeys:
+  - secretKey: ARCHMORPH_API_KEY_ROTATED
+
+# The release owner applies preflight and migration as separate serialized Jobs,
+# then performs a workload-only Helm upgrade. Normal Helm rendering creates no Job.
+migrations:
+  enabled: true
+  phase: "disabled"
+  # Required only when phase is preflight or migrate. The owner supplies a unique
+  # run/attempt identity so reruns never delete or replace an active execution.
+  executionId: ""
+  # First-provisioning only. When true, the runner requires no alembic_version
+  # table and no application objects before upgrading to expectedAlembicHead.
+  # Keep false for every existing environment and normal upgrade.
+  bootstrapEmptyDatabase: false
+  # Must already exist. It needs no Kubernetes API RBAC and token automount is off.
+  serviceAccountName: "archmorph-migration"
+  backoffLimit: 0
+  activeDeadlineSeconds: 900
+  # Kubernetes TTL cleanup applies only after completion, including failed Jobs;
+  # active executions are bounded only by activeDeadlineSeconds and never deleted.
+  ttlSecondsAfterFinished: 3600
+  expectedAlembicHead: "014"
+  # One reviewed release schema contract: first install from 013 and repeated
+  # upgrades already at 014 are both valid. The migration runner validates and
+  # no-ops under its advisory lock when current == expectedAlembicHead.
+  acceptedCurrentAlembicRevisions:
+    - "013"
+    - "014"
+  secretPreflightTimeoutSeconds: 120
 
 # Health check configuration (#378)
 livenessProbe:
@@ -116,7 +185,7 @@ livenessProbe:
 
 readinessProbe:
   httpGet:
-    path: /healthz
+    path: /readyz
     port: 8000
   initialDelaySeconds: 5
   periodSeconds: 10

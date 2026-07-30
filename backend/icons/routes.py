@@ -59,6 +59,9 @@ def _revision_metadata() -> dict[str, str]:
 def _actor_from_admin(admin: Optional[dict]) -> Optional[str]:
     if not admin:
         return None
+    principal_id = getattr(admin, "principal_id", None)
+    if principal_id:
+        return str(principal_id)
     actor = admin.get("sub") or admin.get("jti")
     return str(actor) if actor else None
 

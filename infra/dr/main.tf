@@ -47,9 +47,15 @@ variable "frontend_url" {
 }
 
 variable "health_probe_path" {
-  description = "Health probe path used by DR traffic manager checks."
+  description = "Anonymous process liveness path for DR container probes."
   type        = string
   default     = "/healthz"
+}
+
+variable "readiness_probe_path" {
+  description = "Anonymous dependency readiness path used by DR traffic routing checks."
+  type        = string
+  default     = "/readyz"
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -183,7 +189,7 @@ resource "azurerm_traffic_manager_profile" "failover" {
   monitor_config {
     protocol                     = "HTTPS"
     port                         = 443
-    path                         = var.health_probe_path
+    path                         = var.readiness_probe_path
     interval_in_seconds          = 30
     timeout_in_seconds           = 10
     tolerated_number_of_failures = 3

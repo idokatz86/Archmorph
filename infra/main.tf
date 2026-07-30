@@ -63,7 +63,7 @@ locals {
     lower(var.location),
     var.dr_location
   ) : var.dr_location
-  backend_image     = var.backend_container_image != "" ? var.backend_container_image : "${azurerm_container_registry.main.login_server}/archmorph-api:latest"
+  backend_image     = var.backend_container_image
   storage_cmk_parts = var.storage_cmk_key_vault_key_id != "" ? regex("^https://([a-zA-Z0-9-]+)\\.vault\\.azure\\.net/keys/([^/]+)/([^/]+)$", var.storage_cmk_key_vault_key_id) : []
   tags = {
     project     = "archmorph"
@@ -350,6 +350,15 @@ resource "azurerm_storage_container" "metrics" {
   container_access_type = "private"
 }
 
+# Durable production rollout ownership and emergency rollback priority.
+# Blob leases are accessed only with Microsoft Entra managed identity; the
+# container is private and contains no resource IDs, URLs, or credentials.
+resource "azurerm_storage_container" "rollout_coordination" {
+  name                  = "rollout-coordination"
+  storage_account_id    = azurerm_storage_account.main.id
+  container_access_type = "private"
+}
+
 # ─────────────────────────────────────────────────────────────
 # Azure Container Registry
 # ─────────────────────────────────────────────────────────────
@@ -457,6 +466,22 @@ resource "azurerm_redis_cache" "main" {
 # ─────────────────────────────────────────────────────────────
 data "azurerm_client_config" "current" {}
 
+check "static_api_key_configuration" {
+  assert {
+    condition = (
+      var.environment == "dev"
+      || (
+        var.manage_archmorph_api_key
+        && var.archmorph_api_key != null
+        && var.manage_archmorph_api_key_rotated
+        && var.archmorph_api_key_rotated != null
+        && var.archmorph_api_key_principal_id != null
+      )
+    )
+    error_message = "Production/staging require base/current static keys and a stable principal from private configuration."
+  }
+}
+
 resource "azurerm_key_vault" "main" {
   name                       = "archmorph-kv-${local.name_suffix}"
   resource_group_name        = azurerm_resource_group.main.name
@@ -465,7 +490,7 @@ resource "azurerm_key_vault" "main" {
   sku_name                   = "standard"
   soft_delete_retention_days = local.production_infra_hardening_enabled ? 90 : 7
   purge_protection_enabled   = local.production_infra_hardening_enabled # Enable in production
-  rbac_authorization_enabled = local.production_infra_hardening_enabled # Use RBAC in production
+  rbac_authorization_enabled = var.key_vault_rbac_authorization_enabled
 
   # Network ACLs - restrict in production
   network_acls {
@@ -509,6 +534,22 @@ resource "azurerm_key_vault_secret" "redis_connection" {
 resource "azurerm_key_vault_secret" "appinsights_connection" {
   name         = "appinsights-connection-string"
   value        = azurerm_application_insights.main.connection_string
+  key_vault_id = azurerm_key_vault.main.id
+}
+
+resource "azurerm_key_vault_secret" "archmorph_api_key" {
+  for_each = var.manage_archmorph_api_key ? toset(["configured"]) : toset([])
+
+  name         = "archmorph-api-key"
+  value        = var.archmorph_api_key
+  key_vault_id = azurerm_key_vault.main.id
+}
+
+resource "azurerm_key_vault_secret" "archmorph_api_key_rotated" {
+  for_each = var.manage_archmorph_api_key_rotated ? toset(["configured"]) : toset([])
+
+  name         = "archmorph-api-key-rotated"
+  value        = var.archmorph_api_key_rotated
   key_vault_id = azurerm_key_vault.main.id
 }
 
@@ -644,6 +685,24 @@ resource "azurerm_container_app" "backend" {
     identity            = azurerm_user_assigned_identity.container_app.id
   }
 
+  dynamic "secret" {
+    for_each = azurerm_key_vault_secret.archmorph_api_key
+    content {
+      name                = "api-key"
+      key_vault_secret_id = secret.value.versionless_id
+      identity            = azurerm_user_assigned_identity.container_app.id
+    }
+  }
+
+  dynamic "secret" {
+    for_each = azurerm_key_vault_secret.archmorph_api_key_rotated
+    content {
+      name                = "api-key-rotated"
+      key_vault_secret_id = secret.value.versionless_id
+      identity            = azurerm_user_assigned_identity.container_app.id
+    }
+  }
+
   ingress {
     external_enabled = true
     target_port      = 8000
@@ -740,6 +799,11 @@ resource "azurerm_container_app" "backend" {
       }
 
       env {
+        name  = "ENFORCE_POSTGRES"
+        value = "true"
+      }
+
+      env {
         name  = "ALLOWED_ORIGINS"
         value = var.frontend_url
       }
@@ -757,6 +821,35 @@ resource "azurerm_container_app" "backend" {
       env {
         name        = "REDIS_URL"
         secret_name = "redis-url"
+      }
+
+      dynamic "env" {
+        for_each = var.manage_archmorph_api_key ? toset(["configured"]) : toset([])
+        content {
+          name        = "ARCHMORPH_API_KEY"
+          secret_name = "api-key"
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.manage_archmorph_api_key_rotated ? toset(["configured"]) : toset([])
+        content {
+          name        = "ARCHMORPH_API_KEY_ROTATED"
+          secret_name = "api-key-rotated"
+        }
+      }
+
+      dynamic "env" {
+        for_each = var.archmorph_api_key_principal_id == null ? toset([]) : toset(["configured"])
+        content {
+          name  = "ARCHMORPH_API_KEY_PRINCIPAL_ID"
+          value = var.archmorph_api_key_principal_id
+        }
+      }
+
+      env {
+        name  = "ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"
+        value = tostring(var.archmorph_api_key_allow_legacy_overlap)
       }
 
       env {
@@ -819,7 +912,7 @@ resource "azurerm_container_app" "backend" {
       }
 
       readiness_probe {
-        path                    = var.health_probe_path
+        path                    = var.readiness_probe_path
         port                    = 8000
         transport               = "HTTP"
         interval_seconds        = 10
@@ -840,6 +933,17 @@ resource "azurerm_container_app" "backend" {
     ignore_changes = [
       template[0].container[0].image,
     ]
+  }
+}
+
+# State ownership moves to infra/migration-bootstrap. This declaration removes
+# only the old state binding: Phase A imports/adopts the existing Job in its
+# isolated state before apply, and this root must never destroy it.
+removed {
+  from = azurerm_container_app_job.database_migration
+
+  lifecycle {
+    destroy = false
   }
 }
 
@@ -867,6 +971,8 @@ resource "azurerm_user_assigned_identity" "container_app" {
 
 # Grant Container App identity access to Key Vault secrets
 resource "azurerm_key_vault_access_policy" "container_app" {
+  count = var.key_vault_rbac_authorization_enabled ? 0 : 1
+
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = azurerm_user_assigned_identity.container_app.principal_id
@@ -875,7 +981,7 @@ resource "azurerm_key_vault_access_policy" "container_app" {
 }
 
 resource "azurerm_key_vault_access_policy" "storage_cmk" {
-  count        = var.storage_cmk_key_vault_key_id != "" ? 1 : 0
+  count        = var.storage_cmk_key_vault_key_id != "" && !var.key_vault_rbac_authorization_enabled ? 1 : 0
   key_vault_id = azurerm_key_vault.main.id
   tenant_id    = data.azurerm_client_config.current.tenant_id
   object_id    = azurerm_storage_account.main.identity[0].principal_id
@@ -884,7 +990,7 @@ resource "azurerm_key_vault_access_policy" "storage_cmk" {
 }
 
 resource "azurerm_role_assignment" "storage_cmk_crypto_user" {
-  count                = var.storage_cmk_key_vault_key_id != "" ? 1 : 0
+  count                = var.storage_cmk_key_vault_key_id != "" && var.key_vault_rbac_authorization_enabled ? 1 : 0
   scope                = azurerm_key_vault.main.id
   role_definition_name = "Key Vault Crypto Service Encryption User"
   principal_id         = azurerm_storage_account.main.identity[0].principal_id
@@ -893,6 +999,8 @@ resource "azurerm_role_assignment" "storage_cmk_crypto_user" {
 # Key Vault Secrets User RBAC role — required when rbac_authorization_enabled=true (prod).
 # In non-RBAC mode (dev), access policy above governs; this role is a no-op but harmless.
 resource "azurerm_role_assignment" "container_app_kv_secrets_user" {
+  count = var.key_vault_rbac_authorization_enabled ? 1 : 0
+
   scope                = azurerm_key_vault.main.id
   role_definition_name = "Key Vault Secrets User"
   principal_id         = azurerm_user_assigned_identity.container_app.principal_id
@@ -903,6 +1011,20 @@ resource "azurerm_role_assignment" "container_app_storage" {
   scope                = azurerm_storage_account.main.id
   role_definition_name = "Storage Blob Data Contributor"
   principal_id         = azurerm_user_assigned_identity.container_app.principal_id
+}
+
+resource "azurerm_role_assignment" "rollout_coordination_release" {
+  scope                = azurerm_storage_container.rollout_coordination.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.release_automation_principal_id
+  principal_type       = "ServicePrincipal"
+}
+
+resource "azurerm_role_assignment" "rollout_coordination_priority" {
+  scope                = azurerm_storage_container.rollout_coordination.id
+  role_definition_name = "Storage Blob Data Contributor"
+  principal_id         = var.rollout_priority_principal_id
+  principal_type       = "ServicePrincipal"
 }
 
 # Grant Container App identity access to ACR (AcrPull)
@@ -1317,6 +1439,166 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "durable_job_backlog" 
   tags                    = local.tags
 }
 
+# Migration rollout owner: Platform Engineering. These alerts cover Job
+# terminal failure/timeout and absence of the runner's immutable success marker.
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure" {
+  name                 = "archmorph-migration-job-failure"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Platform Engineering: migration Job failed or was cancelled; production rollout must remain blocked"
+  severity             = 1
+  enabled              = true
+  scopes               = [azurerm_application_insights.main.id]
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT15M"
+
+  criteria {
+    query                   = <<-KQL
+      AppEvents
+      | where Name == 'migration_failed'
+      | where tostring(Properties['application']) == 'archmorph'
+      | where tostring(Properties['owner']) == 'platform-engineering'
+      | summarize FailureEvents = count()
+    KQL
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = 0
+    metric_measure_column   = "FailureEvents"
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.critical.id]
+  }
+
+  auto_mitigation_enabled = true
+  tags = merge(local.tags, {
+    owner = "platform-engineering"
+  })
+}
+
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_timeout" {
+  name                 = "archmorph-migration-job-timeout"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Platform Engineering: migration Job timed out; production rollout must remain blocked"
+  severity             = 1
+  enabled              = true
+  scopes               = [azurerm_application_insights.main.id]
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT15M"
+
+  criteria {
+    query                   = <<-KQL
+      AppEvents
+      | where Name == 'migration_timed_out'
+      | where tostring(Properties['application']) == 'archmorph'
+      | where tostring(Properties['owner']) == 'platform-engineering'
+      | summarize TimeoutEvents = count()
+    KQL
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = 0
+    metric_measure_column   = "TimeoutEvents"
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.critical.id]
+  }
+
+  auto_mitigation_enabled = true
+  tags = merge(local.tags, {
+    owner = "platform-engineering"
+  })
+}
+
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_missing_evidence" {
+  name                 = "archmorph-migration-missing-evidence"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Platform Engineering: a migration execution started without exact-head success evidence within the rollout window"
+  severity             = 1
+  enabled              = true
+  scopes               = [azurerm_application_insights.main.id]
+  evaluation_frequency = "PT5M"
+  window_duration      = "PT30M"
+
+  criteria {
+    query                   = <<-KQL
+      AppEvents
+      | where Name in ('migration_started', 'migration_succeeded')
+      | where tostring(Properties['application']) == 'archmorph'
+      | where tostring(Properties['owner']) == 'platform-engineering'
+      | extend Execution = tostring(Properties['execution'])
+      | summarize Started = countif(Name == 'migration_started'), Succeeded = countif(Name == 'migration_succeeded') by Execution
+      | summarize MissingEvidence = countif(Started > Succeeded)
+    KQL
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = 0
+    metric_measure_column   = "MissingEvidence"
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.critical.id]
+  }
+
+  auto_mitigation_enabled = true
+  tags = merge(local.tags, {
+    owner = "platform-engineering"
+  })
+}
+
+resource "azurerm_monitor_scheduled_query_rules_alert_v2" "bridge_customer_degraded" {
+  name                 = "archmorph-bridge-customer-degraded"
+  resource_group_name  = azurerm_resource_group.main.name
+  location             = azurerm_resource_group.main.location
+  description          = "Platform Engineering: schema recovery retained authenticated read-only customer service; fix-forward is required"
+  severity             = 1
+  enabled              = true
+  scopes               = [azurerm_application_insights.main.id]
+  evaluation_frequency = "PT1M"
+  window_duration      = "PT5M"
+
+  criteria {
+    query                   = <<-KQL
+      AppEvents
+      | where Name == 'bridge_customer_degraded'
+      | where tostring(Properties['application']) == 'archmorph'
+      | where tostring(Properties['owner']) == 'platform-engineering'
+      | summarize DegradedEvents = count()
+    KQL
+    time_aggregation_method = "Maximum"
+    operator                = "GreaterThan"
+    threshold               = 0
+    metric_measure_column   = "DegradedEvents"
+    failing_periods {
+      minimum_failing_periods_to_trigger_alert = 1
+      number_of_evaluation_periods             = 1
+    }
+  }
+
+  action {
+    action_groups = [azurerm_monitor_action_group.critical.id]
+  }
+
+  auto_mitigation_enabled = true
+  tags = merge(local.tags, {
+    owner = "platform-engineering"
+  })
+}
+
 # Slow API Response Alert (P95 > 10s, log-based for endpoint detail)
 resource "azurerm_monitor_scheduled_query_rules_alert_v2" "slow_endpoints" {
   name                = "archmorph-slow-endpoints"
@@ -1399,7 +1681,7 @@ resource "azurerm_application_insights_standard_web_test" "health_check" {
   enabled                 = true
 
   request {
-    url = "https://${azurerm_container_app.backend.ingress[0].fqdn}${var.health_probe_path}"
+    url = "https://${azurerm_container_app.backend.ingress[0].fqdn}${var.readiness_probe_path}"
   }
 
   validation_rules {
@@ -2763,7 +3045,7 @@ resource "azurerm_cdn_frontdoor_origin_group" "api" {
   }
 
   health_probe {
-    path                = var.health_probe_path
+    path                = var.readiness_probe_path
     protocol            = "Https"
     interval_in_seconds = 30
     request_type        = "GET"

@@ -1,0 +1,97 @@
+{
+  "schema_version": 1,
+  "alerts": {
+    "failure": {
+      "scope_refs": [
+        "application_insights"
+      ],
+      "severity": 1,
+      "enabled": true,
+      "evaluation_frequency": "PT5M",
+      "window_duration": "PT15M",
+      "query": "AppEvents\n| where Name == 'migration_failed'\n| where tostring(Properties['application']) == 'archmorph'\n| where tostring(Properties['owner']) == 'platform-engineering'\n| summarize FailureEvents = count()",
+      "criteria": {
+        "time_aggregation_method": "Maximum",
+        "operator": "GreaterThan",
+        "threshold": 0,
+        "metric_measure_column": "FailureEvents",
+        "failing_periods": {
+          "minimum_failing_periods_to_trigger_alert": 1,
+          "number_of_evaluation_periods": 1
+        }
+      },
+      "action_group_refs": [
+        "critical"
+      ]
+    },
+    "timeout": {
+      "scope_refs": [
+        "application_insights"
+      ],
+      "severity": 1,
+      "enabled": true,
+      "evaluation_frequency": "PT5M",
+      "window_duration": "PT15M",
+      "query": "AppEvents\n| where Name == 'migration_timed_out'\n| where tostring(Properties['application']) == 'archmorph'\n| where tostring(Properties['owner']) == 'platform-engineering'\n| summarize TimeoutEvents = count()",
+      "criteria": {
+        "time_aggregation_method": "Maximum",
+        "operator": "GreaterThan",
+        "threshold": 0,
+        "metric_measure_column": "TimeoutEvents",
+        "failing_periods": {
+          "minimum_failing_periods_to_trigger_alert": 1,
+          "number_of_evaluation_periods": 1
+        }
+      },
+      "action_group_refs": [
+        "critical"
+      ]
+    },
+    "missing_evidence": {
+      "scope_refs": [
+        "application_insights"
+      ],
+      "severity": 1,
+      "enabled": true,
+      "evaluation_frequency": "PT5M",
+      "window_duration": "PT30M",
+      "query": "AppEvents\n| where Name in ('migration_started', 'migration_succeeded')\n| where tostring(Properties['application']) == 'archmorph'\n| where tostring(Properties['owner']) == 'platform-engineering'\n| extend Execution = tostring(Properties['execution'])\n| summarize Started = countif(Name == 'migration_started'), Succeeded = countif(Name == 'migration_succeeded') by Execution\n| summarize MissingEvidence = countif(Started > Succeeded)",
+      "criteria": {
+        "time_aggregation_method": "Maximum",
+        "operator": "GreaterThan",
+        "threshold": 0,
+        "metric_measure_column": "MissingEvidence",
+        "failing_periods": {
+          "minimum_failing_periods_to_trigger_alert": 1,
+          "number_of_evaluation_periods": 1
+        }
+      },
+      "action_group_refs": [
+        "critical"
+      ]
+    },
+    "customer_degraded": {
+      "scope_refs": [
+        "application_insights"
+      ],
+      "severity": 1,
+      "enabled": true,
+      "evaluation_frequency": "PT1M",
+      "window_duration": "PT5M",
+      "query": "AppEvents\n| where Name == 'bridge_customer_degraded'\n| where tostring(Properties['application']) == 'archmorph'\n| where tostring(Properties['owner']) == 'platform-engineering'\n| summarize DegradedEvents = count()",
+      "criteria": {
+        "time_aggregation_method": "Maximum",
+        "operator": "GreaterThan",
+        "threshold": 0,
+        "metric_measure_column": "DegradedEvents",
+        "failing_periods": {
+          "minimum_failing_periods_to_trigger_alert": 1,
+          "number_of_evaluation_periods": 1
+        }
+      },
+      "action_group_refs": [
+        "critical"
+      ]
+    }
+  }
+}

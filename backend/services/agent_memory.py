@@ -36,8 +36,11 @@ class MemoryManager:
             client = get_openai_client()
             res = client.embeddings.create(input=text, model="text-embedding-3-small")
             return res.data[0].embedding
-        except Exception as e:
-            logger.error(f"Failed to get embedding: {e}")
+        except Exception as exc:
+            logger.error(
+                "Failed to get embedding error_type=%s",
+                type(exc).__name__,
+            )
             return None
 
     def prepare_short_term_buffer(self, messages: List[Dict[str, Any]], max_tokens: int = 4000) -> List[Dict[str, Any]]:

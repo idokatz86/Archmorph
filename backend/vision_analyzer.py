@@ -16,6 +16,7 @@ import threading
 
 from utils.chat_coercion import coerce_to_str_list
 
+from log_sanitizer import log_model_output_metadata
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, meter_openai_response, openai_retry
 from observability import increment_counter, record_histogram, set_gauge
 from prompt_guard import PROMPT_ARMOR
@@ -39,7 +40,7 @@ def _env_int(name: str, default: int) -> int:
     try:
         return int(os.getenv(name, str(default)))
     except ValueError:
-        logger.warning("Invalid %s=%r; using default %d", name, os.getenv(name), default)
+        logger.warning("Invalid integer setting %s; using default %d", name, default)
         return default
 
 
@@ -55,6 +56,11 @@ VISION_CACHE_MAXSIZE, VISION_CACHE_TTL_SECONDS = _vision_cache_settings()
 # Thread-safe cache for vision results. Uses the shared store abstraction so
 # Redis-configured deployments can share hits across workers/replicas.
 _vision_cache = get_store("vision_cache", maxsize=VISION_CACHE_MAXSIZE, ttl=VISION_CACHE_TTL_SECONDS)
+_vision_cache_refs = get_store(
+    "vision_cache_refs",
+    maxsize=VISION_CACHE_MAXSIZE * 2,
+    ttl=VISION_CACHE_TTL_SECONDS,
+)
 _vision_cache_lock = threading.Lock()
 
 VISION_CACHE_METRIC = "archmorph.vision.cache"
@@ -145,7 +151,10 @@ def compress_image(image_bytes: bytes, content_type: str = "image/png") -> Tuple
             image_bytes = _rasterize_pdf_to_png(image_bytes)
             content_type = "image/png"
         except ValueError as exc:
-            logger.error("PDF rasterization failed: %s", exc)
+            logger.error(
+                "PDF rasterization failed error_type=%s",
+                type(exc).__name__,
+            )
             raise
 
     try:
@@ -192,8 +201,11 @@ def compress_image(image_bytes: bytes, content_type: str = "image/png") -> Tuple
             logger.debug(f"Compressed image from {len(image_bytes)} to {len(compressed)} bytes.")
             return compressed, "image/jpeg", w, h
 
-    except Exception as e:
-        logger.warning(f"Image compression failed, using original bytes: {e}")
+    except Exception as exc:
+        logger.warning(
+            "Image compression failed; using original bytes error_type=%s",
+            type(exc).__name__,
+        )
         return image_bytes, content_type, 0, 0
 
 
@@ -280,6 +292,55 @@ def _compute_vision_cache_key(compressed_bytes: bytes, model_name: str, prompt_h
     return digest.hexdigest()
 
 
+def _scoped_vision_cache_key(
+    compressed_bytes: bytes,
+    model_name: str,
+    prompt_hash: str,
+    *,
+    owner_user_id: str | None,
+    tenant_id: str | None,
+) -> str:
+    base_key = _compute_vision_cache_key(compressed_bytes, model_name, prompt_hash)
+    if not owner_user_id or not tenant_id:
+        return base_key
+    scope = hashlib.sha256(
+        json.dumps([owner_user_id, tenant_id], separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return hashlib.sha256(f"{scope}:{base_key}".encode("utf-8")).hexdigest()
+
+
+def _record_vision_cache_reference(diagram_id: str | None, cache_key: str) -> None:
+    if diagram_id:
+        if not _vision_cache_refs.set(
+            diagram_id,
+            {"cache_key": cache_key},
+            ttl=VISION_CACHE_TTL_SECONDS,
+        ):
+            raise RuntimeError("Vision cache reference could not be persisted")
+
+
+def purge_diagram_cache(diagram_id: str) -> bool:
+    """Delete a diagram's vision-cache reference and unshared derived result."""
+    with _vision_cache_lock:
+        reference = _vision_cache_refs.pop(diagram_id, None)
+        if not isinstance(reference, dict):
+            return False
+        cache_key = reference.get("cache_key")
+        if not isinstance(cache_key, str) or not cache_key:
+            raise RuntimeError("Vision cache reference is invalid")
+        shared = any(
+            isinstance(value, dict) and value.get("cache_key") == cache_key
+            for value in _vision_cache_refs.values()
+        )
+        if not shared and not _vision_cache.delete(cache_key):
+            raise RuntimeError("Vision cache deletion could not be confirmed")
+        return True
+
+
+def diagram_cache_absent(diagram_id: str) -> bool:
+    return _vision_cache_refs.peek(diagram_id) is None
+
+
 def _emit_prompt_hash_metric(model_name: str, prompt_hash: str) -> None:
     set_gauge(
         VISION_PROMPT_HASH_METRIC,
@@ -303,7 +364,14 @@ def _record_vision_latency(start_time: float, cache_hit: bool, model_name: str, 
 VISION_PROMPT_HASH = _compute_vision_prompt_hash(AZURE_OPENAI_DEPLOYMENT)
 _emit_prompt_hash_metric(AZURE_OPENAI_DEPLOYMENT, VISION_PROMPT_HASH)
 
-def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[str, Any]:
+def analyze_image(
+    image_bytes: bytes,
+    content_type: str = "image/png",
+    *,
+    diagram_id: str | None = None,
+    owner_user_id: str | None = None,
+    tenant_id: str | None = None,
+) -> Dict[str, Any]:
     """
     Analyze a cloud architecture diagram image using GPT-4o vision directly.
     """
@@ -317,10 +385,17 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
     prompt_hash = _compute_vision_prompt_hash(model_name)
     _emit_prompt_hash_metric(model_name, prompt_hash)
 
-    cache_key = _compute_vision_cache_key(compressed_bytes, model_name, prompt_hash)
+    cache_key = _scoped_vision_cache_key(
+        compressed_bytes,
+        model_name,
+        prompt_hash,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
     with _vision_cache_lock:
         cached = _vision_cache.get(cache_key)
     if cached is not None:
+        _record_vision_cache_reference(diagram_id, cache_key)
         logger.info("Vision cache HIT (key=%s…)", cache_key[:12])
         increment_counter(VISION_CACHE_METRIC, tags={"result": "hit", "model": model_name})
         _record_vision_latency(start_time, True, model_name, prompt_hash)
@@ -354,10 +429,20 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
         temperature=0.0,
         timeout=60.0
     )
-    meter_openai_response(response, model_name, "vision_analyzer.analyze_image")
+    meter_openai_response(
+        response,
+        model_name,
+        "vision_analyzer.analyze_image",
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        actor_kind="background" if owner_user_id and tenant_id else None,
+    )
 
+    raw_content = ""
+    content = ""
     try:
-        content = response.choices[0].message.content.strip()
+        raw_content = response.choices[0].message.content.strip()
+        content = raw_content
         if content.startswith("```json"):
             content = content.replace("```json", "", 1)
         if content.startswith("```"):
@@ -375,12 +460,31 @@ def analyze_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[s
         if isinstance(result, dict) and "warnings" in result:
             result["warnings"] = coerce_to_str_list(result.get("warnings", []))
 
+        log_model_output_metadata(
+            logger,
+            component="vision_analyzer",
+            model=model_name,
+            output=raw_content,
+            parse_status="parsed",
+        )
+
         with _vision_cache_lock:
             _vision_cache[cache_key] = result
+            _record_vision_cache_reference(diagram_id, cache_key)
             
         return result
-    except Exception as e:
-        logger.error(f"Failed to parse GPT-4o output. Error: {e}")
-        raise RuntimeError("GPT-4o vision did not return a valid JSON schema.") from e
+    except Exception as exc:
+        log_model_output_metadata(
+            logger,
+            component="vision_analyzer",
+            model=model_name,
+            output=raw_content,
+            parse_status=(
+                "invalid_json" if isinstance(exc, json.JSONDecodeError) else "failed"
+            ),
+            exception=exc,
+            level=logging.ERROR,
+        )
+        raise RuntimeError("GPT-4o vision did not return a valid JSON schema.") from exc
     finally:
         _record_vision_latency(start_time, False, model_name, prompt_hash)

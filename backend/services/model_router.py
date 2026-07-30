@@ -137,7 +137,7 @@ class ModelRouter:
         endpoints = self._get_active_endpoints()
 
         if not endpoints:
-            logger.info("No active endpoints for org %s, using env fallback", self.org_id)
+            logger.info("No active model endpoints; using environment fallback")
             return get_model_client("azure-openai", {})
 
         if strategy in ("default", "fixed"):
@@ -151,7 +151,7 @@ class ModelRouter:
         elif strategy == "round_robin":
             return self._route_round_robin(endpoints)
         else:
-            logger.warning("Unknown routing strategy '%s', using fixed", strategy)
+            logger.warning("Unknown model routing strategy; using fixed")
             return self._route_fixed(endpoints)
 
     def _route_fixed(self, endpoints) -> ModelClient:
@@ -183,8 +183,7 @@ class ModelRouter:
 
         cheapest = min(candidates, key=_cost_key)
         logger.debug(
-            "Cost-optimized routing selected %s (%s) at $%.4f/1k input",
-            cheapest.name, cheapest.provider,
+            "Cost-optimized routing selected endpoint at $%.4f/1k input",
             (cheapest.pricing or {}).get("input_cost_per_1k", 0),
         )
         return get_model_client(cheapest.provider, cheapest.connection_config)
@@ -197,8 +196,7 @@ class ModelRouter:
 
         fastest = min(endpoints, key=_latency_key)
         logger.debug(
-            "Latency-optimized routing selected %s (%s) at ~%dms",
-            fastest.name, fastest.provider,
+            "Latency-optimized routing selected endpoint at ~%dms",
             (fastest.capabilities or {}).get("avg_latency_ms", 0),
         )
         return get_model_client(fastest.provider, fastest.connection_config)
@@ -208,7 +206,7 @@ class ModelRouter:
         idx = ModelRouter._rr_counter % len(endpoints)
         ModelRouter._rr_counter += 1
         ep = endpoints[idx]
-        logger.debug("Round-robin routing selected %s (index %d)", ep.name, idx)
+        logger.debug("Round-robin routing selected endpoint index=%d", idx)
         return get_model_client(ep.provider, ep.connection_config)
 
 
@@ -226,8 +224,10 @@ class FallbackModelClient:
             except Exception as exc:
                 last_error = exc
                 logger.warning(
-                    "Fallback client %d/%d failed: %s — trying next",
-                    i + 1, len(self._clients), exc,
+                    "Fallback client %d/%d failed error_type=%s; trying next",
+                    i + 1,
+                    len(self._clients),
+                    type(exc).__name__,
                 )
         raise last_error  # All clients exhausted
 
@@ -241,8 +241,10 @@ class FallbackModelClient:
             except Exception as exc:
                 last_error = exc
                 logger.warning(
-                    "Fallback stream client %d/%d failed: %s — trying next",
-                    i + 1, len(self._clients), exc,
+                    "Fallback stream client %d/%d failed error_type=%s; trying next",
+                    i + 1,
+                    len(self._clients),
+                    type(exc).__name__,
                 )
         raise last_error
 

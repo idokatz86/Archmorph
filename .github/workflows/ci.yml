@@ -8,6 +8,7 @@ on:
 
 # OIDC for Azure deploy; no security-events needed (security.yml handles SARIF)
 permissions:
+  actions: read
   id-token: write
   security-events: write
   contents: read
@@ -15,9 +16,6 @@ permissions:
 env:
   API_URL: ${{ secrets.API_URL }}
   FRONTEND_URL: ${{ secrets.FRONTEND_URL }}
-  # Temporary cutover flag while production hardening is disabled and the live app
-  # still uses managed-identity RBAC over the public Blob endpoint.
-  ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER: "true"
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -107,6 +105,7 @@ jobs:
       - name: Run tests with coverage
         run: |
           python -m pytest --tb=short -q -n auto --dist loadfile \
+            -m "not latency_budget" \
             --cov=. --cov-report=term-missing --cov-config=.coveragerc \
             --cov-context=test --cov-fail-under=63
         env:
@@ -122,8 +121,10 @@ jobs:
             local tests="$2"
             local floor="$3"
             local safe_module="${module//./_}"
+            local test_paths=()
+            read -r -a test_paths <<< "$tests"
             echo "Running risk-based coverage floor for ${module} with ${tests} (floor=${floor}%)"
-            python -m pytest --tb=short -q "$tests" \
+            python -m pytest --tb=short -q "${test_paths[@]}" \
               --cov="$module" --cov-report=term-missing \
               --cov-report=xml:"coverage-risk/${safe_module}.xml" \
               --cov-config=.coveragerc --cov-context=test \
@@ -131,7 +132,7 @@ jobs:
           }
 
           run_risk_coverage_floor "diagram_export" "tests/test_diagram_export.py" "70"
-          run_risk_coverage_floor "export_capabilities" "tests/test_export_capabilities.py" "70"
+          run_risk_coverage_floor "export_capabilities" "tests/test_export_capabilities.py tests/test_browser_capability_audit.py" "70"
           run_risk_coverage_floor "iac_generator" "tests/test_iac_generator.py" "70"
           run_risk_coverage_floor "session_store" "tests/test_session_store.py" "50"
           run_risk_coverage_floor "job_queue" "tests/test_job_queue.py" "70"
@@ -195,6 +196,88 @@ jobs:
             ${{ steps.grype-python.outputs.sarif }}
 
   # ============================================
+  # BACKEND WALL-CLOCK LATENCY (isolated runner)
+  # ============================================
+  backend-latency-budget:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      DATABASE_URL: sqlite:////dev/shm/archmorph-latency.db
+      USAGE_METRICS_DATA_DIR: /dev/shm/archmorph-metrics
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
+        with:
+          enable-cache: true
+          cache-dependency-glob: backend/requirements.txt
+
+      - name: Install backend dependencies
+        run: uv pip install --system -r requirements.txt
+
+      - name: Run latency regression budget serially
+        run: python -m pytest --tb=short -q -n 0 --no-cov -m latency_budget
+
+  rollout-contracts:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install rollout contract dependencies
+        run: python -m pip install -r backend/requirements.txt pytest pytest-xdist pyyaml ruff
+
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.17.3
+
+      - name: Verify pinned Azure CLI migration-args parser contract
+        uses: azure/CLI@v2
+        with:
+          azcliversion: 2.86.0
+          inlineScript: >-
+            python3 scripts/azure_cli_parser_contract.py
+            --require-az --expected-version 2.86.0
+
+      - name: Run deterministic rollout contracts
+        run: |
+          python -m pytest -q -n 0 \
+            backend/tests/test_containerapp_rollout.py \
+            backend/tests/test_containerapp_revision_builder.py \
+            backend/tests/test_azure_rollout_lease.py \
+            backend/tests/test_release_provenance.py \
+            backend/tests/test_bridge_overlay.py \
+            backend/tests/test_rollout_telemetry.py \
+            backend/tests/test_migration_runtime_contract.py \
+            backend/tests/test_azure_cli_parser_contract.py \
+            backend/tests/test_run_migrations.py \
+            backend/tests/test_migration_bootstrap_verifier.py \
+            backend/tests/test_migration_alert_attestation.py \
+            backend/tests/test_frontend_release.py \
+            backend/tests/test_helm_release_contract.py \
+            backend/tests/test_helm_secret_contract.py \
+            backend/tests/test_helm_release_workflow.py \
+            backend/tests/test_kubernetes_lease.py \
+            backend/tests/test_release_safety_workflows.py \
+            backend/tests/test_ci_workflow_post_deploy_smoke.py \
+            backend/tests/test_terraform_prod_workflow.py
+
+  # ============================================
   # ALEMBIC MIGRATION SMOKE
   # ============================================
   alembic-migration-smoke:
@@ -214,11 +297,23 @@ jobs:
           --health-interval 5s
           --health-timeout 5s
           --health-retries 10
+      redis:
+        image: redis:7.4-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: backend
     env:
-      DATABASE_URL: postgresql://archmorph:archmorph_dev@127.0.0.1:5432/archmorph
+      POSTGRES_USER: archmorph
+      POSTGRES_PASSWORD: archmorph_dev
+      POSTGRES_DB: archmorph
+      ARCHMORPH_TEST_REDIS_URL: redis://127.0.0.1:6379/15
     steps:
       - uses: actions/checkout@v6
 
@@ -236,14 +331,37 @@ jobs:
       - name: Install backend dependencies
         run: uv pip install --system -r requirements.txt
 
-      - name: Run Alembic migration cycle
+      - name: Set up Helm
+        uses: azure/setup-helm@v4
+        with:
+          version: v3.17.3
+
+      - name: Run empty-schema structural migration compatibility cycle
         run: |
+          DATABASE_SCHEME="postgresql"
+          printf -v DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s' \
+            "$DATABASE_SCHEME" "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB"
+          export DATABASE_URL ARCHMORPH_TEST_POSTGRES_URL="$DATABASE_URL"
           python -m alembic heads
           python -m alembic upgrade head --sql > /tmp/archmorph-alembic-upgrade.sql
           test -s /tmp/archmorph-alembic-upgrade.sql
           python -m alembic upgrade head
-          python -m alembic downgrade base
-          python -m alembic upgrade head
+          python -m alembic downgrade 013
+          python -m alembic upgrade 014
+
+      - name: Run canonical PostgreSQL, Redis, migration, and Helm contracts
+        run: |
+          DATABASE_SCHEME="postgresql"
+          printf -v DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s' \
+            "$DATABASE_SCHEME" "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB"
+          export DATABASE_URL ARCHMORPH_TEST_POSTGRES_URL="$DATABASE_URL"
+          python -m alembic downgrade 013
+          python -m alembic upgrade 014
+          python -m pytest -q -n 0 \
+            tests/test_workspace_store_postgres.py \
+            tests/test_canonical_state_migration_postgres.py \
+            tests/test_bridge_overlay_postgres.py \
+            tests/test_helm_secret_contract.py
 
   # ============================================
   # GENERATED IAC VALIDATION
@@ -307,18 +425,20 @@ jobs:
         with:
           terraform_version: "1.9.x"
 
-      - name: Configure Terraform plugin cache
-        run: |
-          mkdir -p "$RUNNER_TEMP/terraform-plugin-cache"
-          echo "TF_PLUGIN_CACHE_DIR=$RUNNER_TEMP/terraform-plugin-cache" >> "$GITHUB_ENV"
-
       - name: Check Terraform formatting
         run: find . -path './.terraform' -prune -o -name '*.tf' -print0 | xargs -0 terraform fmt -check
 
       - name: Validate checked-in Terraform roots without remote backends
         run: |
-          for dir in . staging dr observability; do
+          for dir in . staging dr observability migration-bootstrap; do
             echo "::group::terraform validate infra/$dir"
+            if [[ "$dir" == "." ]]; then
+              cache_name="root"
+            else
+              cache_name="${dir//\//-}"
+            fi
+            export TF_PLUGIN_CACHE_DIR="$RUNNER_TEMP/terraform-plugin-cache/$cache_name"
+            mkdir -p "$TF_PLUGIN_CACHE_DIR"
             terraform -chdir="$dir" init -backend=false -input=false -lockfile=readonly
             terraform -chdir="$dir" validate -no-color
             echo "::endgroup::"
@@ -430,7 +550,7 @@ jobs:
           SERVER_PID=$!
           trap 'kill "$SERVER_PID" 2>/dev/null || true' EXIT
           SERVER_READY=0
-          for i in {1..30}; do
+          for _attempt in {1..30}; do
             if curl -fsS "http://127.0.0.1:${LHCI_PORT}/" >/dev/null; then
               SERVER_READY=1
               break
@@ -471,12 +591,17 @@ jobs:
             frontend-sbom.json
             ${{ steps.grype-npm.outputs.sarif }}
 
+      - name: Validate complete frontend deployment bundle
+        run: python ../scripts/frontend_release.py validate --root . >/dev/null
+
       - name: Upload frontend dist
         uses: actions/upload-artifact@v7
         with:
           name: frontend-dist
-          path: frontend/dist
-          retention-days: 1
+          path: |
+            frontend/dist
+            frontend/api
+          retention-days: 30
 
       - name: Upload frontend coverage report
         uses: actions/upload-artifact@v7
@@ -576,11 +701,16 @@ jobs:
   # BACKEND DEPLOY (Blue-Green)
   # ============================================
   deploy-backend:
-    needs: [backend-tests, frontend-build, openapi-client-drift, iac-validate]
-    runs-on: ubuntu-latest
+    needs: [backend-tests, rollout-contracts, frontend-build, openapi-client-drift, iac-validate, alembic-migration-smoke, terraform-config-validate, terraform-policy-as-code]
+    runs-on: ${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}
     timeout-minutes: 45
     if: github.ref == 'refs/heads/main'
     environment: production
+    permissions:
+      actions: read
+      attestations: write
+      contents: read
+      id-token: write
     env:
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
       AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
@@ -590,24 +720,52 @@ jobs:
       ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
       CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
       CONTAINER_APP_ENV: ${{ secrets.CONTAINER_APP_ENV }}
+      MIGRATION_JOB_NAME: ${{ secrets.MIGRATION_JOB_NAME }}
+      MIGRATION_IDENTITY_NAME: ${{ secrets.MIGRATION_IDENTITY_NAME }}
+      MIGRATION_KEY_VAULT_NAME: ${{ secrets.MIGRATION_KEY_VAULT_NAME }}
+      MIGRATION_DATABASE_SECRET_NAME: ${{ secrets.MIGRATION_DATABASE_SECRET_NAME }}
       ADMIN_KEY: ${{ secrets.ADMIN_KEY }}
       ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
+      ARCHMORPH_API_KEY_ROTATED: ${{ secrets.ARCHMORPH_API_KEY_ROTATED }}
+      ARCHMORPH_API_KEY_PRINCIPAL_ID: ${{ vars.ARCHMORPH_API_KEY_PRINCIPAL_ID }}
+      ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP: ${{ vars.ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP || 'false' }}
       JWT_SECRET: ${{ secrets.JWT_SECRET }}
       TRUSTED_FRONT_DOOR_FDID: ${{ secrets.TRUSTED_FRONT_DOOR_FDID }}
       TRUSTED_FRONT_DOOR_HOSTS: ${{ secrets.TRUSTED_FRONT_DOOR_HOSTS }}
       ALLOWED_ORIGINS: ${{ secrets.CORS_ALLOWED_ORIGINS }}
       LEGACY_METRICS_STORAGE_ACCOUNT: ${{ secrets.LEGACY_METRICS_STORAGE_ACCOUNT }}
+      ROLLOUT_COORDINATION_STORAGE_ACCOUNT: ${{ secrets.ROLLOUT_COORDINATION_STORAGE_ACCOUNT }}
+      ROLLOUT_COORDINATION_CONTAINER: ${{ vars.ROLLOUT_COORDINATION_CONTAINER || 'rollout-coordination' }}
       TFSTATE_RESOURCE_GROUP: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
       TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
       TFSTATE_CONTAINER: ${{ secrets.TFSTATE_CONTAINER }}
       TFSTATE_KEY: ${{ secrets.TFSTATE_KEY }}
+      MIGRATION_TFSTATE_STORAGE_ACCOUNT: ${{ secrets.MIGRATION_TFSTATE_STORAGE_ACCOUNT }}
+      MIGRATION_TFSTATE_CONTAINER: ${{ secrets.MIGRATION_TFSTATE_CONTAINER }}
+      MIGRATION_TFSTATE_KEY: ${{ secrets.MIGRATION_TFSTATE_KEY }}
+      RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
+      APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
+      STATIC_WEB_APP_NAME: ${{ vars.STATIC_WEB_APP_NAME || 'archmorph-frontend' }}
+      ARCHMORPH_BACKEND_API_BASE: ${{ secrets.API_URL }}
+      SWA_RESTORE_IMAGE: ${{ secrets.SWA_RESTORE_IMAGE }}
       REQUIRE_FRONT_DOOR_ORIGIN_LOCK: ${{ vars.REQUIRE_FRONT_DOOR_ORIGIN_LOCK || 'false' }}
       ARM_USE_OIDC: true
       ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
       ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
       ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    concurrency:
+      group: production-backend-rollout
+      cancel-in-progress: false
+    outputs:
+      initial_schema: ${{ steps.current_schema.outputs.revision }}
     steps:
       - uses: actions/checkout@v6
+
+      - name: Validate rollout coordination inputs
+        run: |
+          set -euo pipefail
+          : "${ROLLOUT_COORDINATION_STORAGE_ACCOUNT:?ROLLOUT_COORDINATION_STORAGE_ACCOUNT is required}"
+          : "${ROLLOUT_COORDINATION_CONTAINER:?ROLLOUT_COORDINATION_CONTAINER is required}"
 
       - name: Azure Login (OIDC)
         uses: azure/login@v3
@@ -615,6 +773,28 @@ jobs:
           client-id: ${{ env.AZURE_CLIENT_ID }}
           tenant-id: ${{ env.AZURE_TENANT_ID }}
           subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Acquire durable production rollout ownership
+        id: rollout_lease
+        run: |
+          set -euo pipefail
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            acquire \
+            --mode deploy \
+            --wait-seconds 900 \
+            --retry-seconds 5 \
+            --lease-id-output "$RUNNER_TEMP/rollout-lease-id"
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            heartbeat \
+            --mode deploy \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+            --interval-seconds 15 \
+            --max-failures 3 &
+          echo "$!" > "$RUNNER_TEMP/rollout-lease-heartbeat-pid"
 
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@v4
@@ -633,21 +813,36 @@ jobs:
             ACR_NAME \
             ACR_LOGIN_SERVER \
             CONTAINER_APP_NAME \
+            CONTAINER_APP_ENV \
+            MIGRATION_JOB_NAME \
+            MIGRATION_IDENTITY_NAME \
+            MIGRATION_KEY_VAULT_NAME \
+            MIGRATION_DATABASE_SECRET_NAME \
             ADMIN_KEY \
             ARCHMORPH_API_KEY \
+            ARCHMORPH_API_KEY_PRINCIPAL_ID \
             JWT_SECRET \
             ALLOWED_ORIGINS \
             LEGACY_METRICS_STORAGE_ACCOUNT \
+            ROLLOUT_COORDINATION_STORAGE_ACCOUNT \
+            ROLLOUT_COORDINATION_CONTAINER \
             TFSTATE_RESOURCE_GROUP \
             TFSTATE_STORAGE_ACCOUNT \
             TFSTATE_CONTAINER \
-            TFSTATE_KEY; do
+            TFSTATE_KEY \
+            MIGRATION_TFSTATE_STORAGE_ACCOUNT \
+            MIGRATION_TFSTATE_CONTAINER \
+            MIGRATION_TFSTATE_KEY; do
             value="${!name:-}"
             if [ -z "$value" ]; then
               echo "::error::Required backend deploy input ${name} is not set"
               missing=1
             fi
           done
+          if [ "${#RELEASE_MANIFEST_HMAC_KEY}" -lt 32 ]; then
+            echo "::error::RELEASE_MANIFEST_HMAC_KEY must contain at least 32 bytes"
+            missing=1
+          fi
           if [ "$missing" -ne 0 ]; then
             exit 1
           fi
@@ -658,34 +853,191 @@ jobs:
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
 
+      - name: Prepare immutable image build claims
+        id: image_claims
+        run: |
+          set -euo pipefail
+          FINAL_SCHEMA_CONTRACT_DIGEST=$(python scripts/containerapp_rollout.py \
+            schema-contract-digest --input backend/schema-contract.json)
+          BRIDGE_SCHEMA_CONTRACT_DIGEST=$(python scripts/containerapp_rollout.py \
+            schema-contract-digest --input backend/bridge-schema-contract.json)
+          {
+            echo "FINAL_SCHEMA_CONTRACT_DIGEST=$FINAL_SCHEMA_CONTRACT_DIGEST"
+            echo "BRIDGE_SCHEMA_CONTRACT_DIGEST=$BRIDGE_SCHEMA_CONTRACT_DIGEST"
+          } >> "$GITHUB_ENV"
+          {
+            echo "final_contract_digest=$FINAL_SCHEMA_CONTRACT_DIGEST"
+            echo "bridge_contract_digest=$BRIDGE_SCHEMA_CONTRACT_DIGEST"
+          } >> "$GITHUB_OUTPUT"
+
       - name: Build and push to ACR
         id: build_backend
         uses: docker/build-push-action@v7
         with:
           context: ./backend
           push: true
-          tags: |
-            ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:${{ github.sha }}
-            ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:latest
+          tags: ${{ env.ACR_LOGIN_SERVER }}/archmorph-api:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
             BUILDKIT_INLINE_CACHE=1
+            ARCHMORPH_SOURCE_SHA=${{ github.sha }}
+            ARCHMORPH_SOURCE_REPOSITORY=${{ github.repository }}
+            ARCHMORPH_BUILD_WORKFLOW=.github/workflows/ci.yml
+            ARCHMORPH_BUILD_RUN_ID=${{ github.run_id }}
+            ARCHMORPH_BUILD_RUN_ATTEMPT=${{ github.run_attempt }}
+            ARCHMORPH_IMAGE_PLATFORM=linux/amd64
+            ARCHMORPH_SCHEMA_ACCEPTED_REVISIONS=014
+            ARCHMORPH_SCHEMA_CONTRACT_DIGEST=${{ steps.image_claims.outputs.final_contract_digest }}
+          provenance: mode=max
+          sbom: true
 
-      - name: Capture immutable image reference
+      - name: Build and push schema bridge overlay
+        id: build_bridge
+        uses: docker/build-push-action@v7
+        with:
+          context: ./backend
+          file: ./backend/bridge_overlay/Dockerfile
+          push: true
+          tags: ${{ env.ACR_LOGIN_SERVER }}/archmorph-api-bridge:${{ github.sha }}
+          build-args: |
+            BRIDGE_BASE_IMAGE=${{ env.ACR_LOGIN_SERVER }}/archmorph-api@${{ steps.build_backend.outputs.digest }}
+            ARCHMORPH_SOURCE_SHA=${{ github.sha }}
+            ARCHMORPH_SOURCE_REPOSITORY=${{ github.repository }}
+            ARCHMORPH_BUILD_WORKFLOW=.github/workflows/ci.yml
+            ARCHMORPH_BUILD_RUN_ID=${{ github.run_id }}
+            ARCHMORPH_BUILD_RUN_ATTEMPT=${{ github.run_attempt }}
+            ARCHMORPH_IMAGE_PLATFORM=linux/amd64
+            ARCHMORPH_SCHEMA_ACCEPTED_REVISIONS=013,014
+            ARCHMORPH_SCHEMA_CONTRACT_DIGEST=${{ steps.image_claims.outputs.bridge_contract_digest }}
+          provenance: mode=max
+          sbom: true
+
+      - name: Capture immutable image and schema contract
+        id: release_contract
         run: |
           if [ -z "${{ steps.build_backend.outputs.digest }}" ]; then
             echo "::error::docker/build-push-action did not return an image digest"
             exit 1
           fi
           IMAGE_REF="${{ env.ACR_LOGIN_SERVER }}/archmorph-api@${{ steps.build_backend.outputs.digest }}"
-          echo "IMAGE_REF=$IMAGE_REF" >> "$GITHUB_ENV"
+          BRIDGE_IMAGE_REF="${{ env.ACR_LOGIN_SERVER }}/archmorph-api-bridge@${{ steps.build_bridge.outputs.digest }}"
+          if ! [[ "$IMAGE_REF" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Built image reference is not an immutable sha256 digest"
+            exit 1
+          fi
+          if ! [[ "$BRIDGE_IMAGE_REF" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Bridge image reference is not an immutable sha256 digest"
+            exit 1
+          fi
+          APP_SCHEMA_MIN_REVISION=$(jq -er '.minimum_revision' backend/schema-contract.json)
+          APP_SCHEMA_MAX_REVISION=$(jq -er '.maximum_revision' backend/schema-contract.json)
+          EXPECTED_ALEMBIC_HEAD=$(jq -er '.migration_target_revision' backend/schema-contract.json)
+          FINAL_SCHEMA_CONTRACT_DIGEST=$(python scripts/containerapp_rollout.py \
+            schema-contract-digest --input backend/schema-contract.json)
+          BRIDGE_SCHEMA_CONTRACT_DIGEST=$(python scripts/containerapp_rollout.py \
+            schema-contract-digest --input backend/bridge-schema-contract.json)
+          {
+            echo "IMAGE_REF=$IMAGE_REF"
+            echo "BRIDGE_IMAGE_REF=$BRIDGE_IMAGE_REF"
+            echo "APP_SCHEMA_MIN_REVISION=$APP_SCHEMA_MIN_REVISION"
+            echo "APP_SCHEMA_MAX_REVISION=$APP_SCHEMA_MAX_REVISION"
+            echo "EXPECTED_ALEMBIC_HEAD=$EXPECTED_ALEMBIC_HEAD"
+            echo "FINAL_SCHEMA_CONTRACT_DIGEST=$FINAL_SCHEMA_CONTRACT_DIGEST"
+            echo "BRIDGE_SCHEMA_CONTRACT_DIGEST=$BRIDGE_SCHEMA_CONTRACT_DIGEST"
+          } >> "$GITHUB_ENV"
           echo "Using immutable image reference: $IMAGE_REF"
+          echo "Using immutable bridge image reference: $BRIDGE_IMAGE_REF"
+          {
+            echo "image_ref=$IMAGE_REF"
+            echo "bridge_image_ref=$BRIDGE_IMAGE_REF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub build provenance attestations
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.ACR_LOGIN_SERVER }}/archmorph-api
+          subject-digest: ${{ steps.build_backend.outputs.digest }}
+          push-to-registry: true
+
+      - name: Publish bridge build provenance attestation
+        uses: actions/attest-build-provenance@v3
+        with:
+          subject-name: ${{ env.ACR_LOGIN_SERVER }}/archmorph-api-bridge
+          subject-digest: ${{ steps.build_bridge.outputs.digest }}
+          push-to-registry: true
+
+      - name: Verify built image provenance labels and embedded schema contracts
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          SIGNER_HOST="${GITHUB_SERVER_URL#https://}"
+          python scripts/release_provenance.py write-build-provenance \
+            --output final-build-provenance.json \
+            --role final \
+            --image "$IMAGE_REF" \
+            --source-sha "$GITHUB_SHA" \
+            --source-repository "$GITHUB_REPOSITORY" \
+            --source-ref "$GITHUB_REF" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --workflow-path .github/workflows/ci.yml \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --platform linux/amd64 \
+            --schema-contract backend/schema-contract.json
+          python scripts/release_provenance.py write-build-provenance \
+            --output bridge-build-provenance.json \
+            --role bridge \
+            --image "$BRIDGE_IMAGE_REF" \
+            --source-sha "$GITHUB_SHA" \
+            --source-repository "$GITHUB_REPOSITORY" \
+            --source-ref "$GITHUB_REF" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --workflow-path .github/workflows/ci.yml \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --platform linux/amd64 \
+            --schema-contract backend/bridge-schema-contract.json
+          gh attestation verify "oci://${IMAGE_REF}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "${SIGNER_HOST}/${GITHUB_REPOSITORY}/.github/workflows/ci.yml" \
+            --source-digest "$GITHUB_SHA" \
+            --source-ref "$GITHUB_REF" \
+            --deny-self-hosted-runners \
+            --format json > final-attestation.json
+          gh attestation verify "oci://${BRIDGE_IMAGE_REF}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --signer-workflow "${SIGNER_HOST}/${GITHUB_REPOSITORY}/.github/workflows/ci.yml" \
+            --source-digest "$GITHUB_SHA" \
+            --source-ref "$GITHUB_REF" \
+            --deny-self-hosted-runners \
+            --format json > bridge-attestation.json
+          python scripts/release_provenance.py verify-attestation \
+            --input final-attestation.json --provenance final-build-provenance.json
+          python scripts/release_provenance.py verify-attestation \
+            --input bridge-attestation.json --provenance bridge-build-provenance.json
+          docker pull "$IMAGE_REF"
+          docker image inspect "$IMAGE_REF" > final-image-inspection.json
+          docker run --rm --entrypoint cat "$IMAGE_REF" \
+            /app/release/schema-contract.json > final-embedded-schema-contract.json
+          python scripts/release_provenance.py verify-image \
+            --inspection final-image-inspection.json \
+            --embedded-contract final-embedded-schema-contract.json \
+            --provenance final-build-provenance.json
+          docker pull "$BRIDGE_IMAGE_REF"
+          docker image inspect "$BRIDGE_IMAGE_REF" > bridge-image-inspection.json
+          docker run --rm --entrypoint cat "$BRIDGE_IMAGE_REF" \
+            /app/release/schema-contract.json > bridge-embedded-schema-contract.json
+          python scripts/release_provenance.py verify-image \
+            --inspection bridge-image-inspection.json \
+            --embedded-contract bridge-embedded-schema-contract.json \
+            --provenance bridge-build-provenance.json
 
       - name: Trivy container security gate
         uses: aquasecurity/trivy-action@v0.36.0
         with:
-          image-ref: ${{ env.IMAGE_REF }}
+          image-ref: ${{ steps.release_contract.outputs.image_ref }}
           format: table
           exit-code: 1
           severity: CRITICAL,HIGH
@@ -693,149 +1045,977 @@ jobs:
           vuln-type: library
           scanners: vuln  # Skip secret/misconfig scanning, focus on dependency CVEs
 
-      - name: Discover Container Apps subnet for storage cutover
+      - name: Trivy bridge container security gate
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.release_contract.outputs.bridge_image_ref }}
+          format: table
+          exit-code: 1
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          vuln-type: library
+          scanners: vuln
+
+      - name: Upload immutable backend build evidence
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-build-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            final-build-provenance.json
+            bridge-build-provenance.json
+            final-attestation.json
+            bridge-attestation.json
+            final-image-inspection.json
+            bridge-image-inspection.json
+            final-embedded-schema-contract.json
+            bridge-embedded-schema-contract.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Yield to emergency rollback after safe build checkpoint
         run: |
-          CONTAINER_APP_ENV_ID=$(az containerapp show \
-            --name "${{ env.CONTAINER_APP_NAME }}" \
-            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-            --only-show-errors \
-            --query properties.managedEnvironmentId -o tsv)
-          if [ -z "$CONTAINER_APP_ENV_ID" ]; then
-            echo "::error::Unable to discover Container Apps managed environment ID for storage network rule cutover"
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode deploy \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id"
+
+      - name: Capture exact original production traffic
+        id: production_traffic
+        run: |
+          set -euo pipefail
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            -o json > containerapp-before-rollout.json
+          az containerapp revision list \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --all \
+            -o json > revisions-before-rollout.json
+          jq '.properties.configuration.ingress.traffic' containerapp-before-rollout.json \
+            > blue-traffic-original.json
+          python scripts/containerapp_rollout.py explicit-traffic \
+            --input blue-traffic-original.json \
+            --container-app containerapp-before-rollout.json \
+            --revisions revisions-before-rollout.json \
+            --output blue-traffic-manifest.json
+
+      - name: Stage schema bridge rollout script
+        run: |
+          cat > "$RUNNER_TEMP/deploy-schema-bridge.sh" <<'BRIDGE_SCRIPT'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          SHORT_SHA="${{ github.sha }}"
+          BRIDGE_SUFFIX="bridge-${SHORT_SHA:0:8}-run-${{ github.run_attempt }}"
+          EXPECTED_BRIDGE_REVISION=$(python scripts/containerapp_rollout.py revision-name \
+            --app-name "$CONTAINER_APP_NAME" --suffix "$BRIDGE_SUFFIX")
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" -o json > bridge-source.json
+          for required_secret in db-connection redis-url jwt-secret; do
+            if ! jq -e --arg name "$required_secret" \
+              'any(.properties.configuration.secrets[]?; .name == $name)' \
+              bridge-source.json >/dev/null; then
+              echo "::error::Container App is missing required managed secret ${required_secret}"
+              exit 1
+            fi
+          done
+          python scripts/build_containerapp_revision.py \
+            --source bridge-source.json \
+            --output bridge-revision.json \
+            --image "$BRIDGE_IMAGE_REF" \
+            --revision-suffix "$BRIDGE_SUFFIX" \
+            --readiness-path /readyz \
+            --release-role bridge \
+            --secret-env DATABASE_URL=db-connection \
+            --secret-env REDIS_URL=redis-url \
+            --secret-env JWT_SECRET=jwt-secret \
+            --env APP_SCHEMA_MIN_REVISION=013 \
+            --env APP_SCHEMA_MAX_REVISION=014 \
+            --env ARCHMORPH_SOURCE_SHA="${{ github.sha }}" \
+            --env ARCHMORPH_SCHEMA_CONTRACT_DIGEST="$BRIDGE_SCHEMA_CONTRACT_DIGEST"
+          az containerapp update \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --yaml bridge-revision.json \
+            --no-wait
+          for attempt in $(seq 1 30); do
+            az containerapp revision list \
+              --name "$CONTAINER_APP_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --all -o json > bridge-revisions-current.json
+            if python scripts/containerapp_rollout.py resolve-exact-revision \
+              --expected "$EXPECTED_BRIDGE_REVISION" \
+              --revisions bridge-revisions-current.json \
+              > bridge-revision-state.json 2>/dev/null; then
+              BRIDGE_REV=$(jq -er '.name' bridge-revision-state.json)
+              BRIDGE_FQDN=$(az containerapp revision show \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --revision "$BRIDGE_REV" \
+                --query properties.fqdn -o tsv)
+              BRIDGE_WEIGHT=$(az containerapp revision show \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --revision "$BRIDGE_REV" \
+                --query properties.trafficWeight -o tsv)
+              BRIDGE_ROLE=$(az containerapp revision show \
+                --name "$CONTAINER_APP_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --revision "$BRIDGE_REV" \
+                --query "properties.template.containers[0].env[?name=='ARCHMORPH_RELEASE_ROLE'].value | [0]" \
+                -o tsv)
+              if [ "${BRIDGE_WEIGHT:-0}" != "0" ]; then
+                echo "::error::Bridge revision received traffic before verification"
+                exit 1
+              fi
+              if [ "$BRIDGE_ROLE" != "bridge" ]; then
+                echo "::error::Bridge revision is missing explicit release-role metadata"
+                exit 1
+              fi
+              if curl -fsS --max-time 30 "https://${BRIDGE_FQDN}/readyz" >/dev/null \
+                && curl -fsS --max-time 30 "https://${BRIDGE_FQDN}/api/schema-compatibility" \
+                  | jq -e --arg current "$CURRENT_SCHEMA_REVISION" \
+                    '.status == "compatible" and .current_revision == $current and .accepted_revisions == ["013", "014"]' >/dev/null \
+                && [ "$(curl -sS -D bridge-write-denial-headers.txt \
+                  -o bridge-write-denial.json -w '%{http_code}' --max-time 30 \
+                  -X POST -H 'Content-Type: application/json' -d '{}' \
+                  "https://${BRIDGE_FQDN}/api/workspaces")" = "503" ] \
+                && grep -qi '^retry-after: 30' bridge-write-denial-headers.txt \
+                && jq -e '.status == "bridge_read_only" and .customer_mode == "degraded_read_only" and .retryable == true' \
+                  bridge-write-denial.json >/dev/null; then
+                break
+              fi
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "::error::Bridge revision did not prove readiness and reviewed schema compatibility"
+              exit 1
+            fi
+            sleep 10
+          done
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'properties.configuration.ingress.traffic' -o json \
+            > bridge-traffic-current.json
+          python scripts/containerapp_rollout.py assert-traffic \
+            --expected blue-traffic-manifest.json \
+            --actual bridge-traffic-current.json
+          python scripts/containerapp_rollout.py write-release-manifest \
+            --output bridge-release-manifest.json \
+            --role bridge \
+            --revision "$BRIDGE_REV" \
+            --image "$BRIDGE_IMAGE_REF" \
+            --source-sha "${{ github.sha }}" \
+            --schema-contract backend/bridge-schema-contract.json \
+            --observed-schema "$CURRENT_SCHEMA_REVISION" \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --build-provenance bridge-build-provenance.json
+          python scripts/containerapp_rollout.py verify-release-manifest \
+            --input bridge-release-manifest.json \
+            --required-role bridge \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow "$GITHUB_WORKFLOW" \
+            --expected-run-id "$GITHUB_RUN_ID" \
+            --expected-run-attempt "$GITHUB_RUN_ATTEMPT" >/dev/null
+          curl -fsS --max-time 30 "https://${BRIDGE_FQDN}/api/schema-compatibility" \
+            -o bridge-schema-compatibility.json
+          python scripts/containerapp_rollout.py verify-runtime-compatibility \
+            --manifest bridge-release-manifest.json \
+            --runtime bridge-schema-compatibility.json \
+            --required-role bridge >/dev/null
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "$BRIDGE_REV" -o json > bridge-release-revision.json
+          python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest bridge-release-manifest.json \
+            --revision-json bridge-release-revision.json \
+            --required-role bridge \
+            --require-zero-traffic >/dev/null
+          echo "bridge_revision=$BRIDGE_REV" >> "$GITHUB_OUTPUT"
+          BRIDGE_SCRIPT
+          chmod 700 "$RUNNER_TEMP/deploy-schema-bridge.sh"
+          bash -n "$RUNNER_TEMP/deploy-schema-bridge.sh"
+
+      - name: Load signed migration execution evidence from a prior run attempt
+        id: interrupted_migration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p interrupted-release-evidence
+          ARTIFACT_NAME=$(gh api --paginate \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
+            --jq '.artifacts[].name' \
+            | grep -E "^(migration-terminal-state|migration-execution-state|migration-start-boundary)-${GITHUB_RUN_ID}-[0-9]+$" \
+            | awk -F- '{priority = ($0 ~ /^migration-terminal-state-/ ? 2 : ($0 ~ /^migration-execution-state-/ ? 1 : 0)); printf "%08d %d %s\n", $NF, priority, $0}' \
+            | sort -k1,1nr -k2,2nr \
+            | head -1 \
+            | cut -d' ' -f3- || true)
+          if [ -n "$ARTIFACT_NAME" ] && gh run download "$GITHUB_RUN_ID" \
+            --name "$ARTIFACT_NAME" \
+            --dir interrupted-release-evidence >/dev/null 2>&1; then
+            cp interrupted-release-evidence/rollout-state.json interrupted-rollout-state.json
+            python scripts/containerapp_rollout.py verify-release-state \
+              --state interrupted-rollout-state.json >/dev/null
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Reject concurrent production migration execution
+        run: |
+          set -euo pipefail
+          if [ -f interrupted-rollout-state.json ]; then
+            START_BOUNDARY=$(python scripts/containerapp_rollout.py verify-release-state \
+              --state interrupted-rollout-state.json \
+              --field start_boundary)
+            if [ "$START_BOUNDARY" = "true" ]; then
+              RESOLVE_STATUS=0
+              python scripts/containerapp_rollout.py resolve-migration-start \
+                --state interrupted-rollout-state.json \
+                --evidence-output interrupted-migration-start-evidence.json \
+                >/dev/null || RESOLVE_STATUS=$?
+              if [ "$RESOLVE_STATUS" -ne 0 ]; then
+                echo "::error::Recovery required: migration start cannot be bound to one exact reviewed execution; traffic remains unchanged"
+                exit "$RESOLVE_STATUS"
+              fi
+            fi
+            EXECUTION_NAME=$(python scripts/containerapp_rollout.py verify-release-state \
+              --state interrupted-rollout-state.json \
+              --field execution_name)
+            IMAGE_DIGEST=$(python scripts/containerapp_rollout.py verify-release-state \
+              --state interrupted-rollout-state.json \
+              --field image_digest)
+            python scripts/emit_rollout_telemetry.py \
+              --event migration_quiescence_started \
+              --run-id "$GITHUB_RUN_ID" \
+              --execution "$EXECUTION_NAME" \
+              --image-digest "$IMAGE_DIGEST" \
+              --evidence-output rollout-telemetry.ndjson
+            QUIESCE_STATUS=0
+            python scripts/containerapp_rollout.py quiesce-migration \
+              --state interrupted-rollout-state.json \
+              --evidence-output interrupted-migration-quiescence.json \
+              --max-attempts 20 \
+              --poll-seconds 5 || QUIESCE_STATUS=$?
+            if [ "$QUIESCE_STATUS" -ne 0 ]; then
+              python scripts/emit_rollout_telemetry.py \
+                --event migration_recovery_required \
+                --run-id "$GITHUB_RUN_ID" \
+                --execution "$EXECUTION_NAME" \
+                --image-digest "$IMAGE_DIGEST" \
+                --evidence-output rollout-telemetry.ndjson
+              echo "::error::Persisted migration execution could not be proven quiescent; retaining current schema-compatible traffic"
+              exit "$QUIESCE_STATUS"
+            fi
+            python scripts/emit_rollout_telemetry.py \
+              --event migration_quiesced \
+              --run-id "$GITHUB_RUN_ID" \
+              --execution "$EXECUTION_NAME" \
+              --image-digest "$IMAGE_DIGEST" \
+              --evidence-output rollout-telemetry.ndjson
+          fi
+          az containerapp job list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --output json > migration-jobs-before-bootstrap.json
+          JOB_COUNT=$(jq --arg name "$MIGRATION_JOB_NAME" \
+            '[.[] | select(.name == $name)] | length' migration-jobs-before-bootstrap.json)
+          if [ "$JOB_COUNT" -gt 1 ]; then
+            echo "::error::Migration Job identity is ambiguous; traffic remains unchanged"
+            exit 1
+          fi
+          if [ "$JOB_COUNT" -eq 1 ]; then
+            az containerapp job execution list \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --output json > migration-executions-before-bootstrap.json
+            NONTERMINAL_COUNT=$(jq '[.[] | select(
+              (.properties.status // "Unknown") as $status
+              | ($status != "Succeeded" and $status != "Failed" and
+                 $status != "Stopped" and $status != "Cancelled" and
+                 $status != "Canceled")
+            )] | length' migration-executions-before-bootstrap.json)
+            if [ "$NONTERMINAL_COUNT" -ne 0 ]; then
+              jq -n \
+                --arg status "recovery_required" \
+                --arg reason "nonterminal migration execution has no verified signed ownership evidence" \
+                '{schema_version:1,status:$status,reason:$reason}' \
+                > interrupted-migration-quiescence.json
+              echo "::error::Recovery required: a nonterminal migration execution is active without verified exact-execution ownership; traffic remains unchanged"
+              exit 1
+            fi
+          fi
+
+      - name: Plan migration bootstrap (Phase A)
+        run: |
+          set -euo pipefail
+          export TF_VAR_subscription_id="$AZURE_SUBSCRIPTION_ID"
+          export TF_VAR_resource_group_name="$AZURE_RESOURCE_GROUP"
+          export TF_VAR_container_app_environment_name="$CONTAINER_APP_ENV"
+          export TF_VAR_container_registry_name="$ACR_NAME"
+          export TF_VAR_key_vault_name="$MIGRATION_KEY_VAULT_NAME"
+          export TF_VAR_database_secret_name="$MIGRATION_DATABASE_SECRET_NAME"
+          export TF_VAR_migration_job_name="$MIGRATION_JOB_NAME"
+          export TF_VAR_migration_identity_name="$MIGRATION_IDENTITY_NAME"
+          export TF_VAR_migration_image="$IMAGE_REF"
+          export TF_VAR_expected_alembic_head="$EXPECTED_ALEMBIC_HEAD"
+          export TF_VAR_environment="prod"
+
+          python scripts/verify_migration_bootstrap.py backend \
+            --primary-account "$TFSTATE_STORAGE_ACCOUNT" \
+            --primary-container "$TFSTATE_CONTAINER" \
+            --primary-key "$TFSTATE_KEY" \
+            --bootstrap-account "$MIGRATION_TFSTATE_STORAGE_ACCOUNT" \
+            --bootstrap-container "$MIGRATION_TFSTATE_CONTAINER" \
+            --bootstrap-key "$MIGRATION_TFSTATE_KEY"
+
+          terraform -chdir=infra init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=${TFSTATE_KEY}"
+          if terraform -chdir=infra state list \
+            | grep -qx 'azurerm_container_app_job.database_migration'; then
+            echo "::error::Legacy application state still owns the migration Job. Apply the reviewed non-destructive removed block before bootstrap adoption."
             exit 1
           fi
 
-          CONTAINER_APPS_SUBNET_ID=$(az resource show \
-            --ids "$CONTAINER_APP_ENV_ID" \
-            --api-version 2023-05-01 \
+          terraform -chdir=infra/migration-bootstrap init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${MIGRATION_TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}" \
+            -backend-config="key=${MIGRATION_TFSTATE_KEY}"
+          terraform -chdir=infra/migration-bootstrap validate -no-color
+
+          if az containerapp job show \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
             --only-show-errors \
-            --query properties.vnetConfiguration.infrastructureSubnetId -o tsv 2>/dev/null || true)
-
-          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
-            CONTAINER_APPS_SUBNET_IDS=$(az network vnet list \
-              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-              --only-show-errors \
-              -o json \
-              | jq -r '.[] | (.subnets // [])[] | select(.name == "container-apps-subnet") | .id')
-            CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
-            if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" -gt "1" ]; then
-              echo "::error::Unable to uniquely discover container-apps-subnet ID in resource group ${{ env.AZURE_RESOURCE_GROUP }}; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
-              exit 1
-            fi
-            if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" = "1" ]; then
-              CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
-            fi
-          fi
-
-          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
-            CONTAINER_APPS_SUBNET_IDS=$(az network vnet list \
-              --only-show-errors \
-              -o json \
-              | jq -r '.[] | (.subnets // [])[] | select(.name == "container-apps-subnet") | .id')
-            CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
-            if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" -gt "1" ]; then
-              echo "::error::Unable to uniquely discover container-apps-subnet ID in subscription; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
-              exit 1
-            fi
-            if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" = "1" ]; then
-              CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
-            fi
-          fi
-
-          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
-            RESOURCE_GROUP_SUBNET_QUERY="Resources | where type =~ 'microsoft.network/virtualnetworks/subnets' | where name == 'container-apps-subnet' | where resourceGroup =~ '${{ env.AZURE_RESOURCE_GROUP }}' | project id"
-            RESOURCE_GRAPH_BODY=$(jq -n \
-              --arg subscription "${{ env.AZURE_SUBSCRIPTION_ID }}" \
-              --arg query "$RESOURCE_GROUP_SUBNET_QUERY" \
-              '{subscriptions: [$subscription], query: $query}')
-            RESOURCE_GRAPH_ERROR=$(mktemp)
-            set +e
-            CONTAINER_APPS_SUBNET_IDS=$(az rest \
-              --method post \
-              --uri "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01" \
-              --body "$RESOURCE_GRAPH_BODY" \
-              --query "data[].id" -o tsv 2>"$RESOURCE_GRAPH_ERROR")
-            RESOURCE_GRAPH_STATUS=$?
-            set -e
-            if [ "$RESOURCE_GRAPH_STATUS" -ne 0 ]; then
-              echo "::warning::Unable to query Azure Resource Graph for container-apps-subnet in resource group ${{ env.AZURE_RESOURCE_GROUP }}"
-              sed 's/^/az rest resource graph: /' "$RESOURCE_GRAPH_ERROR" >&2
-            else
-              CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
-              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" -gt "1" ]; then
-                echo "::error::Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in resource group ${{ env.AZURE_RESOURCE_GROUP }}; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
-                rm -f "$RESOURCE_GRAPH_ERROR"
+            --output none 2>/dev/null; then
+            BOOTSTRAP_STATE_LIST=$(terraform -chdir=infra/migration-bootstrap state list)
+            if ! printf '%s\n' "$BOOTSTRAP_STATE_LIST" \
+              | grep -qx 'azurerm_container_app_job.database_migration'; then
+              if [ -n "$BOOTSTRAP_STATE_LIST" ]; then
+                echo "::error::Migration Job exists but bootstrap state is incomplete; reconcile the isolated state before deploy"
                 exit 1
               fi
-              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" = "1" ]; then
-                CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
-                echo "::notice::Discovered container-apps-subnet ID through Azure Resource Graph in resource group ${{ env.AZURE_RESOURCE_GROUP }}."
+              JOB_ID=$(az containerapp job show \
+                --name "$MIGRATION_JOB_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query id -o tsv)
+              MIGRATION_IDENTITY_ID=$(az identity show \
+                --name "$MIGRATION_IDENTITY_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query id -o tsv 2>/dev/null || true)
+              MIGRATION_PRINCIPAL_ID=$(az identity show \
+                --name "$MIGRATION_IDENTITY_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query principalId -o tsv 2>/dev/null || true)
+              ACR_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv)
+              KEY_VAULT_ID=$(az keyvault show \
+                --name "$MIGRATION_KEY_VAULT_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query id -o tsv)
+              DATABASE_SECRET_SCOPE_ID="${KEY_VAULT_ID}/secrets/${MIGRATION_DATABASE_SECRET_NAME}"
+              ACR_ROLE_ID=$(az role assignment list \
+                --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
+                --scope "$ACR_ID" \
+                --query "[?roleDefinitionName=='AcrPull'].id | [0]" -o tsv 2>/dev/null || true)
+              KEY_VAULT_RBAC_MODE=$(az keyvault show \
+                --name "$MIGRATION_KEY_VAULT_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query properties.enableRbacAuthorization -o tsv | tr '[:upper:]' '[:lower:]')
+              SECRET_ROLE_ID=$(az role assignment list \
+                --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
+                --scope "$DATABASE_SECRET_SCOPE_ID" \
+                --query "[?roleDefinitionName=='Key Vault Secrets User'].id | [0]" -o tsv 2>/dev/null || true)
+              POLICY_OBJECT_ID=$(az keyvault show \
+                --name "$MIGRATION_KEY_VAULT_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query "properties.accessPolicies[?objectId=='$MIGRATION_PRINCIPAL_ID'].objectId | [0]" -o tsv)
+              POLICY_ID=""
+              if [ -n "$POLICY_OBJECT_ID" ]; then
+                POLICY_ID="${KEY_VAULT_ID}/objectId/${MIGRATION_PRINCIPAL_ID}"
               fi
-            fi
-            rm -f "$RESOURCE_GRAPH_ERROR"
-          fi
-
-          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
-            SUBSCRIPTION_SUBNET_QUERY="Resources | where type =~ 'microsoft.network/virtualnetworks/subnets' | where name == 'container-apps-subnet' | project id"
-            RESOURCE_GRAPH_BODY=$(jq -n \
-              --arg subscription "${{ env.AZURE_SUBSCRIPTION_ID }}" \
-              --arg query "$SUBSCRIPTION_SUBNET_QUERY" \
-              '{subscriptions: [$subscription], query: $query}')
-            RESOURCE_GRAPH_ERROR=$(mktemp)
-            set +e
-            CONTAINER_APPS_SUBNET_IDS=$(az rest \
-              --method post \
-              --uri "https://management.azure.com/providers/Microsoft.ResourceGraph/resources?api-version=2021-03-01" \
-              --body "$RESOURCE_GRAPH_BODY" \
-              --query "data[].id" -o tsv 2>"$RESOURCE_GRAPH_ERROR")
-            RESOURCE_GRAPH_STATUS=$?
-            set -e
-            if [ "$RESOURCE_GRAPH_STATUS" -ne 0 ]; then
-              echo "::warning::Unable to query Azure Resource Graph for container-apps-subnet in subscription"
-              sed 's/^/az rest resource graph: /' "$RESOURCE_GRAPH_ERROR" >&2
-            else
-              CONTAINER_APPS_SUBNET_ID_COUNT=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | wc -l | tr -d ' ')
-              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" -gt "1" ]; then
-                echo "::error::Unable to uniquely discover container-apps-subnet ID through Azure Resource Graph in subscription; found $CONTAINER_APPS_SUBNET_ID_COUNT candidates"
-                rm -f "$RESOURCE_GRAPH_ERROR"
+              if [ "$KEY_VAULT_RBAC_MODE" = "true" ]; then
+                if [ -z "$SECRET_ROLE_ID" ]; then
+                  echo "::error::RBAC-mode vault is missing the migration identity's secret-scoped role"
+                  exit 1
+                fi
+              else
+                if [ -z "$POLICY_ID" ]; then
+                  echo "::error::Access-policy-mode vault is missing the migration identity's Get policy"
+                  exit 1
+                fi
+              fi
+              if [ -z "$MIGRATION_IDENTITY_ID" ] || [ -z "$ACR_ROLE_ID" ]; then
+                echo "::error::Bootstrap state is empty while the migration Job already exists, but its dedicated identity or least-privilege RBAC resources cannot be adopted safely"
                 exit 1
               fi
-              if [ "$CONTAINER_APPS_SUBNET_ID_COUNT" = "1" ]; then
-                CONTAINER_APPS_SUBNET_ID=$(printf '%s\n' "$CONTAINER_APPS_SUBNET_IDS" | sed '/^$/d' | head -1)
-                echo "::notice::Discovered container-apps-subnet ID through Azure Resource Graph in subscription."
+              terraform -chdir=infra/migration-bootstrap import \
+                azurerm_user_assigned_identity.database_migration "$MIGRATION_IDENTITY_ID"
+              terraform -chdir=infra/migration-bootstrap import \
+                azurerm_role_assignment.acr_pull "$ACR_ROLE_ID"
+              if [ -n "$SECRET_ROLE_ID" ]; then
+                terraform -chdir=infra/migration-bootstrap import \
+                  'azurerm_role_assignment.database_secret_reader[0]' "$SECRET_ROLE_ID"
               fi
+              if [ -n "$POLICY_ID" ]; then
+                terraform -chdir=infra/migration-bootstrap import \
+                  'azurerm_key_vault_access_policy.database_secret_reader[0]' "$POLICY_ID"
+              fi
+              terraform -chdir=infra/migration-bootstrap import \
+                azurerm_container_app_job.database_migration "$JOB_ID"
             fi
-            rm -f "$RESOURCE_GRAPH_ERROR"
           fi
 
-          if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
-            TERRAFORM_SUBNET_ERROR=$(mktemp)
-            if terraform -chdir=infra init -input=false -lockfile=readonly \
-              -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
-              -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
-              -backend-config="container_name=${TFSTATE_CONTAINER}" \
-              -backend-config="key=${TFSTATE_KEY}" \
-              >/tmp/terraform-init-container-apps-subnet.log 2>&1; then
-              CONTAINER_APPS_SUBNET_ID=$(terraform -chdir=infra state show -no-color azurerm_subnet.container_apps 2>"$TERRAFORM_SUBNET_ERROR" \
-                | awk -F'= ' '/^[[:space:]]*id[[:space:]]*=/{gsub(/"/, "", $2); print $2; exit}')
-            else
-              echo "::warning::Unable to initialize Terraform remote state for subnet discovery; backend details are withheld"
-            fi
-            if [ -n "$CONTAINER_APPS_SUBNET_ID" ]; then
-              echo "::notice::Discovered container-apps-subnet ID from Terraform state for storage network rule cutover."
-            else
-              echo "::warning::Unable to discover container-apps-subnet ID for storage network rule cutover"
-            fi
-            rm -f "$TERRAFORM_SUBNET_ERROR"
-          fi
+          terraform -chdir=infra/migration-bootstrap plan -input=false \
+            -out=migration-bootstrap.tfplan
+          terraform -chdir=infra/migration-bootstrap show -json migration-bootstrap.tfplan \
+            > infra/migration-bootstrap/migration-bootstrap-plan.json
+          python scripts/verify_migration_bootstrap.py plan \
+            --input infra/migration-bootstrap/migration-bootstrap-plan.json
+          terraform -chdir=infra state pull > infra/primary-state-before-bootstrap.json
+          terraform -chdir=infra/migration-bootstrap state pull \
+            > infra/migration-bootstrap/state-before-apply.json
+          python scripts/verify_migration_bootstrap.py write-metadata \
+            --plan infra/migration-bootstrap/migration-bootstrap.tfplan \
+            --lock infra/migration-bootstrap/.terraform.lock.hcl \
+            --primary-state infra/primary-state-before-bootstrap.json \
+            --bootstrap-state infra/migration-bootstrap/state-before-apply.json \
+            --metadata infra/migration-bootstrap/plan-metadata.json
 
-          if [ -n "$CONTAINER_APPS_SUBNET_ID" ]; then
-            if [[ "$CONTAINER_APPS_SUBNET_ID" != */subnets/container-apps-subnet ]]; then
-              echo "::error::Container Apps environment infrastructure subnet does not match the approved subnet contract"
+      - name: Yield to emergency rollback before bootstrap mutation
+        run: |
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode deploy \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id"
+
+      - name: Apply migration bootstrap (Phase A)
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra state pull > infra/primary-state-before-apply.json
+          terraform -chdir=infra/migration-bootstrap state pull \
+            > infra/migration-bootstrap/state-before-apply-current.json
+          python scripts/verify_migration_bootstrap.py verify-metadata \
+            --plan infra/migration-bootstrap/migration-bootstrap.tfplan \
+            --lock infra/migration-bootstrap/.terraform.lock.hcl \
+            --primary-state infra/primary-state-before-apply.json \
+            --bootstrap-state infra/migration-bootstrap/state-before-apply-current.json \
+            --metadata infra/migration-bootstrap/plan-metadata.json
+          terraform -chdir=infra/migration-bootstrap apply -input=false \
+            migration-bootstrap.tfplan
+
+      - name: Wait for migration identity, RBAC, and secret propagation
+        run: |
+          set -euo pipefail
+          MIGRATION_PRINCIPAL_ID=$(terraform -chdir=infra/migration-bootstrap output -raw \
+            migration_identity_principal_id)
+          MIGRATION_IDENTITY_ID=$(terraform -chdir=infra/migration-bootstrap output -raw \
+            migration_identity_id)
+          ACR_SCOPE_ID=$(terraform -chdir=infra/migration-bootstrap output -raw acr_scope_id)
+          DATABASE_SECRET_SCOPE_ID=$(terraform -chdir=infra/migration-bootstrap output -raw \
+            database_secret_scope_id)
+          KEY_VAULT_ID=$(terraform -chdir=infra/migration-bootstrap output -raw key_vault_id)
+          KEY_VAULT_AUTHORIZATION_MODE=$(terraform -chdir=infra/migration-bootstrap output -raw \
+            key_vault_authorization_mode)
+
+          for attempt in $(seq 1 20); do
+            ACR_ROLE_COUNT=$(az role assignment list \
+              --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
+              --scope "$ACR_SCOPE_ID" \
+              --query "[?roleDefinitionName=='AcrPull'] | length(@)" -o tsv)
+            if [ "$KEY_VAULT_AUTHORIZATION_MODE" = "rbac" ]; then
+              SECRET_ACCESS_COUNT=$(az role assignment list \
+                --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
+                --scope "$DATABASE_SECRET_SCOPE_ID" \
+                --query "[?roleDefinitionName=='Key Vault Secrets User'] | length(@)" -o tsv)
+            else
+              SECRET_ACCESS_COUNT=$(az keyvault show \
+                --ids "$KEY_VAULT_ID" \
+                --query "length(properties.accessPolicies[?objectId=='$MIGRATION_PRINCIPAL_ID' && contains(permissions.secrets, 'Get')])" -o tsv)
+            fi
+            JOB_JSON=$(az containerapp job show \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              -o json)
+            PROVISIONING_STATE=$(echo "$JOB_JSON" | jq -r '.properties.provisioningState // "unknown"')
+            DB_SECRET_REF=$(echo "$JOB_JSON" | jq -r \
+              '.properties.template.containers[0].env[] | select(.name=="DATABASE_URL") | .secretRef // ""')
+            JOB_IMAGE=$(echo "$JOB_JSON" | jq -r '.properties.template.containers[0].image // ""')
+            JOB_IMAGE_EVIDENCE=$(echo "$JOB_JSON" | jq -r \
+              '.properties.template.containers[0].env[] | select(.name=="MIGRATION_IMAGE_REFERENCE") | .value // ""')
+            JOB_HEAD_EVIDENCE=$(echo "$JOB_JSON" | jq -r \
+              '.properties.template.containers[0].env[] | select(.name=="EXPECTED_ALEMBIC_HEAD") | .value // ""')
+            JOB_IDENTITY=$(echo "$JOB_JSON" | jq -r \
+              '.identity.userAssignedIdentities | keys[0] // ""')
+            if [ "$ACR_ROLE_COUNT" = "1" ] \
+              && [ "$SECRET_ACCESS_COUNT" = "1" ] \
+              && [ "$PROVISIONING_STATE" = "Succeeded" ] \
+              && [ "$DB_SECRET_REF" = "db-connection" ] \
+              && [ "$JOB_IMAGE" = "$IMAGE_REF" ] \
+              && [ "$JOB_IMAGE_EVIDENCE" = "$IMAGE_REF" ] \
+              && [ "$JOB_HEAD_EVIDENCE" = "$EXPECTED_ALEMBIC_HEAD" ] \
+              && [ "$JOB_IDENTITY" = "$MIGRATION_IDENTITY_ID" ]; then
+              echo "Migration Job prerequisites are provisioned and propagated"
+              break
+            fi
+            if [ "$attempt" -eq 20 ]; then
+              echo "::error::Migration identity, RBAC, secret, or immutable image propagation failed"
               exit 1
             fi
-            echo "CONTAINER_APPS_SUBNET_ID=$CONTAINER_APPS_SUBNET_ID" >> "$GITHUB_ENV"
+            sleep 15
+          done
+
+      - name: Attest applied migration alerts before Job execution
+        run: |
+          set -euo pipefail
+          terraform -chdir=infra output -json > infra/applied-outputs.json
+          MIGRATION_FAILURE_ALERT_ID=$(jq -er '.migration_failure_alert_id.value' infra/applied-outputs.json)
+          MIGRATION_TIMEOUT_ALERT_ID=$(jq -er '.migration_timeout_alert_id.value' infra/applied-outputs.json)
+          MIGRATION_MISSING_EVIDENCE_ALERT_ID=$(jq -er '.migration_missing_evidence_alert_id.value' infra/applied-outputs.json)
+          BRIDGE_CUSTOMER_DEGRADED_ALERT_ID=$(jq -er '.bridge_customer_degraded_alert_id.value' infra/applied-outputs.json)
+          APPLICATION_INSIGHTS_RESOURCE_ID=$(jq -er '.application_insights_resource_id.value' infra/applied-outputs.json)
+          CRITICAL_ACTION_GROUP_ID=$(jq -er '.critical_action_group_id.value' infra/applied-outputs.json)
+          mapfile -t APPLIED_ALERT_IDS < <(az resource list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --resource-type Microsoft.Insights/scheduledQueryRules \
+            --query "[].id" -o tsv)
+          : > applied-migration-alerts.ndjson
+          for alert_id in "${APPLIED_ALERT_IDS[@]}"; do
+            az resource show \
+              --ids "$alert_id" \
+              --api-version 2023-12-01 \
+              -o json >> applied-migration-alerts.ndjson
+          done
+          jq -s '.' applied-migration-alerts.ndjson > applied-migration-alerts.json
+          python scripts/verify_migration_alerts.py \
+            --alerts applied-migration-alerts.json \
+            --spec infra/monitoring/migration-alert-specs.json \
+            --failure-alert-id "$MIGRATION_FAILURE_ALERT_ID" \
+            --timeout-alert-id "$MIGRATION_TIMEOUT_ALERT_ID" \
+            --missing-evidence-alert-id "$MIGRATION_MISSING_EVIDENCE_ALERT_ID" \
+            --customer-degraded-alert-id "$BRIDGE_CUSTOMER_DEGRADED_ALERT_ID" \
+            --application-insights-id "$APPLICATION_INSIGHTS_RESOURCE_ID" \
+            --action-group-id "$CRITICAL_ACTION_GROUP_ID" \
+            --output migration-alert-attestation.json
+
+      - name: Discover schema with same-identity database preflight
+        id: current_schema
+        run: |
+          set -euo pipefail
+          IMAGE_DIGEST="${IMAGE_REF##*@}"
+          PREFLIGHT_EXECUTION_MARKER="preflight-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PREFLIGHT_RUNTIME_ENVELOPE=$(python backend/migration_runtime_contract.py build \
+            --mode preflight \
+            --accept-current 013 \
+            --accept-current "$EXPECTED_ALEMBIC_HEAD" \
+            --execution-marker "$PREFLIGHT_EXECUTION_MARKER" \
+            --image-digest "$IMAGE_DIGEST")
+          PREFLIGHT_START=(az containerapp job start \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --container-name migrate \
+            --command python run_migrations.py \
+            --args "$PREFLIGHT_RUNTIME_ENVELOPE" \
+            --query name --output tsv)
+          PREFLIGHT_EXECUTION=$("${PREFLIGHT_START[@]}")
+          if [ -z "$PREFLIGHT_EXECUTION" ]; then
+            echo "::error::Database preflight Job did not return an execution name"
+            exit 1
           fi
+          for attempt in $(seq 1 60); do
+            PREFLIGHT_STATUS=$(az containerapp job execution show \
+              --name "$MIGRATION_JOB_NAME" \
+              --resource-group "$AZURE_RESOURCE_GROUP" \
+              --job-execution-name "$PREFLIGHT_EXECUTION" \
+              --query properties.status --output tsv)
+            case "$PREFLIGHT_STATUS" in
+              Succeeded) break ;;
+              Failed|Stopped|Cancelled)
+                echo "::error::Same-identity database preflight failed with status $PREFLIGHT_STATUS"
+                exit 1
+                ;;
+            esac
+            if [ "$attempt" -eq 60 ]; then
+              echo "::error::Same-identity database preflight timed out"
+              exit 1
+            fi
+            sleep 10
+          done
+          az containerapp job execution show \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --job-execution-name "$PREFLIGHT_EXECUTION" \
+            --query 'properties.template.containers[0].args' --output json \
+            > preflight-execution-runtime-args.json
+          python backend/migration_runtime_contract.py validate-container-args \
+            --args-json preflight-execution-runtime-args.json \
+            --mode preflight \
+            --accept-current 013 \
+            --accept-current "$EXPECTED_ALEMBIC_HEAD" \
+            --expected-bootstrap false \
+            --execution-marker "$PREFLIGHT_EXECUTION_MARKER" \
+            --image-digest "$IMAGE_DIGEST" >/dev/null
+          curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
+            -o current-schema-compatibility.json
+          CURRENT_SCHEMA=$(jq -er '.current_revision' current-schema-compatibility.json)
+          if [ "$CURRENT_SCHEMA" != "013" ] && [ "$CURRENT_SCHEMA" != "$EXPECTED_ALEMBIC_HEAD" ]; then
+            echo "::error::Production schema is outside the reviewed 013-to-${EXPECTED_ALEMBIC_HEAD} rollout"
+            exit 1
+          fi
+          echo "revision=$CURRENT_SCHEMA" >> "$GITHUB_OUTPUT"
+
+      - name: Create branch-specific rollout state
+        id: rollout_state
+        run: |
+          set -euo pipefail
+          CURRENT_SCHEMA_REVISION="${{ steps.current_schema.outputs.revision }}"
+          python scripts/containerapp_rollout.py create-release-state \
+            --current-schema "$CURRENT_SCHEMA_REVISION" \
+            --migration-from 013 \
+            --target-schema "$EXPECTED_ALEMBIC_HEAD" \
+            --baseline-traffic blue-traffic-manifest.json \
+            --output rollout-state.json \
+            --pre-green-output pre-green-traffic-manifest.json
+          echo "branch=$(jq -er '.branch' rollout-state.json)" >> "$GITHUB_OUTPUT"
+
+      - name: Make dynamic latest traffic explicit
+        id: explicit_traffic
+        run: |
+          set -euo pipefail
+          python scripts/containerapp_rollout.py mark-stage \
+            --state rollout-state.json \
+            --stage baseline_attempted
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input blue-traffic-manifest.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output blue-traffic-current.json
+
+      - name: Restore original traffic if rollout state creation fails
+        if: always() && steps.production_traffic.outcome == 'success' && steps.rollout_state.outcome == 'failure'
+        run: |
+          set -euo pipefail
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input blue-traffic-manifest.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output normalization-restored-traffic.json
+
+      - name: Resolve verified bridge for discovered schema
+        id: bridge_resolved
+        run: |
+          set -euo pipefail
+          CURRENT_SCHEMA_REVISION="${{ steps.current_schema.outputs.revision }}"
+          export CURRENT_SCHEMA_REVISION
+          if [ "$CURRENT_SCHEMA_REVISION" = "013" ]; then
+            python scripts/containerapp_rollout.py mark-stage \
+              --state rollout-state.json \
+              --stage bridge_prepare_attempted
+            "$RUNNER_TEMP/deploy-schema-bridge.sh"
+          else
+            echo "Routine schema-${EXPECTED_ALEMBIC_HEAD} release preserves current production traffic; no bridge is resolved or routed."
+            echo "bridge_revision=" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          BRIDGE_REVISION=$(python scripts/containerapp_rollout.py verify-release-manifest \
+            --input bridge-release-manifest.json \
+            --required-role bridge \
+            --field revision)
+          if [ -z "$BRIDGE_REVISION" ]; then
+            echo "::error::No explicit signed bridge revision was resolved"
+            exit 1
+          fi
+          python scripts/containerapp_rollout.py set-bridge \
+            --state rollout-state.json \
+            --revision "$BRIDGE_REVISION" \
+            --pre-green-output pre-green-traffic-manifest.json
+          echo "BRIDGE_REVISION=$BRIDGE_REVISION" >> "$GITHUB_ENV"
+          echo "bridge_revision=$BRIDGE_REVISION" >> "$GITHUB_OUTPUT"
+
+      - name: Yield to emergency rollback before bridge traffic mutation
+        run: |
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode deploy \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id"
+
+      - name: Route production to verified bridge before migration
+        id: route_bridge
+        if: steps.current_schema.outputs.revision == '013'
+        run: |
+          set -euo pipefail
+          python scripts/containerapp_rollout.py verify-release-manifest \
+            --input bridge-release-manifest.json \
+            --required-role bridge >/dev/null
+          python scripts/containerapp_rollout.py mark-stage \
+            --state rollout-state.json \
+            --stage bridge_route_attempted
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input pre-green-traffic-manifest.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output bridge-routed-current.json
+          curl -fsS --max-time 30 "${API_URL%/api}/readyz" >/dev/null
+          curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
+            | jq -e '.status == "compatible" and .current_revision == "013" and .release_role == "bridge"' >/dev/null
+          [ "$(curl -sS -o routed-bridge-health.json -w '%{http_code}' --max-time 30 \
+            -H "X-API-Key: $ARCHMORPH_API_KEY" \
+            "${API_URL%/api}/api/health")" = "200" ]
+          jq -e '.status == "healthy"' routed-bridge-health.json >/dev/null
+          [ "$(curl -sS -D routed-bridge-denial-headers.txt \
+            -o routed-bridge-write-denial.json -w '%{http_code}' --max-time 30 \
+            -X POST -H 'Content-Type: application/json' -d '{}' \
+            "${API_URL%/api}/api/workspaces")" = "503" ]
+          grep -qi '^retry-after: 30' routed-bridge-denial-headers.txt
+          jq -e '.status == "bridge_read_only" and .customer_mode == "degraded_read_only" and .retryable == true' \
+            routed-bridge-write-denial.json >/dev/null
+
+      - name: Yield to emergency rollback before migration start boundary
+        run: |
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode deploy \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id"
+
+      - name: Prepare exact-head production migration
+        id: prepare_migration
+        if: steps.current_schema.outputs.revision == '013'
+        run: |
+          set -euo pipefail
+          python scripts/containerapp_rollout.py mark-stage \
+            --state rollout-state.json \
+            --stage migration_attempted
+          az containerapp job execution list \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --output json > migration-executions-immediately-before-start.json
+          NONTERMINAL_COUNT=$(jq '[.[] | select(
+            (.properties.status // "Unknown") as $status
+            | ($status != "Succeeded" and $status != "Failed" and
+               $status != "Stopped" and $status != "Cancelled" and
+               $status != "Canceled")
+          )] | length' migration-executions-immediately-before-start.json)
+          if [ "$NONTERMINAL_COUNT" -ne 0 ]; then
+            echo "::error::Another production migration execution is already active"
+            exit 1
+          fi
+          jq '[.[].name] | sort | unique' \
+            migration-executions-immediately-before-start.json \
+            > known-migration-executions.json
+
+          JOB_JSON=$(az containerapp job show \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            -o json)
+          JOB_IMAGE=$(echo "$JOB_JSON" | jq -r '.properties.template.containers[0].image // ""')
+          JOB_IMAGE_EVIDENCE=$(echo "$JOB_JSON" | jq -r \
+            '.properties.template.containers[0].env[] | select(.name=="MIGRATION_IMAGE_REFERENCE") | .value // ""')
+          JOB_HEAD_EVIDENCE=$(echo "$JOB_JSON" | jq -r \
+            '.properties.template.containers[0].env[] | select(.name=="EXPECTED_ALEMBIC_HEAD") | .value // ""')
+          IMAGE_DIGEST="${IMAGE_REF##*@}"
+          echo "$JOB_JSON" | jq -e '.properties.template.containers[0].args' \
+            > migration-job-runtime-args.json
+          python backend/migration_runtime_contract.py validate-container-args \
+            --args-json migration-job-runtime-args.json \
+            --mode migrate \
+            --expected-head "$EXPECTED_ALEMBIC_HEAD" \
+            --expected-bootstrap false \
+            --execution-marker terraform-definition \
+            --image-digest "$IMAGE_DIGEST" >/dev/null
+          if [ "$JOB_IMAGE" != "$IMAGE_REF" ] || [ "$JOB_IMAGE_EVIDENCE" != "$IMAGE_REF" ]; then
+            echo "::error::Migration Job does not use the exact newly built immutable image"
+            exit 1
+          fi
+          if [ "$JOB_HEAD_EVIDENCE" != "$EXPECTED_ALEMBIC_HEAD" ]; then
+            echo "::error::Migration Job expected Alembic head does not match the reviewed image contract"
+            exit 1
+          fi
+
+          MIGRATION_EXECUTION_MARKER="migration-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          python scripts/containerapp_rollout.py mark-migration-starting \
+            --state rollout-state.json \
+            --job-name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --image-digest "$IMAGE_DIGEST" \
+            --execution-marker "$MIGRATION_EXECUTION_MARKER" \
+            --known-executions known-migration-executions.json
+          python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json >/dev/null
+          echo "MIGRATION_EXECUTION_MARKER=$MIGRATION_EXECUTION_MARKER" >> "$GITHUB_ENV"
+
+      - name: Persist signed migration start boundary
+        if: steps.prepare_migration.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: migration-start-boundary-${{ github.run_id }}-${{ github.run_attempt }}
+          path: rollout-state.json
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Start exact-head production migration
+        id: start_migration
+        if: steps.current_schema.outputs.revision == '013'
+        run: |
+          set -euo pipefail
+          IMAGE_DIGEST="${IMAGE_REF##*@}"
+          MIGRATION_RUNTIME_ENVELOPE=$(python backend/migration_runtime_contract.py build \
+            --mode migrate \
+            --expected-head "$EXPECTED_ALEMBIC_HEAD" \
+            --execution-marker "$MIGRATION_EXECUTION_MARKER" \
+            --image-digest "$IMAGE_DIGEST")
+          MIGRATION_START=(az containerapp job start \
+            --name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --args "$MIGRATION_RUNTIME_ENVELOPE" \
+            --query name --output tsv)
+          EXECUTION_NAME=$("${MIGRATION_START[@]}")
+          if [ -z "$EXECUTION_NAME" ]; then
+            echo "::error::Migration Job did not return an execution name"
+            exit 1
+          fi
+          python scripts/containerapp_rollout.py record-migration-execution \
+            --state rollout-state.json \
+            --job-name "$MIGRATION_JOB_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --execution-name "$EXECUTION_NAME" \
+            --image-digest "$IMAGE_DIGEST"
+          python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json >/dev/null
+          python scripts/emit_rollout_telemetry.py \
+            --event migration_started \
+            --run-id "$GITHUB_RUN_ID" \
+            --execution "$EXECUTION_NAME" \
+            --image-digest "$IMAGE_DIGEST" \
+            --evidence-output rollout-telemetry.ndjson
+          echo "execution_name=$EXECUTION_NAME" >> "$GITHUB_OUTPUT"
+          echo "image_digest=$IMAGE_DIGEST" >> "$GITHUB_OUTPUT"
+
+      - name: Persist signed migration execution state
+        if: steps.start_migration.outcome == 'success'
+        uses: actions/upload-artifact@v7
+        with:
+          name: migration-execution-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            rollout-state.json
+            rollout-telemetry.ndjson
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Supervise exact-head production migration
+        id: migrate_schema
+        if: steps.current_schema.outputs.revision == '013'
+        run: |
+          set -euo pipefail
+          EXECUTION_NAME="${{ steps.start_migration.outputs.execution_name }}"
+          IMAGE_DIGEST="${{ steps.start_migration.outputs.image_digest }}"
+          set +e
+          EXECUTION_STATUS=$(python scripts/containerapp_rollout.py supervise-migration \
+            --state rollout-state.json \
+            --evidence-output migration-execution-evidence.json \
+            --max-attempts 90 \
+            --poll-seconds 10)
+          SUPERVISION_STATUS=$?
+          set -e
+          if [ "$SUPERVISION_STATUS" -ne 0 ]; then
+            python scripts/emit_rollout_telemetry.py \
+              --event migration_timed_out \
+              --run-id "$GITHUB_RUN_ID" \
+              --execution "$EXECUTION_NAME" \
+              --image-digest "$IMAGE_DIGEST" \
+              --evidence-output rollout-telemetry.ndjson
+            echo "::error::Exact migration execution did not reach a proven terminal state"
+            exit "$SUPERVISION_STATUS"
+          fi
+          echo "Migration execution terminal state: ${EXECUTION_STATUS}"
+          case "$EXECUTION_STATUS" in
+            Succeeded)
+              EXECUTION_IMAGE=$(az containerapp job execution show \
+                --name "$MIGRATION_JOB_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --job-execution-name "$EXECUTION_NAME" \
+                --query 'properties.template.containers[0].image' --output tsv)
+              EXECUTION_HEAD=$(az containerapp job execution show \
+                --name "$MIGRATION_JOB_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --job-execution-name "$EXECUTION_NAME" \
+                --query "properties.template.containers[0].env[?name=='EXPECTED_ALEMBIC_HEAD'].value | [0]" \
+                --output tsv)
+              az containerapp job execution show \
+                --name "$MIGRATION_JOB_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --job-execution-name "$EXECUTION_NAME" \
+                --query 'properties.template.containers[0].args' --output json \
+                > completed-migration-runtime-args.json
+              if [ "$EXECUTION_IMAGE" != "$IMAGE_REF" ]; then
+                echo "::error::Completed migration execution did not use the exact built digest"
+                exit 1
+              fi
+              if [ "$EXECUTION_HEAD" != "$EXPECTED_ALEMBIC_HEAD" ]; then
+                echo "::error::Completed migration execution did not preserve exact-head evidence"
+                exit 1
+              fi
+              python backend/migration_runtime_contract.py validate-container-args \
+                --args-json completed-migration-runtime-args.json \
+                --mode migrate \
+                --expected-head "$EXPECTED_ALEMBIC_HEAD" \
+                --expected-bootstrap false \
+                --execution-marker "$MIGRATION_EXECUTION_MARKER" \
+                --image-digest "$IMAGE_DIGEST" >/dev/null
+              python scripts/emit_rollout_telemetry.py \
+                --event migration_succeeded \
+                --run-id "$GITHUB_RUN_ID" \
+                --execution "$EXECUTION_NAME" \
+                --image-digest "$IMAGE_DIGEST" \
+                --evidence-output rollout-telemetry.ndjson
+              echo "Production schema migration completed at exact head ${EXPECTED_ALEMBIC_HEAD}"
+              ;;
+            Failed|Stopped|Cancelled)
+              python scripts/emit_rollout_telemetry.py \
+                --event migration_failed \
+                --run-id "$GITHUB_RUN_ID" \
+                --execution "$EXECUTION_NAME" \
+                --image-digest "$IMAGE_DIGEST" \
+                --evidence-output rollout-telemetry.ndjson
+              echo "::error::Production schema migration failed with status ${EXECUTION_STATUS}"
+              exit 1
+              ;;
+            *)
+              echo "::error::Migration supervision returned unsupported terminal state"
+              exit 1
+              ;;
+          esac
+
+      - name: Persist terminal migration execution state
+        if: always() && steps.start_migration.outcome == 'success' && hashFiles('migration-execution-evidence.json') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: migration-terminal-state-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            rollout-state.json
+            migration-execution-evidence.json
+            rollout-telemetry.ndjson
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Yield to emergency rollback after migration quiescence
+        run: |
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode deploy \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id"
 
       - name: Validate Terraform-managed metrics storage
         run: |
@@ -966,130 +2146,13 @@ jobs:
             fi
             rm -f "$PRIVATE_ENDPOINT_ERROR"
             if [ "${APPROVED_PRIVATE_ENDPOINT_COUNT:-0}" = "0" ]; then
-              ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=$(echo "${ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER:-false}" | tr '[:upper:]' '[:lower:]')
-              if [ "$ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" != "true" ]; then
-                echo "::error::Storage account $STORAGE_NAME has public network access disabled but no approved private endpoint connection. Set ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true only for the reviewed hardening-disabled cutover, or apply Terraform private endpoint networking before CI deploy."
-                exit 1
-              fi
-              STORAGE_NETWORK_RULES=$(az storage account show \
-                --name "$STORAGE_NAME" \
-                --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-                --only-show-errors \
-                --query networkRuleSet \
-                -o json)
-              NETWORK_DEFAULT_ACTION=$(echo "$STORAGE_NETWORK_RULES" | jq -r '.defaultAction // .default_action // ""')
-              NETWORK_IP_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '.ipRules // .ip_rules // [] | length')
-              CONTAINER_APPS_VNET_RULE_TOTAL_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")))] | length')
-              CONTAINER_APPS_VNET_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")) and (.state == "Succeeded"))] | length')
-              if [ "$NETWORK_IP_RULE_COUNT" != "0" ]; then
-                echo "::error::Storage account $STORAGE_NAME must not have IP firewall allow rules before public network cutover; found $NETWORK_IP_RULE_COUNT"
-                exit 1
-              fi
-              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" -gt "1" ]; then
-                echo "::error::Storage account $STORAGE_NAME must not have duplicate container-apps-subnet virtual network rules; found $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT"
-                exit 1
-              fi
-              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" = "0" ]; then
-                if [ -z "$CONTAINER_APPS_SUBNET_ID" ]; then
-                  echo "::error::Unable to discover container-apps-subnet ID for storage network rule cutover"
-                  exit 1
-                fi
-                echo "::notice::Selected storage account is missing the approved subnet rule; adding it before public network cutover."
-                az storage account network-rule add \
-                  --account-name "$STORAGE_NAME" \
-                  --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-                  --subnet "$CONTAINER_APPS_SUBNET_ID" \
-                  --only-show-errors >/dev/null
-              fi
-              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" != "1" ] || [ "$CONTAINER_APPS_VNET_RULE_COUNT" != "1" ]; then
-                for vnet_rule_attempt in 1 2 3 4 5; do
-                  STORAGE_NETWORK_RULES=$(az storage account show \
-                    --name "$STORAGE_NAME" \
-                    --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-                    --only-show-errors \
-                    --query networkRuleSet \
-                    -o json)
-                  CONTAINER_APPS_VNET_RULE_TOTAL_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")))] | length')
-                  CONTAINER_APPS_VNET_RULE_COUNT=$(echo "$STORAGE_NETWORK_RULES" | jq '[.virtualNetworkRules // .virtual_network_rules // [] | .[] | select(((.id // .virtualNetworkResourceId // .virtual_network_resource_id // "") | endswith("/subnets/container-apps-subnet")) and (.state == "Succeeded"))] | length')
-                  if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" -gt "1" ]; then
-                    echo "::error::Storage account $STORAGE_NAME must not have duplicate container-apps-subnet virtual network rules; found $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT"
-                    exit 1
-                  fi
-                  if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" = "1" ] && [ "$CONTAINER_APPS_VNET_RULE_COUNT" = "1" ]; then
-                    break
-                  fi
-                  echo "Storage account $STORAGE_NAME container-apps-subnet rule count is $CONTAINER_APPS_VNET_RULE_COUNT succeeded of $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT total; waiting for VNet rule propagation (attempt $vnet_rule_attempt/5)"
-                  sleep 5
-                done
-              fi
-              if [ "$CONTAINER_APPS_VNET_RULE_TOTAL_COUNT" != "1" ] || [ "$CONTAINER_APPS_VNET_RULE_COUNT" != "1" ]; then
-                echo "::error::Storage account $STORAGE_NAME must have exactly one succeeded container-apps-subnet virtual network rule before public network cutover; found $CONTAINER_APPS_VNET_RULE_COUNT succeeded of $CONTAINER_APPS_VNET_RULE_TOTAL_COUNT total"
-                exit 1
-              fi
-              if [ "$NETWORK_DEFAULT_ACTION" != "Deny" ]; then
-                if [ "$NETWORK_DEFAULT_ACTION" != "Allow" ]; then
-                  echo "::error::Storage account $STORAGE_NAME network rules must keep defaultAction=Deny before public network cutover; found ${NETWORK_DEFAULT_ACTION:-unset}"
-                  exit 1
-                fi
-                echo "::notice::Storage account $STORAGE_NAME has defaultAction=Allow; hardening to Deny before enabling public network access."
-                az storage account update \
-                  --name "$STORAGE_NAME" \
-                  --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-                  --default-action Deny \
-                  --only-show-errors >/dev/null
-                for default_action_attempt in 1 2 3 4 5; do
-                  NETWORK_DEFAULT_ACTION=$(az storage account show \
-                    --name "$STORAGE_NAME" \
-                    --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-                    --only-show-errors \
-                    --query "networkRuleSet.defaultAction" -o tsv)
-                  if [ "$NETWORK_DEFAULT_ACTION" = "Deny" ]; then
-                    break
-                  fi
-                  echo "Storage account $STORAGE_NAME network defaultAction is ${NETWORK_DEFAULT_ACTION:-unset}; waiting for Deny propagation (attempt $default_action_attempt/5)"
-                  sleep 5
-                done
-                if [ "$NETWORK_DEFAULT_ACTION" != "Deny" ]; then
-                  echo "::error::Storage account $STORAGE_NAME defaultAction hardening did not reach Deny; found ${NETWORK_DEFAULT_ACTION:-unset}"
-                  exit 1
-                fi
-              fi
-              echo "::notice::Storage account $STORAGE_NAME has public network access disabled and no approved private endpoint; enabling public network access under ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true for this deploy cutover."
-              az storage account update \
-                --name "$STORAGE_NAME" \
-                --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-                --public-network-access Enabled \
-                --only-show-errors >/dev/null
-              for public_access_attempt in 1 2 3 4 5; do
-                PUBLIC_NETWORK_ACCESS=$(az storage account show \
-                  --name "$STORAGE_NAME" \
-                  --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-                  --only-show-errors \
-                  --query publicNetworkAccess -o tsv)
-                if [ "$PUBLIC_NETWORK_ACCESS" = "Enabled" ]; then
-                  break
-                fi
-                echo "Storage account $STORAGE_NAME public network access is ${PUBLIC_NETWORK_ACCESS:-unset}; waiting for update propagation (attempt $public_access_attempt/5)"
-                sleep 5
-              done
-              if [ "$PUBLIC_NETWORK_ACCESS" != "Enabled" ]; then
-                echo "::error::Storage account $STORAGE_NAME public network access update did not reach Enabled; found ${PUBLIC_NETWORK_ACCESS:-unset}"
-                exit 1
-              fi
-              echo "Storage account $STORAGE_NAME public network access is enabled for cutover"
-            else
-              echo "Storage account $STORAGE_NAME uses disabled public network access with approved private endpoint connectivity"
-            fi
-          else
-            ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=$(echo "${ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER:-false}" | tr '[:upper:]' '[:lower:]')
-            if [ "$ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER" != "true" ]; then
-              echo "::error::Storage account $STORAGE_NAME has public network access ${PUBLIC_NETWORK_ACCESS}. Set ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true only for the reviewed hardening-disabled cutover, or apply Terraform private endpoint networking before CI deploy."
+              echo "::error::Storage account $STORAGE_NAME must have an approved private endpoint; public-network cutover is forbidden"
               exit 1
             fi
-            echo "::notice::Storage account $STORAGE_NAME has public network access ${PUBLIC_NETWORK_ACCESS} under ALLOW_PUBLIC_STORAGE_NETWORK_CUTOVER=true; managed-identity blob preflight will prove RBAC data-plane access before traffic shift."
-            if [ "$CONTAINER_APP_STORAGE_NAME" != "$STORAGE_NAME" ]; then
-              echo "::notice::Container App still references legacy storage account ${CONTAINER_APP_STORAGE_NAME} until Terraform storage migration is applied."
-            fi
+            echo "Storage account $STORAGE_NAME uses disabled public network access with approved private endpoint connectivity"
+          else
+            echo "::error::Storage account $STORAGE_NAME must have public network access Disabled; found ${PUBLIC_NETWORK_ACCESS:-unset}"
+            exit 1
           fi
 
           METRICS_CONTAINER_ID="$STORAGE_ID/blobServices/default/containers/metrics"
@@ -1163,7 +2226,6 @@ jobs:
       - name: Deploy green revision
         id: green
         run: |
-          FRONT_DOOR_PROFILE_NAME=""
           TRUSTED_FRONT_DOOR_FDID="${TRUSTED_FRONT_DOOR_FDID:-}"
           TRUSTED_FRONT_DOOR_HOSTS="${TRUSTED_FRONT_DOOR_HOSTS:-}"
           REQUIRE_FRONT_DOOR_ORIGIN_LOCK=$(echo "${REQUIRE_FRONT_DOOR_ORIGIN_LOCK:-false}" | tr '[:upper:]' '[:lower:]')
@@ -1333,7 +2395,7 @@ jobs:
               AFD_CONTRACT=$(resolve_front_door_contract_from_afd_cli false || true)
             fi
             if [ -n "$AFD_CONTRACT" ]; then
-              IFS='|' read -r FRONT_DOOR_PROFILE_NAME TRUSTED_FRONT_DOOR_FDID TRUSTED_FRONT_DOOR_HOSTS <<< "$AFD_CONTRACT"
+              IFS='|' read -r _profile_name TRUSTED_FRONT_DOOR_FDID TRUSTED_FRONT_DOOR_HOSTS <<< "$AFD_CONTRACT"
             else
               if [ "$(echo "$AFD_PROFILES_JSON" | jq 'length')" -gt 0 ]; then
                 echo "::warning::Unable to resolve Front Door contract from AFD CLI profiles; trying generic ARM discovery"
@@ -1365,7 +2427,6 @@ jobs:
               fi
               candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | select(((.name // "") | ascii_downcase | contains("api")) or (((.properties.hostName // "") | ascii_downcase) | contains("api"))) | .properties.hostName][0] // ""')
               if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
-                FRONT_DOOR_PROFILE_NAME="$candidate_profile_name"
                 TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"
                 TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
                 break
@@ -1387,7 +2448,6 @@ jobs:
               fi
               candidate_host=$(echo "$FRONT_DOOR_ENDPOINTS_JSON" | jq -r --arg profile_id "$candidate_profile_id" '[.[] | select((.id // "") | startswith($profile_id + "/")) | .properties.hostName][0] // ""')
               if [ -n "$candidate_host" ] && [ -n "$candidate_fdid" ]; then
-                FRONT_DOOR_PROFILE_NAME="$candidate_profile_name"
                 TRUSTED_FRONT_DOOR_FDID="$candidate_fdid"
                 TRUSTED_FRONT_DOOR_HOSTS="$candidate_host"
                 break
@@ -1413,9 +2473,18 @@ jobs:
               api-key="${{ env.ARCHMORPH_API_KEY }}" \
               jwt-secret="${{ env.JWT_SECRET }}"
 
+          if [ -n "${ARCHMORPH_API_KEY_ROTATED:-}" ]; then
+            az containerapp secret set \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+              --secrets api-key-rotated="${ARCHMORPH_API_KEY_ROTATED}"
+          fi
+
           SET_ENV_VARS=(
             ARCHMORPH_ADMIN_KEY=secretref:admin-key
             ARCHMORPH_API_KEY=secretref:api-key
+            ARCHMORPH_API_KEY_PRINCIPAL_ID="$ARCHMORPH_API_KEY_PRINCIPAL_ID"
+            ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP="$ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"
             JWT_SECRET=secretref:jwt-secret
             ALLOWED_ORIGINS="$ALLOWED_ORIGINS"
             AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL"
@@ -1428,6 +2497,9 @@ jobs:
             TRUSTED_FRONT_DOOR_FDID="$TRUSTED_FRONT_DOOR_FDID"
             TRUSTED_FRONT_DOOR_HOSTS="$TRUSTED_FRONT_DOOR_HOSTS"
           )
+          if [ -n "${ARCHMORPH_API_KEY_ROTATED:-}" ]; then
+            SET_ENV_VARS+=(ARCHMORPH_API_KEY_ROTATED=secretref:api-key-rotated)
+          fi
 
           if [ -n "${{ secrets.ACS_CONNECTION_STRING }}" ]; then
             az containerapp secret set \
@@ -1440,16 +2512,64 @@ jobs:
           SHORT_SHA="${{ github.sha }}"
           SHORT_SHA="${SHORT_SHA:0:8}"
           REVISION_SUFFIX="sha-${SHORT_SHA}-run-${{ github.run_attempt }}"
+          EXPECTED_GREEN_REVISION=$(python scripts/containerapp_rollout.py revision-name \
+            --app-name "$CONTAINER_APP_NAME" --suffix "$REVISION_SUFFIX")
+          az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            -o json > live-containerapp.json
+          REVISION_ARGS=(
+            --source live-containerapp.json
+            --output green-revision.json
+            --image "$IMAGE_REF"
+            --revision-suffix "$REVISION_SUFFIX"
+            --readiness-path /readyz
+            --release-role final
+            --secret-env ARCHMORPH_ADMIN_KEY=admin-key
+            --secret-env ARCHMORPH_API_KEY=api-key
+            --secret-env JWT_SECRET=jwt-secret
+            --secret-env DATABASE_URL=db-connection
+            --secret-env REDIS_URL=redis-url
+            --env ARCHMORPH_API_KEY_PRINCIPAL_ID="$ARCHMORPH_API_KEY_PRINCIPAL_ID"
+            --env ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP="$ARCHMORPH_API_KEY_ALLOW_LEGACY_OVERLAP"
+            --env ALLOWED_ORIGINS="$ALLOWED_ORIGINS"
+            --env AZURE_STORAGE_ACCOUNT_URL="$STORAGE_ACCOUNT_URL"
+            --env AZURE_OPENAI_ENDPOINT="${{ secrets.AZURE_OPENAI_ENDPOINT }}"
+            --env AZURE_OPENAI_DEPLOYMENT=gpt-4.1
+            --env AZURE_OPENAI_FALLBACK_DEPLOYMENT=gpt-4o
+            --env AZURE_OPENAI_API_VERSION=2025-04-01-preview
+            --env ACS_SENDER_EMAIL="${{ secrets.ACS_SENDER_EMAIL }}"
+            --env WEB_CONCURRENCY=1
+            --env TRUSTED_FRONT_DOOR_FDID="$TRUSTED_FRONT_DOOR_FDID"
+            --env TRUSTED_FRONT_DOOR_HOSTS="$TRUSTED_FRONT_DOOR_HOSTS"
+            --env APP_SCHEMA_MIN_REVISION="$APP_SCHEMA_MIN_REVISION"
+            --env APP_SCHEMA_MAX_REVISION="$APP_SCHEMA_MAX_REVISION"
+            --env ARCHMORPH_SOURCE_SHA="${{ github.sha }}"
+            --env ARCHMORPH_SCHEMA_CONTRACT_DIGEST="$FINAL_SCHEMA_CONTRACT_DIGEST"
+          )
+          if [ -n "${ARCHMORPH_API_KEY_ROTATED:-}" ]; then
+            REVISION_ARGS+=(--secret-env ARCHMORPH_API_KEY_ROTATED=api-key-rotated)
+          fi
+          if [ -n "${{ secrets.ACS_CONNECTION_STRING }}" ]; then
+            REVISION_ARGS+=(--secret-env ACS_CONNECTION_STRING=acs-connection-string)
+          fi
+          python scripts/build_containerapp_revision.py "${REVISION_ARGS[@]}"
+          jq -e --arg image "$IMAGE_REF" --arg suffix "$REVISION_SUFFIX" '
+            .properties.template.revisionSuffix == $suffix
+            and .properties.template.containers[0].image == $image
+            and any(.properties.template.containers[0].probes[]?;
+              ((.type // "") | ascii_downcase) == "readiness"
+              and .httpGet.path == "/readyz")
+          ' green-revision.json >/dev/null
+
           UPDATE_ERROR=$(mktemp)
           for update_attempt in 1 2 3 4; do
             : > "$UPDATE_ERROR"
             set +e
             az containerapp update \
-              --name ${{ env.CONTAINER_APP_NAME }} \
+              --name "${{ env.CONTAINER_APP_NAME }}" \
               --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-              --image "${IMAGE_REF}" \
-              --set-env-vars "${SET_ENV_VARS[@]}" \
-              --revision-suffix "$REVISION_SUFFIX" \
+              --yaml green-revision.json \
               --no-wait \
               2>"$UPDATE_ERROR"
             UPDATE_STATUS=$?
@@ -1472,13 +2592,36 @@ jobs:
           echo "Waiting for green revision to provision..."
           sleep 45
 
-          GREEN_REV=$(az containerapp revision list \
-            --name ${{ env.CONTAINER_APP_NAME }} \
+          az containerapp revision list \
+            --name "${{ env.CONTAINER_APP_NAME }}" \
             --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-            --query "[?contains(name, '$REVISION_SUFFIX')].name" -o tsv | head -1)
+            --all -o json > green-revisions-current.json
+          python scripts/containerapp_rollout.py resolve-exact-revision \
+            --expected "$EXPECTED_GREEN_REVISION" \
+            --revisions green-revisions-current.json \
+            > green-revision-state.json
+          GREEN_REV=$(jq -er '.name' green-revision-state.json)
 
-          echo "green_revision=$GREEN_REV" >> $GITHUB_OUTPUT
+          echo "green_revision=$GREEN_REV" >> "$GITHUB_OUTPUT"
           echo "Green revision: $GREEN_REV"
+
+          GREEN_WEIGHT=$(az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "$GREEN_REV" \
+            --query properties.trafficWeight -o tsv)
+          if [ "${GREEN_WEIGHT:-0}" != "0" ]; then
+            echo "::error::Final green revision received traffic before direct smoke verification"
+            exit 1
+          fi
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query 'properties.configuration.ingress.traffic' -o json \
+            > green-traffic-current.json
+          python scripts/containerapp_rollout.py assert-traffic \
+            --expected pre-green-traffic-manifest.json \
+            --actual green-traffic-current.json
 
       - name: Wait for green revision readiness
         run: |
@@ -1520,11 +2663,6 @@ jobs:
             --revision "$GREEN_REV" \
             --query '{name:name,provisioningState:properties.provisioningState,runningState:properties.runningState,healthState:properties.healthState,replicas:properties.replicas,createdTime:properties.createdTime}' \
             -o json || true
-          az containerapp logs show \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-            --revision "$GREEN_REV" \
-            --tail 100 || true
           exit 1
 
       - name: Preflight green revision auth and storage contract
@@ -1639,11 +2777,6 @@ jobs:
               --revision "${{ steps.green.outputs.green_revision }}" \
               --query '{name:name,provisioningState:properties.provisioningState,runningState:properties.runningState,healthState:properties.healthState,replicas:properties.replicas,createdTime:properties.createdTime,fqdn:properties.fqdn}' \
               -o json || true
-            az containerapp logs show \
-              --name ${{ env.CONTAINER_APP_NAME }} \
-              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-              --revision "${{ steps.green.outputs.green_revision }}" \
-              --tail 100 || true
             echo "::endgroup::"
           }
 
@@ -1684,6 +2817,48 @@ jobs:
             echo "::error::Green revision /healthz returned HTTP ${HEALTHZ_CODE}"
             [ -s healthz-response.json ] && head -c 2000 healthz-response.json || true
             dump_green_revision_diagnostics "healthz-${HEALTHZ_CODE}"
+            exit 1
+          fi
+
+          COMPATIBILITY_URL="$TEST_URL/api/schema-compatibility"
+          if ! COMPATIBILITY_CODE=$(curl -sS -o schema-compatibility.json -w "%{http_code}" \
+            --max-time 20 \
+            "${TRUSTED_ORIGIN_CURL_ARGS[@]}" \
+            "$COMPATIBILITY_URL"); then
+            COMPATIBILITY_CODE="000"
+          fi
+          if [ "$COMPATIBILITY_CODE" != "200" ]; then
+            echo "::error::Green revision schema compatibility preflight returned HTTP ${COMPATIBILITY_CODE}"
+            [ -s schema-compatibility.json ] && cat schema-compatibility.json || true
+            exit 1
+          fi
+          CURRENT_SCHEMA_REVISION=$(jq -er '.current_revision' schema-compatibility.json)
+          if [ "$CURRENT_SCHEMA_REVISION" != "$EXPECTED_ALEMBIC_HEAD" ]; then
+            echo "::error::Green revision reports Alembic head ${CURRENT_SCHEMA_REVISION}; expected ${EXPECTED_ALEMBIC_HEAD}"
+            exit 1
+          fi
+          if [ "$(jq -er '.release_role' schema-compatibility.json)" != "final" ]; then
+            echo "::error::Green revision does not identify as the final release role"
+            exit 1
+          fi
+          jq -e \
+            --arg minimum "$APP_SCHEMA_MIN_REVISION" \
+            --arg maximum "$APP_SCHEMA_MAX_REVISION" \
+            --arg target "$EXPECTED_ALEMBIC_HEAD" \
+            '.minimum_revision == $minimum and .maximum_revision == $maximum and .migration_target_revision == $target and (.accepted_revisions | index($target) != null)' \
+            schema-compatibility.json >/dev/null
+
+          GREEN_REVISION_JSON=$(az containerapp revision show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+            --revision "${{ steps.green.outputs.green_revision }}" \
+            -o json)
+          if ! echo "$GREEN_REVISION_JSON" | jq -e '
+            any(.properties.template.containers[0].probes[]?;
+              ((.type // "") | ascii_downcase) == "readiness"
+              and .httpGet.path == "/readyz")
+          ' >/dev/null; then
+            echo "::error::Green revision does not carry the required /readyz probe"
             exit 1
           fi
 
@@ -1803,79 +2978,463 @@ jobs:
           VERSION=$(curl_health "$TEST_URL$HEALTH_PATH" | jq -r '.version' 2>/dev/null || echo 'unknown')
           echo "Green revision version: $VERSION — all smoke tests passed"
 
-      - name: Shift traffic to green (100%)
+      - name: Yield to emergency rollback before final traffic mutation
         run: |
-          az containerapp ingress traffic set \
-            --name ${{ env.CONTAINER_APP_NAME }} \
-            --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-            --revision-weight "${{ steps.green.outputs.green_revision }}=100"
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode deploy \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id"
+
+      - name: Shift traffic to green (100%)
+        id: shift_green
+        run: |
+          set -euo pipefail
+          cp pre-green-traffic-manifest.json pre-shift-traffic-manifest.json
+          cat > green-target-traffic-manifest.json <<EOF
+          [{"revisionName":"${{ steps.green.outputs.green_revision }}","weight":100,"label":""}]
+          EOF
+          python scripts/containerapp_rollout.py mark-stage \
+            --state rollout-state.json \
+            --stage green_shift_attempted
+          python scripts/containerapp_rollout.py apply-traffic \
+            --input green-target-traffic-manifest.json \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --actual-output green-routed-traffic.json
 
       - name: Verify production deployment
+        id: verify_production
         run: |
+          set -euo pipefail
           sleep 30
           HEALTH_RETRIES=12 HEALTH_RETRY_SECONDS=15 HEALTH_API_KEY="$ARCHMORPH_API_KEY" ./scripts/health_gate.sh "${{ env.API_URL }}/health"
-          HEALTH_BODY=$(curl -sS --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health" || true)
-          HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -r '.status // "unknown"' 2>/dev/null || echo "unknown")
-          VERSION=$(printf '%s' "$HEALTH_BODY" | jq -r '.version // "unknown"' 2>/dev/null || echo "unknown")
+          HEALTH_BODY=$(curl -fsS --max-time 30 -H "X-API-Key: $ARCHMORPH_API_KEY" "${{ env.API_URL }}/health")
+          HEALTH=$(printf '%s' "$HEALTH_BODY" | jq -er '.status')
+          VERSION=$(printf '%s' "$HEALTH_BODY" | jq -er '.version')
+          [ "$HEALTH" = "healthy" ]
+          ROUTED_REVISION=$(az containerapp revision list \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query "[?properties.trafficWeight==\`100\`].name | [0]" -o tsv)
+          [ "$ROUTED_REVISION" = "${{ steps.green.outputs.green_revision }}" ]
+          python scripts/containerapp_rollout.py mark-stage \
+            --state rollout-state.json \
+            --stage complete
           echo "Deployed version: $VERSION — status: $HEALTH (blue-green complete)"
 
-      - name: Deactivate old revisions (keep blue for rollback)
+      - name: Create signed immutable final release evidence
+        id: final_release_evidence
+        if: steps.verify_production.outcome == 'success'
         run: |
+          set -euo pipefail
+          curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
+            -o final-schema-compatibility.json
+          OBSERVED_SCHEMA=$(jq -er '.current_revision' final-schema-compatibility.json)
+          python scripts/containerapp_rollout.py write-release-manifest \
+            --output final-release-manifest.json \
+            --role final \
+            --revision "${{ steps.green.outputs.green_revision }}" \
+            --image "$IMAGE_REF" \
+            --source-sha "${{ github.sha }}" \
+            --schema-contract backend/schema-contract.json \
+            --observed-schema "$OBSERVED_SCHEMA" \
+            --repository "$GITHUB_REPOSITORY" \
+            --workflow "$GITHUB_WORKFLOW" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --build-provenance final-build-provenance.json
+          python scripts/containerapp_rollout.py verify-release-manifest \
+            --input final-release-manifest.json \
+            --required-role final \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow "$GITHUB_WORKFLOW" \
+            --expected-run-id "$GITHUB_RUN_ID" \
+            --expected-run-attempt "$GITHUB_RUN_ATTEMPT" >/dev/null
+          python scripts/containerapp_rollout.py verify-runtime-compatibility \
+            --manifest final-release-manifest.json \
+            --runtime final-schema-compatibility.json \
+            --required-role final >/dev/null
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "${{ steps.green.outputs.green_revision }}" \
+            -o json > final-release-revision.json
+          python scripts/containerapp_rollout.py verify-revision-target \
+            --manifest final-release-manifest.json \
+            --revision-json final-release-revision.json \
+            --required-role final >/dev/null
+
+      - name: Recover exact schema-safe traffic after rollout failure
+        if: always() && steps.rollout_state.outcome == 'success' && steps.verify_production.outcome != 'success'
+        run: |
+          set -euo pipefail
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            renew --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id"
+          echo "::error::Production rollout failed; proving migration quiescence before any schema or traffic recovery decision"
+          START_BOUNDARY=$(python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json \
+            --field start_boundary)
+          if [ "$START_BOUNDARY" = "true" ]; then
+            RESOLVE_STATUS=0
+            python scripts/containerapp_rollout.py resolve-migration-start \
+              --state rollout-state.json \
+              --evidence-output migration-start-recovery-evidence.json \
+              >/dev/null || RESOLVE_STATUS=$?
+            if [ "$RESOLVE_STATUS" -ne 0 ]; then
+              jq -n \
+                --arg status "recovery_required" \
+                --arg action "retain_current_schema_compatible_traffic" \
+                --arg reason "migration start cannot be bound to one exact reviewed execution" \
+                '{schema_version:1,status:$status,action:$action,reason:$reason}' \
+                > rollout-recovery-evidence.json
+              echo "::error::Recovery required: migration start is ambiguous; traffic remains on bridge/green"
+              exit "$RESOLVE_STATUS"
+            fi
+          fi
+          EXECUTION_NAME=$(python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json \
+            --field execution_name)
+          IMAGE_DIGEST=$(python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json \
+            --field image_digest)
+          if [ -n "$EXECUTION_NAME" ]; then
+            python scripts/emit_rollout_telemetry.py \
+              --event migration_quiescence_started \
+              --run-id "$GITHUB_RUN_ID" \
+              --execution "$EXECUTION_NAME" \
+              --image-digest "$IMAGE_DIGEST" \
+              --evidence-output rollout-telemetry.ndjson
+          fi
+          QUIESCE_STATUS=0
+          python scripts/containerapp_rollout.py quiesce-migration \
+            --state rollout-state.json \
+            --evidence-output migration-quiescence-evidence.json \
+            --max-attempts 20 \
+            --poll-seconds 5 || QUIESCE_STATUS=$?
+          if [ "$QUIESCE_STATUS" -ne 0 ]; then
+            jq -n \
+              --arg status "recovery_required" \
+              --arg action "retain_current_schema_compatible_traffic" \
+              --arg reason "exact migration execution quiescence could not be proven" \
+              '{schema_version:1,status:$status,action:$action,reason:$reason}' \
+              > rollout-recovery-evidence.json
+            if [ -n "$EXECUTION_NAME" ]; then
+              python scripts/emit_rollout_telemetry.py \
+                --event migration_recovery_required \
+                --run-id "$GITHUB_RUN_ID" \
+                --execution "$EXECUTION_NAME" \
+                --image-digest "$IMAGE_DIGEST" \
+                --evidence-output rollout-telemetry.ndjson
+            fi
+            echo "::error::Recovery required: exact migration execution is not proven quiescent; traffic remains on bridge/green"
+            exit "$QUIESCE_STATUS"
+          fi
+          if [ -n "$EXECUTION_NAME" ]; then
+            python scripts/emit_rollout_telemetry.py \
+              --event migration_quiesced \
+              --run-id "$GITHUB_RUN_ID" \
+              --execution "$EXECUTION_NAME" \
+              --image-digest "$IMAGE_DIGEST" \
+              --evidence-output rollout-telemetry.ndjson
+          fi
+          echo "Migration is quiescent; re-reading schema before choosing exact recovery traffic"
+          OBSERVED_SCHEMA=""
+          if curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
+            -o recovery-schema.json; then
+            OBSERVED_SCHEMA=$(jq -er '.current_revision' recovery-schema.json)
+          fi
+          RESTORE_STATUS=0
+          python scripts/containerapp_rollout.py recover-release \
+            --state rollout-state.json \
+            --observed-schema "$OBSERVED_SCHEMA" \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --evidence-output rollout-recovery-evidence.json || RESTORE_STATUS=$?
+          if jq -e '.status == "bridge_retained" and .customer_mode == "degraded_read_only" and .page_owner == "platform-engineering"' \
+            rollout-recovery-evidence.json >/dev/null 2>&1 && [ -n "$EXECUTION_NAME" ]; then
+            python scripts/emit_rollout_telemetry.py \
+              --event bridge_customer_degraded \
+              --run-id "$GITHUB_RUN_ID" \
+              --execution "$EXECUTION_NAME" \
+              --image-digest "$IMAGE_DIGEST" \
+              --evidence-output rollout-telemetry.ndjson
+          fi
+          az containerapp revision show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --revision "${{ steps.green.outputs.green_revision || steps.bridge_resolved.outputs.bridge_revision }}" \
+            --query '{name:name,state:properties.runningState,health:properties.healthState,traffic:properties.trafficWeight}' -o json || true
+          if [ "$RESTORE_STATUS" -ne 0 ]; then
+            echo "::error::Schema-safe traffic recovery failed or requires manual intervention; see rollout-recovery-evidence"
+            exit "$RESTORE_STATUS"
+          fi
+
+      - name: Deactivate superseded revisions after final evidence
+        if: steps.final_release_evidence.outcome == 'success'
+        run: |
+          set -euo pipefail
+          BRANCH=$(python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json --field branch)
+          ROLLBACK_REVISIONS=()
+          if [ "$BRANCH" = "routine" ]; then
+            mapfile -t ROLLBACK_REVISIONS < <(
+              jq -r '.[] | .revisionName // empty' pre-shift-traffic-manifest.json
+            )
+          fi
           OLD_REVS=$(az containerapp revision list \
             --name ${{ env.CONTAINER_APP_NAME }} \
             --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
             --query "[?properties.active && name != '${{ steps.green.outputs.green_revision }}'].name" -o tsv)
 
-          KEEP_BLUE=$(echo "$OLD_REVS" | head -1)
-          DEACTIVATE=$(echo "$OLD_REVS" | tail -n +2)
+          DEACTIVATE=""
+          for rev in $OLD_REVS; do
+            if printf '%s\n' "${ROLLBACK_REVISIONS[@]}" | grep -qxF "$rev"; then
+              continue
+            fi
+            DEACTIVATE+="${rev}"$'\n'
+          done
 
-          [ -n "$KEEP_BLUE" ] && echo "Keeping blue revision for rollback: $KEEP_BLUE"
+          if [ "$BRANCH" = "migration" ]; then
+            echo "Migration bridge is recovery-only and will be deactivated after final evidence."
+          else
+            printf 'Keeping compatible routine-release predecessor: %s\n' "${ROLLBACK_REVISIONS[@]}"
+          fi
 
           for rev in $DEACTIVATE; do
             echo "Deactivating old revision: $rev"
             az containerapp revision deactivate \
               --name ${{ env.CONTAINER_APP_NAME }} \
               --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
-              --revision "$rev" || true
+              --revision "$rev"
+            ACTIVE=$(az containerapp revision show \
+              --name ${{ env.CONTAINER_APP_NAME }} \
+              --resource-group "${{ env.AZURE_RESOURCE_GROUP }}" \
+              --revision "$rev" \
+              --query properties.active -o tsv)
+            if [ "$ACTIVE" != "false" ]; then
+              echo "::error::Old revision ${rev} remained active after cleanup"
+              exit 1
+            fi
           done
 
-  # ============================================
-  # FRONTEND DEPLOY (Azure Static Web Apps)
-  # ============================================
-  deploy-frontend:
-    needs: [backend-tests, frontend-build, openapi-client-drift, iac-validate]
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    if: github.ref == 'refs/heads/main'
-    environment: production
-    env:
-      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
-      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
-      AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
-      STATIC_WEB_APP_NAME: ${{ vars.STATIC_WEB_APP_NAME || 'archmorph-frontend' }}
-      ARCHMORPH_API_KEY: ${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}
-      ARCHMORPH_BACKEND_API_BASE: ${{ secrets.API_URL }}
-    steps:
-      - uses: actions/checkout@v6
+      - name: Assemble complete backend final release evidence
+        id: final_evidence_bundle
+        if: always() && steps.final_release_evidence.outcome == 'success'
+        run: |
+          set -euo pipefail
+          BRANCH=$(python scripts/containerapp_rollout.py verify-release-state \
+            --state rollout-state.json --field branch)
+          REQUIRED_EVIDENCE=(
+            final-release-manifest.json
+            final-release-revision.json
+            final-schema-compatibility.json
+            final-build-provenance.json
+            final-attestation.json
+            final-image-inspection.json
+            final-embedded-schema-contract.json
+            rollout-state.json
+            pre-green-traffic-manifest.json
+            migration-alert-attestation.json
+            blue-traffic-original.json
+            blue-traffic-manifest.json
+            pre-shift-traffic-manifest.json
+            green-routed-traffic.json
+          )
+          if [ "$BRANCH" = "migration" ]; then
+            REQUIRED_EVIDENCE+=(
+              bridge-release-manifest.json
+              bridge-release-revision.json
+              bridge-schema-compatibility.json
+              bridge-build-provenance.json
+              bridge-attestation.json
+              bridge-image-inspection.json
+              bridge-embedded-schema-contract.json
+              migration-execution-evidence.json
+              rollout-telemetry.ndjson
+            )
+          fi
+          rm -rf backend-release-evidence
+          mkdir backend-release-evidence
+          for evidence_path in "${REQUIRED_EVIDENCE[@]}"; do
+            if [ ! -s "$evidence_path" ]; then
+              echo "::error::Required backend release evidence is missing or empty: ${evidence_path}"
+              exit 1
+            fi
+            cp "$evidence_path" backend-release-evidence/
+          done
+          printf '%s\n' "${REQUIRED_EVIDENCE[@]}" | jq -R . | jq -s \
+            --arg branch "$BRANCH" \
+            --arg runId "$GITHUB_RUN_ID" \
+            --argjson runAttempt "$GITHUB_RUN_ATTEMPT" \
+            '{schema_version:1,role:"final",branch:$branch,run_id:$runId,
+              run_attempt:$runAttempt,required_files:.}' \
+            > backend-release-evidence/evidence-index.json
+          python scripts/containerapp_rollout.py verify-release-manifest \
+            --input backend-release-evidence/final-release-manifest.json \
+            --required-role final \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow "$GITHUB_WORKFLOW" \
+            --expected-run-id "$GITHUB_RUN_ID" \
+            --expected-run-attempt "$GITHUB_RUN_ATTEMPT" >/dev/null
 
-      - name: Azure login
-        uses: azure/login@v3
+      - name: Upload complete backend final release evidence
+        if: always() && steps.final_evidence_bundle.outcome == 'success'
+        uses: actions/upload-artifact@v7
         with:
-          client-id: ${{ env.AZURE_CLIENT_ID }}
-          tenant-id: ${{ env.AZURE_TENANT_ID }}
-          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+          name: backend-release-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: backend-release-evidence
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Assemble explicit failed-rollout diagnostics
+        if: always() && steps.rollout_state.outcome == 'success' && (steps.final_release_evidence.outcome != 'success' || steps.final_evidence_bundle.outcome == 'failure')
+        run: |
+          set -euo pipefail
+          REQUIRED_DIAGNOSTICS=(rollout-state.json blue-traffic-manifest.json)
+          rm -rf backend-rollout-diagnostics
+          mkdir backend-rollout-diagnostics
+          for evidence_path in "${REQUIRED_DIAGNOSTICS[@]}"; do
+            test -s "$evidence_path"
+            cp "$evidence_path" backend-rollout-diagnostics/
+          done
+          CANDIDATES=(
+            rollout-recovery-evidence.json migration-execution-evidence.json
+            migration-start-recovery-evidence.json migration-quiescence-evidence.json
+            interrupted-migration-start-evidence.json interrupted-migration-quiescence.json
+            rollout-telemetry.ndjson bridge-release-manifest.json
+          )
+          PRESENT=()
+          for evidence_path in "${CANDIDATES[@]}"; do
+            if [ -s "$evidence_path" ]; then
+              cp "$evidence_path" backend-rollout-diagnostics/
+              PRESENT+=("$evidence_path")
+            fi
+          done
+          printf '%s\n' "${PRESENT[@]}" | sed '/^$/d' | jq -R . | jq -s \
+            '{schema_version:1,role:"diagnostic",partial:true,present_optional_files:.}' \
+            > backend-rollout-diagnostics/evidence-index.json
+
+      - name: Upload explicit failed-rollout diagnostics
+        if: always() && hashFiles('backend-rollout-diagnostics/evidence-index.json') != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: backend-rollout-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: backend-rollout-diagnostics
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Download and verify previous frontend recovery bundle
+        id: frontend_recovery
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if ! [[ "${SWA_RESTORE_IMAGE:-}" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::SWA_RESTORE_IMAGE must pin the approved Static Web Apps restoration client by digest"
+            exit 1
+          fi
+          PREVIOUS_RUN_ID=$(gh run list \
+            --workflow ci.yml \
+            --branch main \
+            --status success \
+            --limit 20 \
+            --json databaseId,headSha \
+            --jq '.[] | select(.headSha != "${{ github.sha }}") | .databaseId' \
+            | head -1)
+          if [ -z "$PREVIOUS_RUN_ID" ]; then
+            echo "::error::No successful prior frontend artifact exists; stopping before frontend mutation"
+            exit 1
+          fi
+          mkdir -p frontend/rollback-dist
+          RECOVERY_ARTIFACT_NAME=$(gh api --paginate \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${PREVIOUS_RUN_ID}/artifacts?per_page=100" \
+            --jq '.artifacts[].name' \
+            | grep -E "^frontend-recovery-bundle-${PREVIOUS_RUN_ID}-[0-9]+$" \
+            | awk -F- '{printf "%08d %s\n", $NF, $0}' \
+            | sort -r \
+            | head -1 \
+            | cut -d' ' -f2- || true)
+          if [ -n "$RECOVERY_ARTIFACT_NAME" ] && gh run download "$PREVIOUS_RUN_ID" \
+            --name "$RECOVERY_ARTIFACT_NAME" \
+            --dir frontend/rollback-dist; then
+            python scripts/frontend_release.py verify \
+              --root frontend/rollback-dist \
+              --manifest frontend/rollback-dist/frontend-rollback-manifest.json \
+              --restore-image "$SWA_RESTORE_IMAGE" \
+              > frontend/rollback-dist/verified-manifest.json
+          else
+            rm -rf frontend/rollback-dist
+            mkdir -p frontend/rollback-dist
+            gh run download "$PREVIOUS_RUN_ID" \
+              --name frontend-dist \
+              --dir frontend/rollback-dist
+            test -f frontend/rollback-dist/dist/index.html
+            test -d frontend/rollback-dist/api
+            echo "::notice::Bootstrapping the first recovery manifest from the prior successful frontend artifact"
+          fi
+
+      - name: Download frontend dist for serialized deployment
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: frontend/current-dist
+
+      - name: Validate current frontend artifact before mutation
+        run: |
+          set -euo pipefail
+          python scripts/frontend_release.py validate \
+            --root frontend/current-dist \
+            > frontend/current-dist/validated-digests.json
+
+      - name: Capture current Static Web Apps settings
+        id: capture_swa_settings
+        run: |
+          set -euo pipefail
+          SWA_SETTINGS_URI="https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.Web/staticSites/${STATIC_WEB_APP_NAME}/config/appsettings/list?api-version=2023-12-01"
+          az rest --method post --uri "$SWA_SETTINGS_URI" -o json \
+            > frontend/live-settings-before-mutation.json
+
+      - name: Bootstrap and verify current frontend snapshot when no bundle exists
+        if: hashFiles('frontend/rollback-dist/frontend-rollback-manifest.json') == ''
+        run: |
+          set -euo pipefail
+          test -f frontend/rollback-dist/dist/index.html
+          test -d frontend/rollback-dist/api
+          python scripts/frontend_release.py write \
+            --root frontend/rollback-dist \
+            --restore-image "$SWA_RESTORE_IMAGE" \
+            --output frontend/rollback-dist/frontend-rollback-manifest.json
+          python scripts/frontend_release.py verify \
+            --root frontend/rollback-dist \
+            --manifest frontend/rollback-dist/frontend-rollback-manifest.json \
+            --restore-image "$SWA_RESTORE_IMAGE" \
+            > frontend/rollback-dist/verified-manifest.json
+
+      - name: Require verified frontend recovery before mutation
+        run: |
+          set -euo pipefail
+          test -f frontend/rollback-dist/verified-manifest.json
+          test -f frontend/rollback-dist/dist/index.html
+          test -d frontend/rollback-dist/api
+
+      - name: Yield to emergency rollback before frontend mutation
+        run: |
+          python scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+            --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode deploy \
+            --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id"
 
       - name: Configure Static Web Apps API bridge settings
+        id: configure_swa
         run: |
-          if [ -z "${ARCHMORPH_API_KEY:-}" ]; then
-            echo "::error::ARCHMORPH_API_KEY or API_KEY secret is required for the SWA auth bridge"
-            exit 1
-          fi
-          if [ -z "${ARCHMORPH_BACKEND_API_BASE:-}" ]; then
-            echo "::error::API_URL secret is required for the SWA auth bridge"
-            exit 1
-          fi
+          set -euo pipefail
+          : "${ARCHMORPH_API_KEY:?ARCHMORPH_API_KEY is required for the SWA auth bridge}"
+          : "${ARCHMORPH_BACKEND_API_BASE:?API_URL is required for the SWA auth bridge}"
+          touch frontend/swa-mutation-attempted
           az staticwebapp appsettings set \
             --name "$STATIC_WEB_APP_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
@@ -1884,22 +3443,119 @@ jobs:
               ARCHMORPH_BACKEND_API_BASE="$ARCHMORPH_BACKEND_API_BASE" \
             >/dev/null
 
-      - name: Download frontend dist
-        uses: actions/download-artifact@v8
-        with:
-          name: frontend-dist
-          path: frontend/dist
+      - name: Deploy frontend under production mutation lock
+        id: deploy_frontend_locked
+        env:
+          SWA_DEPLOYMENT_TOKEN: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
+        run: |
+          set -euo pipefail
+          docker run --rm \
+            -e INPUT_AZURE_STATIC_WEB_APPS_API_TOKEN="$SWA_DEPLOYMENT_TOKEN" \
+            -e INPUT_ACTION=upload \
+            -e INPUT_APP_LOCATION=/app \
+            -e INPUT_API_LOCATION=/api \
+            -e INPUT_OUTPUT_LOCATION= \
+            -e INPUT_SKIP_APP_BUILD=true \
+            -v "$PWD/frontend/current-dist/dist:/app:ro" \
+            -v "$PWD/frontend/current-dist/api:/api:ro" \
+            "$SWA_RESTORE_IMAGE"
 
-      - name: Deploy to Azure Static Web Apps
-        uses: Azure/static-web-apps-deploy@v1
+      - name: Verify frontend under production mutation lock
+        id: verify_frontend_locked
+        run: |
+          set -euo pipefail
+          curl -fsS --max-time 30 "$FRONTEND_URL/" >/dev/null
+          curl -fsS --max-time 30 "$FRONTEND_URL/#translator" >/dev/null
+
+      - name: Restore frontend settings and artifact after any mutation failure
+        if: always() && steps.capture_swa_settings.outcome == 'success' && hashFiles('frontend/swa-mutation-attempted') != '' && steps.verify_frontend_locked.outcome != 'success'
+        env:
+          SWA_DEPLOYMENT_TOKEN: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
+        run: |
+          set -euo pipefail
+          RESTORE_IMAGE="${SWA_RESTORE_IMAGE:?SWA_RESTORE_IMAGE is required}"
+          if ! [[ "$RESTORE_IMAGE" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Trusted SWA_RESTORE_IMAGE is not an immutable image reference"
+            exit 1
+          fi
+          SWA_SETTINGS_URI="https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.Web/staticSites/${STATIC_WEB_APP_NAME}/config/appsettings?api-version=2023-12-01"
+          jq -e '.properties | type == "object"' frontend/live-settings-before-mutation.json >/dev/null
+          az rest \
+            --method put \
+            --uri "$SWA_SETTINGS_URI" \
+            --body @frontend/live-settings-before-mutation.json \
+            --output none
+          SWA_SETTINGS_LIST_URI="https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.Web/staticSites/${STATIC_WEB_APP_NAME}/config/appsettings/list?api-version=2023-12-01"
+          az rest --method post --uri "$SWA_SETTINGS_LIST_URI" -o json \
+            > frontend/restored-settings.json
+          jq -S '.properties' frontend/live-settings-before-mutation.json \
+            > frontend/expected-settings.json
+          jq -S '.properties' frontend/restored-settings.json \
+            > frontend/actual-settings.json
+          cmp frontend/expected-settings.json frontend/actual-settings.json
+          docker run --rm \
+            -e INPUT_AZURE_STATIC_WEB_APPS_API_TOKEN="$SWA_DEPLOYMENT_TOKEN" \
+            -e INPUT_ACTION=upload \
+            -e INPUT_APP_LOCATION=/app \
+            -e INPUT_API_LOCATION=/api \
+            -e INPUT_OUTPUT_LOCATION= \
+            -e INPUT_SKIP_APP_BUILD=true \
+            -v "$PWD/frontend/rollback-dist/dist:/app:ro" \
+            -v "$PWD/frontend/rollback-dist/api:/api:ro" \
+            "$RESTORE_IMAGE"
+          curl -fsS --max-time 30 "$FRONTEND_URL/" >/dev/null
+
+      - name: Build next verified frontend recovery bundle
+        run: |
+          set -euo pipefail
+          mkdir -p frontend/recovery-bundle
+          cp -R frontend/current-dist/dist frontend/recovery-bundle/dist
+          cp -R frontend/current-dist/api frontend/recovery-bundle/api
+          python scripts/frontend_release.py write \
+            --root frontend/recovery-bundle \
+            --restore-image "$SWA_RESTORE_IMAGE" \
+            --output frontend/recovery-bundle/frontend-rollback-manifest.json
+          python scripts/frontend_release.py verify \
+            --root frontend/recovery-bundle \
+            --manifest frontend/recovery-bundle/frontend-rollback-manifest.json \
+            --restore-image "$SWA_RESTORE_IMAGE" \
+            > frontend/recovery-bundle/verified-manifest.json
+
+      - name: Upload verified frontend recovery bundle
+        uses: actions/upload-artifact@v7
         with:
-          azure_static_web_apps_api_token: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
-          repo_token: ${{ secrets.GITHUB_TOKEN }}
-          action: upload
-          app_location: frontend/dist
-          api_location: frontend/api
-          output_location: ''
-          skip_app_build: true
+          name: frontend-recovery-bundle-${{ github.run_id }}-${{ github.run_attempt }}
+          path: frontend/recovery-bundle
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Release durable production rollout ownership
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ -s "$RUNNER_TEMP/rollout-lease-heartbeat-pid" ]; then
+            kill "$(cat "$RUNNER_TEMP/rollout-lease-heartbeat-pid")" >/dev/null 2>&1 || true
+          fi
+          if [ -s "$RUNNER_TEMP/rollout-lease-id" ]; then
+            python scripts/azure_rollout_lease.py \
+              --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
+              --container "$ROLLOUT_COORDINATION_CONTAINER" \
+              finish --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id" \
+              || echo "::warning::Rollout lease cleanup was not confirmed; finite lease expiry remains authoritative"
+          fi
+
+  # ============================================
+  # FRONTEND DEPLOY (Azure Static Web Apps)
+  # ============================================
+  deploy-frontend:
+    needs: [deploy-backend, frontend-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: github.ref == 'refs/heads/main'
+    environment: production
+    steps:
+      - name: Confirm serialized frontend deployment completed
+        run: echo "Frontend settings, artifact deployment, verification, and recovery were serialized in deploy-backend."
 
   # ============================================
   # POST-DEPLOY SMOKE

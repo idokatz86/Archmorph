@@ -23,7 +23,7 @@ class DiagramMCPClient:
         Calls the appropriate MCP server based on format_type ('excalidraw', 'drawio', 'visio').
         Returns the raw file string (JSON for excalidraw/drawio, XML for visio).
         """
-        logger.info(f"Delegating {format_type} diagram generation to MCP server...")
+        logger.info("Delegating diagram generation to MCP server")
         
         # Build prompt for the MCP agent
         prompt = self._build_prompt(analysis_data)
@@ -39,30 +39,53 @@ class DiagramMCPClient:
                     if response.status_code == 200:
                         try:
                             payload = response.json().get("diagram_payload", "")
-                        except ValueError as e:  # invalid JSON
+                        except ValueError as exc:  # invalid JSON
                             logger.warning(
-                                f"MCP Gateway returned non-JSON for {format_type}: {e}. Falling back."
+                                "MCP Gateway returned non-JSON error_type=%s; falling back",
+                                type(exc).__name__,
                             )
                             return self._fallback_generation(format_type, analysis_data)
                         if isinstance(payload, str) and payload.strip():
                             return payload
-                        logger.warning(
-                            f"MCP Gateway returned empty payload for {format_type}. Falling back."
-                        )
+                        logger.warning("MCP Gateway returned empty payload; falling back")
                         return self._fallback_generation(format_type, analysis_data)
                     else:
-                        logger.warning(f"MCP Gateway returned status {response.status_code}. Retrying...")
-            except httpx.ConnectError as e:
-                logger.warning(f"MCP Gateway connection failed for {format_type}: {e}. Falling back to legacy layout engine.")
+                        logger.warning(
+                            "MCP Gateway returned status=%d; retrying",
+                            response.status_code,
+                        )
+            except httpx.ConnectError as exc:
+                logger.warning(
+                    "MCP Gateway connection failed error_type=%s; falling back",
+                    type(exc).__name__,
+                )
                 return self._fallback_generation(format_type, analysis_data)
-            except httpx.WriteTimeout as e:
-                logger.warning(f"MCP Gateway write timeout for {format_type}: {e}. Retrying ({attempt+1}/{retry_count})...")
-            except httpx.ReadTimeout as e:
-                logger.warning(f"MCP Gateway read timeout for {format_type}: {e}. Retrying ({attempt+1}/{retry_count})...")
-            except httpx.RequestError as e:
-                logger.warning(f"MCP Gateway request error for {format_type}: {e}. Retrying ({attempt+1}/{retry_count})...")
+            except httpx.WriteTimeout as exc:
+                logger.warning(
+                    "MCP Gateway write timeout attempt=%d/%d error_type=%s",
+                    attempt + 1,
+                    retry_count,
+                    type(exc).__name__,
+                )
+            except httpx.ReadTimeout as exc:
+                logger.warning(
+                    "MCP Gateway read timeout attempt=%d/%d error_type=%s",
+                    attempt + 1,
+                    retry_count,
+                    type(exc).__name__,
+                )
+            except httpx.RequestError as exc:
+                logger.warning(
+                    "MCP Gateway request error attempt=%d/%d error_type=%s",
+                    attempt + 1,
+                    retry_count,
+                    type(exc).__name__,
+                )
                 
-        logger.warning(f"MCP Gateway failed or timed out after {retry_count} attempts for {format_type}. Falling back to legacy layout engine.")
+        logger.warning(
+            "MCP Gateway failed after attempts=%d; falling back",
+            retry_count,
+        )
         return self._fallback_generation(format_type, analysis_data)
 
     def _build_prompt(self, analysis: Dict[str, Any]) -> str:

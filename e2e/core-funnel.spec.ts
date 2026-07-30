@@ -163,7 +163,7 @@ const MOCK_HLD = {
 };
 
 async function stubDeterministicDeliverables(page: Page) {
-  await page.route('**/api/projects/*/diagrams', async route => {
+  await page.route('**/api/projects/diagrams', async route => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -626,7 +626,7 @@ test.describe('Core Funnel: Upload → Analyze → IaC → Export All', () => {
 
     const uploadRequest = page.waitForResponse(response =>
       response.request().method() === 'POST' &&
-      response.url().includes('/api/projects/demo-project/diagrams') &&
+      new URL(response.url()).pathname === '/api/projects/diagrams' &&
       response.status() === 200
     );
     const analyzeRequest = page.waitForResponse(response => {
@@ -698,7 +698,7 @@ async function runLiveFullSpineAssertions(page: Page) {
 
   const uploadRequest = page.waitForResponse(response =>
     response.request().method() === 'POST' &&
-    response.url().includes('/api/projects/demo-project/diagrams') &&
+    new URL(response.url()).pathname === '/api/projects/diagrams' &&
     response.status() === 200
   );
   const analyzeRequest = page.waitForResponse(response => {

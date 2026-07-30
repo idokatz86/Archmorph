@@ -2,6 +2,8 @@
 Tests for Authentication Module
 """
 
+import base64
+import json
 from datetime import datetime, timedelta, timezone
 
 import jwt
@@ -11,6 +13,8 @@ from auth import (
     get_anonymous_user, generate_session_token, get_user_from_session,
     capture_lead, get_leads_summary, is_auth_enabled, get_auth_config,
     LEAD_STORE, JWT_ALGORITHM, JWT_SECRET,
+    provider_subject_tenant_scope,
+    parse_swa_client_principal,
 )
 
 
@@ -43,6 +47,7 @@ class TestUser:
         assert user.email == "test@example.com"
         assert user.tier == UserTier.FREE
         assert user.analyses_used == 0
+        assert user.tenant_id is None
     
     def test_check_quota_allowed(self):
         user = User(id="test-123")
@@ -115,6 +120,8 @@ class TestSessionManagement:
         user = User(id="test-123")
         token = generate_session_token(user)
         assert len(token) > 20
+        payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
+        assert "tenant_id" not in payload
     
     def test_get_user_from_session(self):
         user = User(id="test-123", email="test@example.com")
@@ -144,10 +151,196 @@ class TestSessionManagement:
 
         assert retrieved is not None
         assert retrieved.tier == UserTier.TEAM
+        assert retrieved.tenant_id == provider_subject_tenant_scope(
+            AuthProvider.GITHUB,
+            "legacy-pro-user",
+        )
     
     def test_invalid_session_token(self):
         result = get_user_from_session("invalid-token")
         assert result is None
+
+    def test_legacy_default_tenant_token_uses_signed_provider_scope(self):
+        now = datetime.now(timezone.utc)
+        token = jwt.encode(
+            {
+                "sub": "legacy-default-owner",
+                "provider": "github",
+                "tier": "free",
+                "tenant_id": "default_tenant",
+                "iat": now,
+                "exp": now + timedelta(hours=1),
+                "type": "access",
+            },
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM,
+        )
+
+        retrieved = get_user_from_session(token)
+
+        assert retrieved.tenant_id == provider_subject_tenant_scope(
+            AuthProvider.GITHUB,
+            "legacy-default-owner",
+        )
+        assert retrieved.tenant_id != "default_tenant"
+
+    def test_legacy_default_tenant_provider_owner_uses_provider_subject_scope(self):
+        now = datetime.now(timezone.utc)
+        token = jwt.encode(
+            {
+                "sub": "github_42",
+                "provider": "github",
+                "tier": "free",
+                "tenant_id": "default_tenant",
+                "iat": now,
+                "exp": now + timedelta(hours=1),
+                "type": "access",
+            },
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM,
+        )
+
+        retrieved = get_user_from_session(token)
+
+        assert retrieved.tenant_id == provider_subject_tenant_scope(
+            AuthProvider.GITHUB,
+            "42",
+        )
+
+    def test_legacy_github_owner_tenant_token_rehomes_to_provider_subject_scope(self):
+        now = datetime.now(timezone.utc)
+        token = jwt.encode(
+            {
+                "sub": "github_42",
+                "provider": "github",
+                "tier": "free",
+                "tenant_id": "github:github_42",
+                "iat": now,
+                "exp": now + timedelta(hours=1),
+                "type": "access",
+            },
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM,
+        )
+
+        retrieved = get_user_from_session(token)
+
+        assert retrieved.tenant_id == provider_subject_tenant_scope(
+            AuthProvider.GITHUB,
+            "42",
+        )
+
+    def test_direct_b2c_without_tid_uses_verified_b2c_subject_scope(self):
+        now = datetime.now(timezone.utc)
+        token = jwt.encode(
+            {
+                "sub": "b2c-subject-42",
+                "provider": "azure_ad_b2c",
+                "provider_subject": "b2c-subject-42",
+                "tier": "free",
+                "iat": now,
+                "exp": now + timedelta(hours=1),
+                "type": "access",
+            },
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM,
+        )
+
+        retrieved = get_user_from_session(token)
+
+        assert retrieved.provider_subject == "b2c-subject-42"
+        assert retrieved.tenant_id == provider_subject_tenant_scope(
+            AuthProvider.AZURE_AD_B2C,
+            "b2c-subject-42",
+        )
+
+    def test_old_b2c_default_tenant_token_rehomes_to_same_current_scope(self):
+        now = datetime.now(timezone.utc)
+        token = jwt.encode(
+            {
+                "sub": "azure_ad_b2c_b2c-subject-43",
+                "provider": "azure_ad_b2c",
+                "tier": "free",
+                "tenant_id": "default_tenant",
+                "iat": now,
+                "exp": now + timedelta(hours=1),
+                "type": "access",
+            },
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM,
+        )
+
+        retrieved = get_user_from_session(token)
+
+        assert retrieved.provider_subject == "b2c-subject-43"
+        assert retrieved.tenant_id == provider_subject_tenant_scope(
+            AuthProvider.AZURE_AD_B2C,
+            "b2c-subject-43",
+        )
+
+    def test_raw_b2c_default_tenant_token_uses_signed_provider_claim(self):
+        now = datetime.now(timezone.utc)
+        token = jwt.encode(
+            {
+                "sub": "raw-b2c-subject-44",
+                "provider": "azure_ad_b2c",
+                "tier": "free",
+                "tenant_id": "default_tenant",
+                "iat": now,
+                "exp": now + timedelta(hours=1),
+                "type": "access",
+            },
+            JWT_SECRET,
+            algorithm=JWT_ALGORITHM,
+        )
+
+        retrieved = get_user_from_session(token)
+
+        assert retrieved.tenant_id == provider_subject_tenant_scope(
+            AuthProvider.AZURE_AD_B2C,
+            "raw-b2c-subject-44",
+        )
+
+    def test_same_subject_is_provider_separated_without_provider_guessing(self):
+        subject = "same-direct-subject"
+        assert provider_subject_tenant_scope(AuthProvider.AZURE_AD_B2C, subject) != (
+            provider_subject_tenant_scope(AuthProvider.MICROSOFT, subject)
+        )
+
+
+class TestSwaTenantScopes:
+    @staticmethod
+    def _principal(provider, subject, *, tenant_id=None):
+        claims = []
+        if tenant_id:
+            claims.append({"typ": "tid", "val": tenant_id})
+        payload = {
+            "identityProvider": provider,
+            "userId": subject,
+            "userDetails": "mutable-display@example.test",
+            "userRoles": ["authenticated"],
+            "claims": claims,
+        }
+        return base64.b64encode(json.dumps(payload).encode()).decode()
+
+    def test_aad_uses_real_tenant_claim(self):
+        user = parse_swa_client_principal(self._principal("aad", "subject-a", tenant_id="tenant-a"))
+        assert user.tenant_id == "tenant-a"
+
+    def test_aad_without_tenant_uses_stable_opaque_provider_subject_scope(self):
+        user = parse_swa_client_principal(self._principal("aad", "subject-no-tid"))
+        assert user.tenant_id == provider_subject_tenant_scope(AuthProvider.MICROSOFT, "subject-no-tid")
+
+    def test_github_and_google_scopes_are_stable_and_provider_separated(self):
+        github_first = parse_swa_client_principal(self._principal("github", "same-subject"))
+        github_second = parse_swa_client_principal(self._principal("github", "same-subject"))
+        google = parse_swa_client_principal(self._principal("google", "same-subject"))
+
+        assert github_first.tenant_id == github_second.tenant_id
+        assert github_first.tenant_id.startswith("idp:")
+        assert google.tenant_id.startswith("idp:")
+        assert github_first.tenant_id != google.tenant_id
+        assert "same-subject" not in github_first.tenant_id
 
 
 class TestLeadCapture:

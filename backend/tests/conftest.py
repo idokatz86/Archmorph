@@ -12,6 +12,7 @@ import copy
 import os
 import sys
 import time
+from pathlib import Path
 from urllib.parse import urlparse
 from unittest.mock import MagicMock
 
@@ -26,9 +27,31 @@ os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("ALLOWED_ORIGINS", "https://frontend.example.com")
+configured_database_url = os.environ.get("DATABASE_URL")
+worker_id = os.environ.get("PYTEST_XDIST_WORKER")
+auto_test_database = os.environ.get("ARCHMORPH_PYTEST_AUTO_DATABASE") == "1"
+worker_database_missing = bool(
+    auto_test_database
+    and worker_id
+    and configured_database_url
+    and not configured_database_url.endswith(f"-{worker_id}.db")
+)
+if configured_database_url is None or worker_database_missing:
+    os.environ["ARCHMORPH_PYTEST_AUTO_DATABASE"] = "1"
+    database_scope = worker_id or "serial"
+    run_id = os.environ.setdefault(
+        "ARCHMORPH_PYTEST_DATABASE_RUN_ID",
+        os.environ.get("PYTEST_XDIST_TESTRUNUID", str(os.getpid())),
+    )
+    test_db = Path("/tmp") / f"archmorph-pytest-{run_id}-{database_scope}.db"
+    test_db.unlink(missing_ok=True)
+    os.environ["DATABASE_URL"] = f"sqlite:///{test_db}"
 
 from main import app  # noqa: E402
+from database import init_db  # noqa: E402
 from routers import shared as shared_router  # noqa: E402
+
+init_db()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -131,6 +154,11 @@ def _diagram_id_from_url(url: object) -> str | None:
     return diagram_id or None
 
 
+def _is_project_route(url: object) -> bool:
+    path = urlparse(str(url)).path
+    return path.startswith(("/api/projects/", "/api/v1/projects/"))
+
+
 def _has_owner_metadata(session: dict) -> bool:
     return bool(
         session.get("_owner_user_id")
@@ -169,11 +197,15 @@ def _default_diagram_route_api_key(request, monkeypatch):
 
     def request_with_test_api_key(self, method, url, *args, **kwargs):
         diagram_id = _diagram_id_from_url(url)
-        if diagram_id is not None:
+        if diagram_id is not None or _is_project_route(url):
             headers = dict(kwargs.pop("headers", None) or {})
             has_auth = any(key.lower() in {"authorization", "x-api-key"} for key in headers)
             if not has_auth:
-                session = shared_router.SESSION_STORE.get(diagram_id)
+                session = (
+                    shared_router.SESSION_STORE.get(diagram_id)
+                    if diagram_id is not None
+                    else None
+                )
                 if isinstance(session, dict):
                     owner_headers = _auth_headers_for_session_owner(session)
                     if owner_headers:
@@ -232,7 +264,10 @@ def _global_openai_mock(request, monkeypatch):
     Globally prevent live OpenAI calls by mocking cached_chat_completion.
     Test execution speed will dramatically improve and flakiness will drop.
     """
-    if "test_gpt_cache.py" in request.node.nodeid:
+    if (
+        "test_gpt_cache.py" in request.node.nodeid
+        or "test_latest_independent_audit_regressions.py" in request.node.nodeid
+    ):
         return
         
     from unittest.mock import MagicMock

@@ -184,10 +184,10 @@ class TestRateLimitStorageConfiguration:
 
 
 class TestProductionRedisWarning:
-    """Production environment logs a warning when REDIS_URL is absent."""
+    """Production import fails closed when required Redis is absent."""
 
-    def test_production_warns_without_redis(self):
-        """Running in production without REDIS_URL triggers a log warning."""
+    def test_production_fails_closed_without_redis(self):
+        """Running in production without Redis refuses to initialize stores."""
         env = os.environ.copy()
         env.pop("REDIS_URL", None)
         env.pop("RATE_LIMIT_STORAGE", None)
@@ -198,9 +198,10 @@ class TestProductionRedisWarning:
             env=env,
             text=True,
             capture_output=True,
-            check=True,
+            check=False,
         )
-        assert "PRODUCTION WITHOUT REDIS" in result.stderr
+        assert result.returncode != 0
+        assert "REQUIRE_REDIS is set" in result.stderr
 
     def test_no_warning_in_dev_without_redis(self):
         """Local/dev mode should not warn about missing Redis."""

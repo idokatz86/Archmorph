@@ -22,7 +22,7 @@ class AgentRunner:
         try:
             execution = db.query(Execution).filter(Execution.id == self.execution_id).first()
             if not execution:
-                print(f"[AgentRunner] Execution {self.execution_id} not found.")
+                print("[AgentRunner] Execution not found")
                 return
 
             execution.status = "running"
@@ -143,16 +143,17 @@ class AgentRunner:
             finally:
                 db3.close()
 
-            print(f"[AgentRunner] Finished execution {self.execution_id}")
+            print("[AgentRunner] Finished execution")
 
-        except Exception as e:
+        except Exception as exc:
+            error_type = type(exc).__name__
             db4 = SessionLocal()
             try:
                 execution = db4.query(Execution).filter(Execution.id == self.execution_id).first()
                 if execution:
                     execution.status = "failed"
-                    execution.error_message = str(e)
+                    execution.error_message = str(exc)
                     db4.commit()
             finally:
                 db4.close()
-            print(f"[AgentRunner] Failed execution {self.execution_id}: {e}")
+            print(f"[AgentRunner] Failed execution error_type={error_type}")

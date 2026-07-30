@@ -399,6 +399,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/admin/migration-quarantines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Migration Quarantines
+         * @description List unresolved legacy migration conflicts (admin only).
+         */
+        get: operations["list_migration_quarantines_api_admin_migration_quarantines_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/admin/migration-quarantines/{alias_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Migration Quarantine
+         * @description Resolve one conflict-free quarantined graph (admin only).
+         */
+        post: operations["resolve_migration_quarantine_api_admin_migration_quarantines__alias_id__resolve_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/admin/monitoring": {
         parameters: {
             query?: never;
@@ -3769,6 +3809,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/projects/diagrams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Diagram
+         * @description Upload an architecture diagram image for analysis.
+         *
+         *     Accepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the
+         *     configured MAX_UPLOAD_SIZE limit.
+         */
+        post: operations["upload_diagram_api_projects_diagrams_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -3778,7 +3841,7 @@ export interface paths {
         };
         /**
          * Get Project Status
-         * @description Return project metadata and per-diagram analysis status.
+         * @description Return authorized project metadata and durable diagram status.
          */
         get: operations["get_project_status_api_projects__project_id__get"];
         put?: never;
@@ -3798,34 +3861,11 @@ export interface paths {
         };
         /**
          * Get Project Analysis
-         * @description Return a deterministic combined analysis for all analyzed project diagrams.
+         * @description Return a deterministic merge of authorized durable analysis snapshots.
          */
         get: operations["get_project_analysis_api_projects__project_id__analysis_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/projects/{project_id}/diagrams": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload Diagram
-         * @description Upload an architecture diagram image for analysis.
-         *
-         *     Accepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the
-         *     configured MAX_UPLOAD_SIZE limit.
-         */
-        post: operations["upload_diagram_api_projects__project_id__diagrams_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -3843,10 +3883,45 @@ export interface paths {
         put?: never;
         /**
          * Generate Project Iac
-         * @description Generate unified Infrastructure as Code from combined project analysis.
+         * @description Generate IaC only from authorized, PostgreSQL-canonical analyses.
          */
         post: operations["generate_project_iac_api_projects__project_id__generate_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Members */
+        get: operations["get_project_members_api_projects__project_id__members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/projects/{project_id}/members/{member_user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Project Member */
+        put: operations["put_project_member_api_projects__project_id__members__member_user_id__put"];
+        post?: never;
+        /** Delete Project Member */
+        delete: operations["delete_project_member_api_projects__project_id__members__member_user_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -3863,7 +3938,7 @@ export interface paths {
         put?: never;
         /**
          * Add Event
-         * @description Add an event to an existing replay recording.
+         * @description Append an event to a canonical replay recording.
          */
         post: operations["add_event_api_replay_events_post"];
         delete?: never;
@@ -3883,7 +3958,7 @@ export interface paths {
         put?: never;
         /**
          * Start Recording
-         * @description Start a new replay recording linked to an analysis.
+         * @description Start a new replay recording linked to an immutable analysis version.
          */
         post: operations["start_recording_api_replay_record_post"];
         delete?: never;
@@ -3901,7 +3976,7 @@ export interface paths {
         };
         /**
          * Get Replay
-         * @description Get full replay with all events.
+         * @description Get the full canonical replay with all events.
          */
         get: operations["get_replay_api_replay__replay_id__get"];
         put?: never;
@@ -3921,7 +3996,7 @@ export interface paths {
         };
         /**
          * Export Replay
-         * @description Export replay as a JSON timeline.
+         * @description Export replay JSON bound to the version recorded at replay start.
          */
         get: operations["export_replay_api_replay__replay_id__export_get"];
         put?: never;
@@ -3941,7 +4016,7 @@ export interface paths {
         };
         /**
          * List recent replays
-         * @description List recent replays with pagination (max 20 per page).
+         * @description List recent canonical replays with bounded pagination.
          */
         get: operations["list_replays_api_replays_get"];
         put?: never;
@@ -4096,6 +4171,26 @@ export interface paths {
          * @description Initiate a live scan of cloud architecture using stored credentials.
          */
         post: operations["run_cloud_scan_api_scanner_run__provider__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/schema-compatibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Schema Compatibility
+         * @description Sanitized activation preflight for green and rollback revisions.
+         */
+        get: operations["schema_compatibility_api_schema_compatibility_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -4902,6 +4997,46 @@ export interface paths {
         get: operations["admin_metrics_recent_v1_api_v1_admin_metrics_recent_get"];
         put?: never;
         post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/migration-quarantines": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Migration Quarantines V1
+         * @description List unresolved legacy migration conflicts (admin only).
+         */
+        get: operations["list_migration_quarantines_v1_api_v1_admin_migration_quarantines_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/admin/migration-quarantines/{alias_id}/resolve": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Resolve Migration Quarantine V1
+         * @description Resolve one conflict-free quarantined graph (admin only).
+         */
+        post: operations["resolve_migration_quarantine_v1_api_v1_admin_migration_quarantines__alias_id__resolve_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8278,6 +8413,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/diagrams": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Upload Diagram V1
+         * @description Upload an architecture diagram image for analysis.
+         *
+         *     Accepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the
+         *     configured MAX_UPLOAD_SIZE limit.
+         */
+        post: operations["upload_diagram_v1_api_v1_projects_diagrams_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{project_id}": {
         parameters: {
             query?: never;
@@ -8287,7 +8445,7 @@ export interface paths {
         };
         /**
          * Get Project Status V1
-         * @description Return project metadata and per-diagram analysis status.
+         * @description Return authorized project metadata and durable diagram status.
          */
         get: operations["get_project_status_v1_api_v1_projects__project_id__get"];
         put?: never;
@@ -8307,34 +8465,11 @@ export interface paths {
         };
         /**
          * Get Project Analysis V1
-         * @description Return a deterministic combined analysis for all analyzed project diagrams.
+         * @description Return a deterministic merge of authorized durable analysis snapshots.
          */
         get: operations["get_project_analysis_v1_api_v1_projects__project_id__analysis_get"];
         put?: never;
         post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/v1/projects/{project_id}/diagrams": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Upload Diagram V1
-         * @description Upload an architecture diagram image for analysis.
-         *
-         *     Accepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the
-         *     configured MAX_UPLOAD_SIZE limit.
-         */
-        post: operations["upload_diagram_v1_api_v1_projects__project_id__diagrams_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -8352,10 +8487,45 @@ export interface paths {
         put?: never;
         /**
          * Generate Project Iac V1
-         * @description Generate unified Infrastructure as Code from combined project analysis.
+         * @description Generate IaC only from authorized, PostgreSQL-canonical analyses.
          */
         post: operations["generate_project_iac_v1_api_v1_projects__project_id__generate_post"];
         delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/members": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get Project Members V1 */
+        get: operations["get_project_members_v1_api_v1_projects__project_id__members_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/projects/{project_id}/members/{member_user_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /** Put Project Member V1 */
+        put: operations["put_project_member_v1_api_v1_projects__project_id__members__member_user_id__put"];
+        post?: never;
+        /** Delete Project Member V1 */
+        delete: operations["delete_project_member_v1_api_v1_projects__project_id__members__member_user_id__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -8372,7 +8542,7 @@ export interface paths {
         put?: never;
         /**
          * Add Event V1
-         * @description Add an event to an existing replay recording.
+         * @description Append an event to a canonical replay recording.
          */
         post: operations["add_event_v1_api_v1_replay_events_post"];
         delete?: never;
@@ -8392,7 +8562,7 @@ export interface paths {
         put?: never;
         /**
          * Start Recording V1
-         * @description Start a new replay recording linked to an analysis.
+         * @description Start a new replay recording linked to an immutable analysis version.
          */
         post: operations["start_recording_v1_api_v1_replay_record_post"];
         delete?: never;
@@ -8410,7 +8580,7 @@ export interface paths {
         };
         /**
          * Get Replay V1
-         * @description Get full replay with all events.
+         * @description Get the full canonical replay with all events.
          */
         get: operations["get_replay_v1_api_v1_replay__replay_id__get"];
         put?: never;
@@ -8430,7 +8600,7 @@ export interface paths {
         };
         /**
          * Export Replay V1
-         * @description Export replay as a JSON timeline.
+         * @description Export replay JSON bound to the version recorded at replay start.
          */
         get: operations["export_replay_v1_api_v1_replay__replay_id__export_get"];
         put?: never;
@@ -8450,7 +8620,7 @@ export interface paths {
         };
         /**
          * List recent replays
-         * @description List recent replays with pagination (max 20 per page).
+         * @description List recent canonical replays with bounded pagination.
          */
         get: operations["list_replays_v1_api_v1_replays_get"];
         put?: never;
@@ -8605,6 +8775,26 @@ export interface paths {
          * @description Initiate a live scan of cloud architecture using stored credentials.
          */
         post: operations["run_cloud_scan_v1_api_v1_scanner_run__provider__post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/schema-compatibility": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Schema Compatibility V1
+         * @description Sanitized activation preflight for green and rollback revisions.
+         */
+        get: operations["schema_compatibility_v1_api_v1_schema_compatibility_get"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -9258,7 +9448,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Workspace Endpoint V1
-         * @description Delete a workspace and its analyses/versions/artifacts.
+         * @description Converge all workspace-owned state to a confirmed deletion fixed point.
          */
         delete: operations["delete_workspace_endpoint_v1_api_v1_workspaces__workspace_id__delete"];
         options?: never;
@@ -9442,7 +9632,7 @@ export interface paths {
         post?: never;
         /**
          * Delete Workspace Endpoint
-         * @description Delete a workspace and its analyses/versions/artifacts.
+         * @description Converge all workspace-owned state to a confirmed deletion fixed point.
          */
         delete: operations["delete_workspace_endpoint_api_workspaces__workspace_id__delete"];
         options?: never;
@@ -9493,6 +9683,26 @@ export interface paths {
          *     Contains no sensitive dependency details.
          */
         get: operations["healthz_healthz_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/readyz": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Readyz
+         * @description Anonymous sanitized readiness for required PostgreSQL and Redis.
+         */
+        get: operations["readyz_readyz_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -9589,7 +9799,7 @@ export interface components {
             /** Name */
             name: string;
             /** Organization Id */
-            organization_id: string;
+            organization_id?: string | null;
             /**
              * Tools
              * @default []
@@ -9694,13 +9904,13 @@ export interface components {
             /** File */
             file: string;
         };
-        /** Body_upload_diagram_api_projects__project_id__diagrams_post */
-        Body_upload_diagram_api_projects__project_id__diagrams_post: {
+        /** Body_upload_diagram_api_projects_diagrams_post */
+        Body_upload_diagram_api_projects_diagrams_post: {
             /** File */
             file: string;
         };
-        /** Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post */
-        Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post: {
+        /** Body_upload_diagram_v1_api_v1_projects_diagrams_post */
+        Body_upload_diagram_v1_api_v1_projects_diagrams_post: {
             /** File */
             file: string;
         };
@@ -9849,6 +10059,8 @@ export interface components {
              * @default false
              */
             acknowledged: boolean;
+            /** Actor Kind */
+            actor_kind?: string | null;
             /** Agent Id */
             agent_id: string;
             /** Budget Amount */
@@ -9859,10 +10071,16 @@ export interface components {
             current_spend: number;
             /** Id */
             id?: string;
+            /** Key Id */
+            key_id?: string | null;
             /** Message */
             message: string;
+            /** Owner User Id */
+            owner_user_id?: string | null;
             period: components["schemas"]["BudgetPeriod"];
             severity: components["schemas"]["AlertSeverity"];
+            /** Tenant Id */
+            tenant_id?: string | null;
             /** Threshold Pct */
             threshold_pct: number;
             /** Timestamp */
@@ -10030,12 +10248,12 @@ export interface components {
         };
         /** CreateDecisionRequest */
         CreateDecisionRequest: {
-            /** Decision Type */
-            decision_type: string;
+            decision_type: components["schemas"]["DecisionType"];
             /** Description */
             description?: string | null;
-            /** Severity */
-            severity?: string | null;
+            severity?: components["schemas"]["DecisionSeverity"] | null;
+            /** @default open */
+            status: components["schemas"]["DecisionStatus"];
             /** Title */
             title: string;
             /** Version Id */
@@ -10170,6 +10388,21 @@ export interface components {
              */
             status: string;
         };
+        /**
+         * DecisionSeverity
+         * @enum {string}
+         */
+        DecisionSeverity: "low" | "medium" | "high" | "critical";
+        /**
+         * DecisionStatus
+         * @enum {string}
+         */
+        DecisionStatus: "open" | "resolved" | "accepted";
+        /**
+         * DecisionType
+         * @enum {string}
+         */
+        DecisionType: "risk" | "decision" | "note";
         /** DeploymentExecuteRequest */
         DeploymentExecuteRequest: {
             /** Infrastructure Code */
@@ -10654,6 +10887,47 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** MigrationQuarantineItem */
+        MigrationQuarantineItem: {
+            /** Alias Id */
+            alias_id: string;
+            /** Created At */
+            created_at?: string | null;
+            /** Reason */
+            reason?: string | null;
+            /** Source Owner User Id */
+            source_owner_user_id: string;
+            /** Source Tenant Id */
+            source_tenant_id: string;
+            /** Status */
+            status: string;
+            /** Target Owner User Id */
+            target_owner_user_id?: string | null;
+            /** Target Tenant Id */
+            target_tenant_id?: string | null;
+            /** Workspace Id */
+            workspace_id: string;
+        };
+        /** MigrationQuarantineListResponse */
+        MigrationQuarantineListResponse: {
+            /** Limit */
+            limit: number;
+            /** Offset */
+            offset: number;
+            /** Quarantines */
+            quarantines: components["schemas"]["MigrationQuarantineItem"][];
+            /** Total */
+            total: number;
+        };
+        /** MigrationQuarantineResolutionResponse */
+        MigrationQuarantineResolutionResponse: {
+            /** Alias Id */
+            alias_id: string;
+            /** Idempotent */
+            idempotent: boolean;
+            /** Status */
+            status: string;
+        };
         /** ModelConfigSchema */
         ModelConfigSchema: {
             /** Max Tokens */
@@ -10826,6 +11100,20 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /**
+         * ProjectMemberRequest
+         * @description A directory-verified project member assignment.
+         */
+        ProjectMemberRequest: {
+            /**
+             * Role
+             * @default viewer
+             * @enum {string}
+             */
+            role: "viewer" | "editor";
+            /** User Id */
+            user_id: string;
+        };
         /** PushIaCRequest */
         PushIaCRequest: {
             /**
@@ -10876,6 +11164,33 @@ export interface components {
              */
             target_path?: string | null;
         };
+        /** ReadinessChecks */
+        ReadinessChecks: {
+            /**
+             * Database
+             * @enum {string}
+             */
+            database: "ready" | "unavailable";
+            /**
+             * Database Schema
+             * @enum {string}
+             */
+            database_schema: "ready" | "unavailable";
+            /**
+             * Redis
+             * @enum {string}
+             */
+            redis: "ready" | "unavailable";
+        };
+        /** ReadinessResponse */
+        ReadinessResponse: {
+            checks: components["schemas"]["ReadinessChecks"];
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "ready" | "not_ready";
+        };
         /** RefreshRequest */
         RefreshRequest: {
             /** Refresh Token */
@@ -10904,6 +11219,8 @@ export interface components {
             image_base64?: string | null;
             /** Image Content Type */
             image_content_type?: string | null;
+            /** Restore Capability */
+            restore_capability?: string | null;
         };
         /**
          * ReviewRequest
@@ -10925,6 +11242,31 @@ export interface components {
         SaveVersionRequest: {
             /** Label */
             label?: string | null;
+        };
+        /** SchemaCompatibilityResponse */
+        SchemaCompatibilityResponse: {
+            /** Accepted Revisions */
+            accepted_revisions: string[];
+            /** Alias Read Through Until */
+            alias_read_through_until: string;
+            /** Current Revision */
+            current_revision: string | null;
+            /** Maximum Revision */
+            maximum_revision: string;
+            /** Migration Target Revision */
+            migration_target_revision: string;
+            /** Minimum Revision */
+            minimum_revision: string;
+            /**
+             * Release Role
+             * @enum {string}
+             */
+            release_role: "bridge" | "final";
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "compatible" | "incompatible";
         };
         /** ServiceCostConfig */
         ServiceCostConfig: {
@@ -11156,8 +11498,7 @@ export interface components {
             name?: string | null;
             /** Source Cloud */
             source_cloud?: string | null;
-            /** Status */
-            status?: string | null;
+            status?: components["schemas"]["WorkspaceStatusValue"] | null;
             /** Target Cloud */
             target_cloud?: string | null;
         };
@@ -11174,6 +11515,11 @@ export interface components {
             /** Error Type */
             type: string;
         };
+        /**
+         * WorkspaceStatusValue
+         * @enum {string}
+         */
+        WorkspaceStatusValue: "active" | "archived";
     };
     responses: never;
     parameters: never;
@@ -11185,8 +11531,7 @@ export type $defs = Record<string, never>;
 export interface operations {
     list_agents_agents_get: {
         parameters: {
-            query: {
-                organization_id: string;
+            query?: {
                 skip?: number;
                 limit?: number;
             };
@@ -11819,6 +12164,69 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_migration_quarantines_api_admin_migration_quarantines_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationQuarantineListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_migration_quarantine_api_admin_migration_quarantines__alias_id__resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alias_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationQuarantineResolutionResponse"];
                 };
             };
             /** @description Validation Error */
@@ -12506,7 +12914,10 @@ export interface operations {
     restore_version_endpoint_api_analyses__analysis_id__versions__version_number__restore_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
             path: {
                 analysis_id: string;
                 version_number: number;
@@ -12919,9 +13330,7 @@ export interface operations {
     };
     get_session_api_collab_sessions__session_id__get: {
         parameters: {
-            query?: {
-                participant_token?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 session_id: string;
@@ -12952,9 +13361,7 @@ export interface operations {
     };
     get_changes_api_collab_sessions__session_id__changes_get: {
         parameters: {
-            query?: {
-                participant_token?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 session_id: string;
@@ -13318,6 +13725,8 @@ export interface operations {
                 since?: string | null;
                 /** @description ISO datetime upper bound */
                 until?: string | null;
+                /** @description Explicit admin-only global view */
+                global?: boolean;
                 tenant_id?: string | null;
             };
             header?: never;
@@ -15445,7 +15854,10 @@ export interface operations {
     restore_version_endpoint_api_diagrams__diagram_id__versions__version_number__restore_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
             path: {
                 diagram_id: string;
                 version_number: number;
@@ -16951,7 +17363,10 @@ export interface operations {
     };
     list_models_api_models__get: {
         parameters: {
-            query?: never;
+            query?: {
+                skip?: number;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -16965,6 +17380,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelEndpointResponseSchema"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -17190,6 +17614,39 @@ export interface operations {
             };
         };
     };
+    upload_diagram_api_projects_diagrams_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_diagram_api_projects_diagrams_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_project_status_api_projects__project_id__get: {
         parameters: {
             query?: never;
@@ -17252,7 +17709,41 @@ export interface operations {
             };
         };
     };
-    upload_diagram_api_projects__project_id__diagrams_post: {
+    generate_project_iac_api_projects__project_id__generate_post: {
+        parameters: {
+            query?: {
+                format?: "terraform" | "bicep";
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_members_api_projects__project_id__members_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -17261,9 +17752,41 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_project_member_api_projects__project_id__members__member_user_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                member_user_id: string;
+            };
+            cookie?: never;
+        };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_diagram_api_projects__project_id__diagrams_post"];
+                "application/json": components["schemas"]["ProjectMemberRequest"];
             };
         };
         responses: {
@@ -17287,15 +17810,13 @@ export interface operations {
             };
         };
     };
-    generate_project_iac_api_projects__project_id__generate_post: {
+    delete_project_member_api_projects__project_id__members__member_user_id__delete: {
         parameters: {
-            query?: {
-                format?: "terraform" | "bicep";
-                force?: boolean;
-            };
+            query?: never;
             header?: never;
             path: {
                 project_id: string;
+                member_user_id: string;
             };
             cookie?: never;
         };
@@ -17680,6 +18201,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schema_compatibility_api_schema_compatibility_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description This application revision supports the current database schema */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaCompatibilityResponse"];
+                };
+            };
+            /** @description This application revision cannot safely serve the current database schema */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaCompatibilityResponse"];
                 };
             };
         };
@@ -18860,6 +19410,69 @@ export interface operations {
             };
         };
     };
+    list_migration_quarantines_v1_api_v1_admin_migration_quarantines_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+                offset?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationQuarantineListResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    resolve_migration_quarantine_v1_api_v1_admin_migration_quarantines__alias_id__resolve_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                alias_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["MigrationQuarantineResolutionResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     admin_monitoring_dashboard_v1_api_v1_admin_monitoring_get: {
         parameters: {
             query?: never;
@@ -19534,7 +20147,10 @@ export interface operations {
     restore_version_endpoint_v1_api_v1_analyses__analysis_id__versions__version_number__restore_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
             path: {
                 analysis_id: string;
                 version_number: number;
@@ -19947,9 +20563,7 @@ export interface operations {
     };
     get_session_v1_api_v1_collab_sessions__session_id__get: {
         parameters: {
-            query?: {
-                participant_token?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 session_id: string;
@@ -19980,9 +20594,7 @@ export interface operations {
     };
     get_changes_v1_api_v1_collab_sessions__session_id__changes_get: {
         parameters: {
-            query?: {
-                participant_token?: string | null;
-            };
+            query?: never;
             header?: never;
             path: {
                 session_id: string;
@@ -20346,6 +20958,8 @@ export interface operations {
                 since?: string | null;
                 /** @description ISO datetime upper bound */
                 until?: string | null;
+                /** @description Explicit admin-only global view */
+                global?: boolean;
                 tenant_id?: string | null;
             };
             header?: never;
@@ -22473,7 +23087,10 @@ export interface operations {
     restore_version_endpoint_v1_api_v1_diagrams__diagram_id__versions__version_number__restore_post: {
         parameters: {
             query?: never;
-            header?: never;
+            header: {
+                "If-Match": string;
+                "Idempotency-Key": string;
+            };
             path: {
                 diagram_id: string;
                 version_number: number;
@@ -23979,7 +24596,10 @@ export interface operations {
     };
     list_models_v1_api_v1_models__get: {
         parameters: {
-            query?: never;
+            query?: {
+                skip?: number;
+                limit?: number;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -23993,6 +24613,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelEndpointResponseSchema"][];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
@@ -24218,6 +24847,39 @@ export interface operations {
             };
         };
     };
+    upload_diagram_v1_api_v1_projects_diagrams_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "multipart/form-data": components["schemas"]["Body_upload_diagram_v1_api_v1_projects_diagrams_post"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     get_project_status_v1_api_v1_projects__project_id__get: {
         parameters: {
             query?: never;
@@ -24280,7 +24942,41 @@ export interface operations {
             };
         };
     };
-    upload_diagram_v1_api_v1_projects__project_id__diagrams_post: {
+    generate_project_iac_v1_api_v1_projects__project_id__generate_post: {
+        parameters: {
+            query?: {
+                format?: "terraform" | "bicep";
+                force?: boolean;
+            };
+            header?: never;
+            path: {
+                project_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_project_members_v1_api_v1_projects__project_id__members_get: {
         parameters: {
             query?: never;
             header?: never;
@@ -24289,9 +24985,41 @@ export interface operations {
             };
             cookie?: never;
         };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_project_member_v1_api_v1_projects__project_id__members__member_user_id__put: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                project_id: string;
+                member_user_id: string;
+            };
+            cookie?: never;
+        };
         requestBody: {
             content: {
-                "multipart/form-data": components["schemas"]["Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post"];
+                "application/json": components["schemas"]["ProjectMemberRequest"];
             };
         };
         responses: {
@@ -24315,15 +25043,13 @@ export interface operations {
             };
         };
     };
-    generate_project_iac_v1_api_v1_projects__project_id__generate_post: {
+    delete_project_member_v1_api_v1_projects__project_id__members__member_user_id__delete: {
         parameters: {
-            query?: {
-                format?: "terraform" | "bicep";
-                force?: boolean;
-            };
+            query?: never;
             header?: never;
             path: {
                 project_id: string;
+                member_user_id: string;
             };
             cookie?: never;
         };
@@ -24708,6 +25434,35 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    schema_compatibility_v1_api_v1_schema_compatibility_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description This application revision supports the current database schema */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaCompatibilityResponse"];
+                };
+            };
+            /** @description This application revision cannot safely serve the current database schema */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SchemaCompatibilityResponse"];
                 };
             };
         };
@@ -25703,7 +26458,7 @@ export interface operations {
     list_workspaces_endpoint_v1_api_v1_workspaces_get: {
         parameters: {
             query?: {
-                status?: string | null;
+                status?: components["schemas"]["WorkspaceStatusValue"] | null;
                 limit?: number;
                 offset?: number;
             };
@@ -26138,7 +26893,7 @@ export interface operations {
     list_workspaces_endpoint_api_workspaces_get: {
         parameters: {
             query?: {
-                status?: string | null;
+                status?: components["schemas"]["WorkspaceStatusValue"] | null;
                 limit?: number;
                 offset?: number;
             };
@@ -26383,6 +27138,55 @@ export interface operations {
                 };
                 content: {
                     "application/json": unknown;
+                };
+            };
+        };
+    };
+    readyz_readyz_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Required PostgreSQL and Redis dependencies are ready */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "checks": {
+                     *         "database": "ready",
+                     *         "database_schema": "ready",
+                     *         "redis": "ready"
+                     *       },
+                     *       "status": "ready"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ReadinessResponse"];
+                };
+            };
+            /** @description A required dependency is unavailable */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "checks": {
+                     *         "database": "unavailable",
+                     *         "database_schema": "unavailable",
+                     *         "redis": "unavailable"
+                     *       },
+                     *       "status": "not_ready"
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ReadinessResponse"];
                 };
             };
         };

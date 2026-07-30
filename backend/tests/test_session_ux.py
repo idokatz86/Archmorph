@@ -31,6 +31,8 @@ from session_store import (
 )
 from routers.shared import IMAGE_STORE, SESSION_STORE
 from auth import User, AuthProvider, UserTier, generate_session_token
+from export_capabilities import issue_restore_capability
+from starlette.requests import Request
 
 
 # ─────────────────────────────────────────────────────────────
@@ -90,6 +92,82 @@ def auth_headers():
     )
     token = generate_session_token(user)
     return {"Authorization": f"Bearer {token}"}
+
+
+def _restore_payload(auth_headers, analysis, diagram_id, **extra):
+    request = Request(
+        {
+            "type": "http",
+            "headers": [(b"authorization", auth_headers["Authorization"].encode())],
+        }
+    )
+    from database import SessionLocal, init_db
+    from models.workspace import Analysis, DiagramLifecycle
+    from project_store import create_project, get_project_id_for_diagram, register_diagram
+
+    init_db()
+    db = SessionLocal()
+    try:
+        lifecycle = db.query(DiagramLifecycle).filter_by(
+            diagram_id=diagram_id,
+            owner_user_id="session-ux-user",
+            tenant_id="tenant-session-ux",
+        ).first()
+        project_id = get_project_id_for_diagram(
+            db,
+            diagram_id,
+            owner_user_id="session-ux-user",
+            tenant_id="tenant-session-ux",
+        )
+        if project_id is None:
+            if lifecycle is not None and lifecycle.workspace_id:
+                project_id = lifecycle.workspace_id
+            else:
+                project = create_project(
+                    db,
+                    owner_user_id="session-ux-user",
+                    tenant_id="tenant-session-ux",
+                )
+                project_id = project.id
+        if db.query(Analysis.id).filter_by(
+            diagram_id=diagram_id,
+            owner_user_id="session-ux-user",
+            tenant_id="tenant-session-ux",
+        ).first() is None:
+            if lifecycle is not None:
+                db.add(Analysis(
+                    workspace_id=project_id,
+                    owner_user_id="session-ux-user",
+                    tenant_id="tenant-session-ux",
+                    diagram_id=diagram_id,
+                    status="uploaded",
+                    current_version=0,
+                ))
+                lifecycle.workspace_id = project_id
+                db.commit()
+            else:
+                register_diagram(
+                    db,
+                    project_id=project_id,
+                    diagram_id=diagram_id,
+                    owner_user_id="session-ux-user",
+                    tenant_id="tenant-session-ux",
+                    filename="restore-fixture.png",
+                )
+        capability = issue_restore_capability(
+            request,
+            diagram_id,
+            db=db,
+            owner_user_id="session-ux-user",
+            tenant_id="tenant-session-ux",
+        )
+    finally:
+        db.close()
+    return {
+        "analysis": analysis,
+        "restore_capability": capability,
+        **extra,
+    }
 
 
 # ─────────────────────────────────────────────────────────────
@@ -192,7 +270,7 @@ class TestSessionRestore:
 
         resp = test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={"analysis": analysis},
+            json=_restore_payload(auth_headers, analysis, diagram_id),
             headers=auth_headers,
         )
         assert resp.status_code == 200
@@ -226,7 +304,7 @@ class TestSessionRestore:
 
         test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={"analysis": analysis},
+            json=_restore_payload(auth_headers, analysis, diagram_id),
             headers=auth_headers,
         )
 
@@ -240,7 +318,7 @@ class TestSessionRestore:
         diagram_id = "test-restored-read-001"
         test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={"analysis": analysis},
+            json=_restore_payload(auth_headers, analysis, diagram_id),
             headers=auth_headers,
         )
 
@@ -255,7 +333,7 @@ class TestSessionRestore:
         diagram_id = "test-rate-limit"
         resp = test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={"analysis": analysis},
+            json=_restore_payload(auth_headers, analysis, diagram_id),
             headers=auth_headers,
         )
         assert resp.status_code == 200
@@ -265,7 +343,8 @@ class TestSessionRestore:
             "/api/v1/diagrams/test-no-auth/restore-session",
             json={"analysis": analysis},
         )
-        assert resp.status_code == 401
+        assert resp.status_code == 404
+        assert resp.json()["error"]["message"] == "Diagram not found"
 
     def test_restore_rejects_malicious_image_payload(self, test_client, analysis, auth_headers):
         svg = b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
@@ -273,11 +352,13 @@ class TestSessionRestore:
 
         resp = test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={
-                "analysis": analysis,
-                "image_base64": base64.b64encode(svg).decode("ascii"),
-                "image_content_type": "image/svg+xml",
-            },
+            json=_restore_payload(
+                auth_headers,
+                analysis,
+                diagram_id,
+                image_base64=base64.b64encode(svg).decode("ascii"),
+                image_content_type="image/svg+xml",
+            ),
             headers=auth_headers,
         )
 
@@ -531,8 +612,10 @@ def _make_mock_redis_module():
             data[key] = {"value": value, "expires_at": time.time() + ttl}
 
         def mock_delete(*keys):
+            deleted = 0
             for k in keys:
-                data.pop(k, None)
+                deleted += int(data.pop(k, None) is not None)
+            return deleted
 
         def mock_exists(key):
             if key in data and data[key]["expires_at"] >= time.time():
@@ -785,7 +868,7 @@ class TestEndToEndSessionWorkflow:
         # Restore session
         resp = test_client.post(
             f"/api/v1/diagrams/{diagram_id}/restore-session",
-            json={"analysis": analysis},
+            json=_restore_payload(auth_headers, analysis, diagram_id),
             headers=auth_headers,
         )
         assert resp.status_code == 200

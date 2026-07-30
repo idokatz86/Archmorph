@@ -224,8 +224,15 @@
             "type": "string"
           },
           "organization_id": {
-            "title": "Organization Id",
-            "type": "string"
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Organization Id"
           },
           "tools": {
             "default": [],
@@ -238,8 +245,7 @@
           }
         },
         "required": [
-          "name",
-          "organization_id"
+          "name"
         ],
         "title": "AgentCreateSchema",
         "type": "object"
@@ -544,7 +550,7 @@
         "title": "Body_import_terraform_v1_api_v1_import_terraform_post",
         "type": "object"
       },
-      "Body_upload_diagram_api_projects__project_id__diagrams_post": {
+      "Body_upload_diagram_api_projects_diagrams_post": {
         "properties": {
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -555,10 +561,10 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_diagram_api_projects__project_id__diagrams_post",
+        "title": "Body_upload_diagram_api_projects_diagrams_post",
         "type": "object"
       },
-      "Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post": {
+      "Body_upload_diagram_v1_api_v1_projects_diagrams_post": {
         "properties": {
           "file": {
             "contentMediaType": "application/octet-stream",
@@ -569,7 +575,7 @@
         "required": [
           "file"
         ],
-        "title": "Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post",
+        "title": "Body_upload_diagram_v1_api_v1_projects_diagrams_post",
         "type": "object"
       },
       "Body_upload_icon_pack_api_icon_packs_post": {
@@ -951,6 +957,17 @@
             "title": "Acknowledged",
             "type": "boolean"
           },
+          "actor_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Kind"
+          },
           "agent_id": {
             "title": "Agent Id",
             "type": "string"
@@ -971,15 +988,48 @@
             "title": "Id",
             "type": "string"
           },
+          "key_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Key Id"
+          },
           "message": {
             "title": "Message",
             "type": "string"
+          },
+          "owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Owner User Id"
           },
           "period": {
             "$ref": "#/components/schemas/BudgetPeriod"
           },
           "severity": {
             "$ref": "#/components/schemas/AlertSeverity"
+          },
+          "tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Tenant Id"
           },
           "threshold_pct": {
             "title": "Threshold Pct",
@@ -1462,10 +1512,7 @@
         "additionalProperties": false,
         "properties": {
           "decision_type": {
-            "maxLength": 50,
-            "minLength": 1,
-            "title": "Decision Type",
-            "type": "string"
+            "$ref": "#/components/schemas/DecisionType"
           },
           "description": {
             "anyOf": [
@@ -1482,14 +1529,16 @@
           "severity": {
             "anyOf": [
               {
-                "maxLength": 20,
-                "type": "string"
+                "$ref": "#/components/schemas/DecisionSeverity"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Severity"
+            ]
+          },
+          "status": {
+            "$ref": "#/components/schemas/DecisionStatus",
+            "default": "open"
           },
           "title": {
             "maxLength": 300,
@@ -1797,6 +1846,34 @@
         ],
         "title": "CredentialResponse",
         "type": "object"
+      },
+      "DecisionSeverity": {
+        "enum": [
+          "low",
+          "medium",
+          "high",
+          "critical"
+        ],
+        "title": "DecisionSeverity",
+        "type": "string"
+      },
+      "DecisionStatus": {
+        "enum": [
+          "open",
+          "resolved",
+          "accepted"
+        ],
+        "title": "DecisionStatus",
+        "type": "string"
+      },
+      "DecisionType": {
+        "enum": [
+          "risk",
+          "decision",
+          "note"
+        ],
+        "title": "DecisionType",
+        "type": "string"
       },
       "DeploymentExecuteRequest": {
         "additionalProperties": false,
@@ -2935,6 +3012,140 @@
         "title": "MemoryConfigSchema",
         "type": "object"
       },
+      "MigrationQuarantineItem": {
+        "additionalProperties": false,
+        "properties": {
+          "alias_id": {
+            "title": "Alias Id",
+            "type": "string"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "source_owner_user_id": {
+            "title": "Source Owner User Id",
+            "type": "string"
+          },
+          "source_tenant_id": {
+            "title": "Source Tenant Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "target_owner_user_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Owner User Id"
+          },
+          "target_tenant_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Target Tenant Id"
+          },
+          "workspace_id": {
+            "title": "Workspace Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alias_id",
+          "source_owner_user_id",
+          "source_tenant_id",
+          "workspace_id",
+          "status"
+        ],
+        "title": "MigrationQuarantineItem",
+        "type": "object"
+      },
+      "MigrationQuarantineListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "title": "Limit",
+            "type": "integer"
+          },
+          "offset": {
+            "title": "Offset",
+            "type": "integer"
+          },
+          "quarantines": {
+            "items": {
+              "$ref": "#/components/schemas/MigrationQuarantineItem"
+            },
+            "title": "Quarantines",
+            "type": "array"
+          },
+          "total": {
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "quarantines",
+          "total",
+          "limit",
+          "offset"
+        ],
+        "title": "MigrationQuarantineListResponse",
+        "type": "object"
+      },
+      "MigrationQuarantineResolutionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "alias_id": {
+            "title": "Alias Id",
+            "type": "string"
+          },
+          "idempotent": {
+            "title": "Idempotent",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "alias_id",
+          "status",
+          "idempotent"
+        ],
+        "title": "MigrationQuarantineResolutionResponse",
+        "type": "object"
+      },
       "ModelConfigSchema": {
         "additionalProperties": false,
         "properties": {
@@ -3332,6 +3543,30 @@
         "title": "PolicyResponseSchema",
         "type": "object"
       },
+      "ProjectMemberRequest": {
+        "additionalProperties": false,
+        "description": "A directory-verified project member assignment.",
+        "properties": {
+          "role": {
+            "default": "viewer",
+            "enum": [
+              "viewer",
+              "editor"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
+          "user_id": {
+            "title": "User Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "user_id"
+        ],
+        "title": "ProjectMemberRequest",
+        "type": "object"
+      },
       "PushIaCRequest": {
         "additionalProperties": false,
         "properties": {
@@ -3417,6 +3652,64 @@
           "iac_code"
         ],
         "title": "PushIaCRequest",
+        "type": "object"
+      },
+      "ReadinessChecks": {
+        "additionalProperties": false,
+        "properties": {
+          "database": {
+            "enum": [
+              "ready",
+              "unavailable"
+            ],
+            "title": "Database",
+            "type": "string"
+          },
+          "database_schema": {
+            "enum": [
+              "ready",
+              "unavailable"
+            ],
+            "title": "Database Schema",
+            "type": "string"
+          },
+          "redis": {
+            "enum": [
+              "ready",
+              "unavailable"
+            ],
+            "title": "Redis",
+            "type": "string"
+          }
+        },
+        "required": [
+          "database",
+          "database_schema",
+          "redis"
+        ],
+        "title": "ReadinessChecks",
+        "type": "object"
+      },
+      "ReadinessResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "checks": {
+            "$ref": "#/components/schemas/ReadinessChecks"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "not_ready"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "checks"
+        ],
+        "title": "ReadinessResponse",
         "type": "object"
       },
       "RefreshRequest": {
@@ -3508,6 +3801,17 @@
               }
             ],
             "title": "Image Content Type"
+          },
+          "restore_capability": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Restore Capability"
           }
         },
         "required": [
@@ -3590,6 +3894,73 @@
           }
         },
         "title": "SaveVersionRequest",
+        "type": "object"
+      },
+      "SchemaCompatibilityResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "accepted_revisions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Accepted Revisions",
+            "type": "array"
+          },
+          "alias_read_through_until": {
+            "title": "Alias Read Through Until",
+            "type": "string"
+          },
+          "current_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Revision"
+          },
+          "maximum_revision": {
+            "title": "Maximum Revision",
+            "type": "string"
+          },
+          "migration_target_revision": {
+            "title": "Migration Target Revision",
+            "type": "string"
+          },
+          "minimum_revision": {
+            "title": "Minimum Revision",
+            "type": "string"
+          },
+          "release_role": {
+            "enum": [
+              "bridge",
+              "final"
+            ],
+            "title": "Release Role",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "compatible",
+              "incompatible"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status",
+          "current_revision",
+          "minimum_revision",
+          "maximum_revision",
+          "accepted_revisions",
+          "migration_target_revision",
+          "alias_read_through_until",
+          "release_role"
+        ],
+        "title": "SchemaCompatibilityResponse",
         "type": "object"
       },
       "ServiceCostConfig": {
@@ -4090,13 +4461,12 @@
           "status": {
             "anyOf": [
               {
-                "type": "string"
+                "$ref": "#/components/schemas/WorkspaceStatusValue"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Status"
+            ]
           },
           "target_cloud": {
             "anyOf": [
@@ -4153,6 +4523,14 @@
         ],
         "title": "ValidationError",
         "type": "object"
+      },
+      "WorkspaceStatusValue": {
+        "enum": [
+          "active",
+          "archived"
+        ],
+        "title": "WorkspaceStatusValue",
+        "type": "string"
       }
     },
     "securitySchemes": {
@@ -4164,6 +4542,11 @@
       "HTTPBearer": {
         "scheme": "bearer",
         "type": "http"
+      },
+      "ParticipantCapability": {
+        "in": "header",
+        "name": "X-Participant-Capability",
+        "type": "apiKey"
       }
     }
   },
@@ -4180,19 +4563,11 @@
         "parameters": [
           {
             "in": "query",
-            "name": "organization_id",
-            "required": true,
-            "schema": {
-              "title": "Organization Id",
-              "type": "string"
-            }
-          },
-          {
-            "in": "query",
             "name": "skip",
             "required": false,
             "schema": {
               "default": 0,
+              "minimum": 0,
               "title": "Skip",
               "type": "integer"
             }
@@ -4203,6 +4578,8 @@
             "required": false,
             "schema": {
               "default": 100,
+              "maximum": 200,
+              "minimum": 1,
               "title": "Limit",
               "type": "integer"
             }
@@ -4579,6 +4956,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Analytics Summary Endpoint",
@@ -4604,6 +4984,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Feature Metrics Endpoint",
@@ -4629,6 +5012,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Conversion Funnel Endpoint",
@@ -4654,6 +5040,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Performance Metrics Endpoint",
@@ -4679,6 +5068,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Clear Audit",
@@ -4774,6 +5166,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Audit Logs",
@@ -4799,6 +5194,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Audit Summary",
@@ -4824,6 +5222,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Cost Dashboard",
@@ -4849,6 +5250,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Feedback Summary Endpoint",
@@ -4874,6 +5278,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Leads Endpoint",
@@ -4987,6 +5394,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Summary",
@@ -5036,6 +5446,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Daily",
@@ -5061,6 +5474,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Funnel",
@@ -5110,9 +5526,128 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Recent",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/migration-quarantines": {
+      "get": {
+        "description": "List unresolved legacy migration conflicts (admin only).",
+        "operationId": "list_migration_quarantines_api_admin_migration_quarantines_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationQuarantineListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Migration Quarantines",
+        "tags": [
+          "admin"
+        ]
+      }
+    },
+    "/api/admin/migration-quarantines/{alias_id}/resolve": {
+      "post": {
+        "description": "Resolve one conflict-free quarantined graph (admin only).",
+        "operationId": "resolve_migration_quarantine_api_admin_migration_quarantines__alias_id__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alias_id",
+            "required": true,
+            "schema": {
+              "title": "Alias Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationQuarantineResolutionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Resolve Migration Quarantine",
         "tags": [
           "admin"
         ]
@@ -5135,6 +5670,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Monitoring Dashboard",
@@ -5160,6 +5698,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Observability",
@@ -5185,6 +5726,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Span Metrics",
@@ -5210,6 +5754,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Release Status",
@@ -5255,6 +5802,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Generate Suggestion",
@@ -5300,6 +5850,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Generate Batch",
@@ -5363,6 +5916,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Suggestion History",
@@ -5388,6 +5944,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Pending Suggestions",
@@ -5441,6 +6000,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Review Queue",
@@ -5466,6 +6028,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Suggestion Stats",
@@ -5522,6 +6087,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Review Suggestion",
@@ -5795,6 +6363,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Analysis Endpoint",
@@ -5880,6 +6451,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Artifacts Endpoint",
@@ -5945,6 +6519,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Artifact Endpoint",
@@ -6007,6 +6584,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Decisions Endpoint",
@@ -6061,6 +6641,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Decision Endpoint",
@@ -6107,6 +6690,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Versions Endpoint",
@@ -6162,6 +6748,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Version Endpoint",
@@ -6192,6 +6781,26 @@
               "title": "Version Number",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "title": "If-Match",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -6217,6 +6826,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Restore Version Endpoint",
@@ -6703,6 +7315,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Session",
@@ -6724,22 +7339,6 @@
               "title": "Session Id",
               "type": "string"
             }
-          },
-          {
-            "in": "query",
-            "name": "participant_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Participant Token"
-            }
           }
         ],
         "responses": {
@@ -6764,7 +7363,13 @@
         },
         "security": [
           {
+            "ParticipantCapability": []
+          },
+          {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Session",
@@ -6786,22 +7391,6 @@
               "title": "Session Id",
               "type": "string"
             }
-          },
-          {
-            "in": "query",
-            "name": "participant_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Participant Token"
-            }
           }
         ],
         "responses": {
@@ -6826,7 +7415,13 @@
         },
         "security": [
           {
+            "ParticipantCapability": []
+          },
+          {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Changes",
@@ -6880,7 +7475,13 @@
         },
         "security": [
           {
+            "ParticipantCapability": []
+          },
+          {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Submit Change",
@@ -6937,6 +7538,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Join Session",
@@ -7233,6 +7837,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Compare Costs"
       }
     },
@@ -7382,6 +7994,18 @@
             }
           },
           {
+            "description": "Explicit admin-only global view",
+            "in": "query",
+            "name": "global",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Explicit admin-only global view",
+              "title": "Global",
+              "type": "boolean"
+            }
+          },
+          {
             "in": "query",
             "name": "tenant_id",
             "required": false,
@@ -7445,6 +8069,14 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Pricing Catalog"
       }
     },
@@ -7866,6 +8498,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Execute Deployment",
@@ -7951,6 +8586,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Execute Deployment",
@@ -7996,6 +8634,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Preview Deployment",
@@ -8042,6 +8683,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Rollback Deployment",
@@ -8088,6 +8732,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Deployment Status",
@@ -8134,6 +8781,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Stream Deployment Logs",
@@ -8190,6 +8840,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Add Services Natural Language"
@@ -8233,6 +8886,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Analyze Diagram"
@@ -8276,6 +8932,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Analyze Diagram Async"
@@ -8331,6 +8990,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Apply Guided Answers"
@@ -8378,7 +9040,12 @@
             "APIKeyHeader": []
           }
         ],
-        "summary": "Get Cost Assumptions"
+        "summary": "Get Cost Assumptions",
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "sql"
+        ]
       }
     },
     "/api/diagrams/{diagram_id}/cost-breakdown": {
@@ -8617,9 +9284,17 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
-        "summary": "Export Cost Csv"
+        "summary": "Export Cost Csv",
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability"
+        ]
       }
     },
     "/api/diagrams/{diagram_id}/cost-estimate/savings": {
@@ -8891,6 +9566,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Architecture Package"
@@ -8980,6 +9658,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Architecture Diagram"
@@ -9039,6 +9720,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Hld Endpoint"
@@ -9098,6 +9782,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Migration Package"
@@ -9232,6 +9919,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Generate Iac Async"
@@ -9275,6 +9965,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Generate Hld Endpoint"
@@ -9318,6 +10011,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Generate Hld Async"
@@ -9361,6 +10057,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Hld"
@@ -9637,6 +10336,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Migration Timeline"
@@ -9694,6 +10396,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Migration Timeline"
@@ -9764,9 +10469,18 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
-        "summary": "Export Migration Timeline"
+        "summary": "Export Migration Timeline",
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability",
+          "telemetry"
+        ]
       }
     },
     "/api/diagrams/{diagram_id}/network-topology": {
@@ -10109,6 +10823,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Guided Questions"
@@ -10168,9 +10885,18 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
-        "summary": "Download Analysis Report"
+        "summary": "Download Analysis Report",
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability",
+          "telemetry"
+        ]
       }
     },
     "/api/diagrams/{diagram_id}/restore-session": {
@@ -10218,6 +10944,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Restore Session"
       }
     },
@@ -10263,6 +10997,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Review Queue",
@@ -10313,6 +11050,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Review Queue Summary",
@@ -10382,6 +11122,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Set Item Disposition",
@@ -10440,6 +11183,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Stakeholder Share"
@@ -10526,6 +11272,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Version History Endpoint"
@@ -10583,6 +11332,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Version Endpoint"
@@ -10648,6 +11400,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Compare Versions Endpoint"
@@ -10760,6 +11515,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Version Endpoint"
@@ -10787,6 +11545,26 @@
               "title": "Version Number",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "title": "If-Match",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -10812,6 +11590,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Restore Version Endpoint"
@@ -11638,6 +12419,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Update Flag",
@@ -12973,6 +13757,28 @@
     "/api/models/": {
       "get": {
         "operationId": "list_models_api_models__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "skip",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Skip",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -12987,6 +13793,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Models",
@@ -13325,9 +14141,54 @@
         ]
       }
     },
+    "/api/projects/diagrams": {
+      "post": {
+        "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
+        "operationId": "upload_diagram_api_projects_diagrams_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_diagram_api_projects_diagrams_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Diagram"
+      }
+    },
     "/api/projects/{project_id}": {
       "get": {
-        "description": "Return project metadata and per-diagram analysis status.",
+        "description": "Return authorized project metadata and durable diagram status.",
         "operationId": "get_project_status_api_projects__project_id__get",
         "parameters": [
           {
@@ -13363,6 +14224,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Project Status"
@@ -13370,7 +14234,7 @@
     },
     "/api/projects/{project_id}/analysis": {
       "get": {
-        "description": "Return a deterministic combined analysis for all analyzed project diagrams.",
+        "description": "Return a deterministic merge of authorized durable analysis snapshots.",
         "operationId": "get_project_analysis_api_projects__project_id__analysis_get",
         "parameters": [
           {
@@ -13406,67 +14270,17 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Project Analysis"
       }
     },
-    "/api/projects/{project_id}/diagrams": {
-      "post": {
-        "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
-        "operationId": "upload_diagram_api_projects__project_id__diagrams_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_upload_diagram_api_projects__project_id__diagrams_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Upload Diagram"
-      }
-    },
     "/api/projects/{project_id}/generate": {
       "post": {
-        "description": "Generate unified Infrastructure as Code from combined project analysis.",
+        "description": "Generate IaC only from authorized, PostgreSQL-canonical analyses.",
         "operationId": "generate_project_iac_api_projects__project_id__generate_post",
         "parameters": [
           {
@@ -13526,14 +14340,178 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Generate Project Iac"
       }
     },
+    "/api/projects/{project_id}/members": {
+      "get": {
+        "operationId": "get_project_members_api_projects__project_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Project Members"
+      }
+    },
+    "/api/projects/{project_id}/members/{member_user_id}": {
+      "delete": {
+        "operationId": "delete_project_member_api_projects__project_id__members__member_user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_user_id",
+            "required": true,
+            "schema": {
+              "title": "Member User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Project Member"
+      },
+      "put": {
+        "operationId": "put_project_member_api_projects__project_id__members__member_user_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_user_id",
+            "required": true,
+            "schema": {
+              "title": "Member User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Project Member"
+      }
+    },
     "/api/replay/events": {
       "post": {
-        "description": "Add an event to an existing replay recording.",
+        "description": "Append an event to a canonical replay recording.",
         "operationId": "add_event_api_replay_events_post",
         "requestBody": {
           "content": {
@@ -13578,7 +14556,7 @@
     },
     "/api/replay/record": {
       "post": {
-        "description": "Start a new replay recording linked to an analysis.",
+        "description": "Start a new replay recording linked to an immutable analysis version.",
         "operationId": "start_recording_api_replay_record_post",
         "requestBody": {
           "content": {
@@ -13623,7 +14601,7 @@
     },
     "/api/replay/{replay_id}": {
       "get": {
-        "description": "Get full replay with all events.",
+        "description": "Get the full canonical replay with all events.",
         "operationId": "get_replay_api_replay__replay_id__get",
         "parameters": [
           {
@@ -13669,7 +14647,7 @@
     },
     "/api/replay/{replay_id}/export": {
       "get": {
-        "description": "Export replay as a JSON timeline.",
+        "description": "Export replay JSON bound to the version recorded at replay start.",
         "operationId": "export_replay_api_replay__replay_id__export_get",
         "parameters": [
           {
@@ -13710,12 +14688,16 @@
         "summary": "Export Replay",
         "tags": [
           "Replay"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact"
         ]
       }
     },
     "/api/replays": {
       "get": {
-        "description": "List recent replays with pagination (max 20 per page).",
+        "description": "List recent canonical replays with bounded pagination.",
         "operationId": "list_replays_api_replays_get",
         "parameters": [
           {
@@ -14013,6 +14995,35 @@
           }
         },
         "summary": "Run Cloud Scan"
+      }
+    },
+    "/api/schema-compatibility": {
+      "get": {
+        "description": "Sanitized activation preflight for green and rollback revisions.",
+        "operationId": "schema_compatibility_api_schema_compatibility_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaCompatibilityResponse"
+                }
+              }
+            },
+            "description": "This application revision supports the current database schema"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaCompatibilityResponse"
+                }
+              }
+            },
+            "description": "This application revision cannot safely serve the current database schema"
+          }
+        },
+        "summary": "Schema Compatibility"
       }
     },
     "/api/service-updates/last": {
@@ -14422,6 +15433,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Revoke Share"
@@ -14522,6 +15536,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Share Stats"
@@ -15328,6 +16345,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Analytics Summary Endpoint V1",
@@ -15354,6 +16374,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Feature Metrics Endpoint V1",
@@ -15380,6 +16403,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Conversion Funnel Endpoint V1",
@@ -15406,6 +16432,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Performance Metrics Endpoint V1",
@@ -15432,6 +16461,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Clear Audit V1",
@@ -15528,6 +16560,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Audit Logs V1",
@@ -15554,6 +16589,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Audit Summary V1",
@@ -15580,6 +16618,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Cost Dashboard V1",
@@ -15606,6 +16647,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Feedback Summary Endpoint V1",
@@ -15632,6 +16676,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Leads Endpoint V1",
@@ -15748,6 +16795,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Summary V1",
@@ -15798,6 +16848,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Daily V1",
@@ -15824,6 +16877,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Funnel V1",
@@ -15874,9 +16930,130 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Metrics Recent V1",
+        "tags": [
+          "admin",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/admin/migration-quarantines": {
+      "get": {
+        "description": "List unresolved legacy migration conflicts (admin only).",
+        "operationId": "list_migration_quarantines_v1_api_v1_admin_migration_quarantines_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 50,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "offset",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "minimum": 0,
+              "title": "Offset",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationQuarantineListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "List Migration Quarantines V1",
+        "tags": [
+          "admin",
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/admin/migration-quarantines/{alias_id}/resolve": {
+      "post": {
+        "description": "Resolve one conflict-free quarantined graph (admin only).",
+        "operationId": "resolve_migration_quarantine_v1_api_v1_admin_migration_quarantines__alias_id__resolve_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "alias_id",
+            "required": true,
+            "schema": {
+              "title": "Alias Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MigrationQuarantineResolutionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
+          }
+        ],
+        "summary": "Resolve Migration Quarantine V1",
         "tags": [
           "admin",
           "v1"
@@ -15900,6 +17077,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Monitoring Dashboard V1",
@@ -15926,6 +17106,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Observability V1",
@@ -15952,6 +17135,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Span Metrics V1",
@@ -15978,6 +17164,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Admin Release Status V1",
@@ -16024,6 +17213,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Generate Suggestion V1",
@@ -16070,6 +17262,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Generate Batch V1",
@@ -16134,6 +17329,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Suggestion History V1",
@@ -16160,6 +17358,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Pending Suggestions V1",
@@ -16214,6 +17415,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Review Queue V1",
@@ -16240,6 +17444,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Suggestion Stats V1",
@@ -16297,6 +17504,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Api Review Suggestion V1",
@@ -16576,6 +17786,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Analysis Endpoint V1",
@@ -16662,6 +17875,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Artifacts Endpoint V1",
@@ -16728,6 +17944,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Artifact Endpoint V1",
@@ -16791,6 +18010,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Decisions Endpoint V1",
@@ -16846,6 +18068,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Decision Endpoint V1",
@@ -16893,6 +18118,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Versions Endpoint V1",
@@ -16949,6 +18177,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Version Endpoint V1",
@@ -16980,6 +18211,26 @@
               "title": "Version Number",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "title": "If-Match",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -17005,6 +18256,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Restore Version Endpoint V1",
@@ -17528,6 +18782,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Session V1",
@@ -17550,22 +18807,6 @@
               "title": "Session Id",
               "type": "string"
             }
-          },
-          {
-            "in": "query",
-            "name": "participant_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Participant Token"
-            }
           }
         ],
         "responses": {
@@ -17590,7 +18831,13 @@
         },
         "security": [
           {
+            "ParticipantCapability": []
+          },
+          {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Session V1",
@@ -17613,22 +18860,6 @@
               "title": "Session Id",
               "type": "string"
             }
-          },
-          {
-            "in": "query",
-            "name": "participant_token",
-            "required": false,
-            "schema": {
-              "anyOf": [
-                {
-                  "type": "string"
-                },
-                {
-                  "type": "null"
-                }
-              ],
-              "title": "Participant Token"
-            }
           }
         ],
         "responses": {
@@ -17653,7 +18884,13 @@
         },
         "security": [
           {
+            "ParticipantCapability": []
+          },
+          {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Changes V1",
@@ -17708,7 +18945,13 @@
         },
         "security": [
           {
+            "ParticipantCapability": []
+          },
+          {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Submit Change V1",
@@ -17766,6 +19009,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Join Session V1",
@@ -18071,6 +19317,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Compare Costs V1",
         "tags": [
           "v1"
@@ -18225,6 +19479,18 @@
             }
           },
           {
+            "description": "Explicit admin-only global view",
+            "in": "query",
+            "name": "global",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "Explicit admin-only global view",
+              "title": "Global",
+              "type": "boolean"
+            }
+          },
+          {
             "in": "query",
             "name": "tenant_id",
             "required": false,
@@ -18289,6 +19555,14 @@
             "description": "Successful Response"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Pricing Catalog V1",
         "tags": [
           "v1"
@@ -18727,6 +20001,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Execute Deployment V1",
@@ -18814,6 +20091,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Execute Deployment V1",
@@ -18860,6 +20140,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Preview Deployment V1",
@@ -18907,6 +20190,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Rollback Deployment V1",
@@ -18954,6 +20240,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Get Deployment Status V1",
@@ -19001,6 +20290,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Stream Deployment Logs V1",
@@ -19058,6 +20350,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Add Services Natural Language V1",
@@ -19104,6 +20399,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Analyze Diagram V1",
@@ -19150,6 +20448,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Analyze Diagram Async V1",
@@ -19208,6 +20509,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Apply Guided Answers V1",
@@ -19261,6 +20565,11 @@
         "summary": "Get Cost Assumptions V1",
         "tags": [
           "v1"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "sql"
         ]
       }
     },
@@ -19512,11 +20821,19 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Cost Csv V1",
         "tags": [
           "v1"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability"
         ]
       }
     },
@@ -19799,6 +21116,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Architecture Package V1",
@@ -19891,6 +21211,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Architecture Diagram V1",
@@ -19953,6 +21276,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Hld Endpoint V1",
@@ -20015,6 +21341,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Migration Package V1",
@@ -20155,6 +21484,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Generate Iac Async V1",
@@ -20201,6 +21533,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Generate Hld Endpoint V1",
@@ -20247,6 +21582,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Generate Hld Async V1",
@@ -20293,6 +21631,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Hld V1",
@@ -20587,6 +21928,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Migration Timeline V1",
@@ -20647,6 +21991,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Migration Timeline V1",
@@ -20720,11 +22067,20 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Export Migration Timeline V1",
         "tags": [
           "v1"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability",
+          "telemetry"
         ]
       }
     },
@@ -21086,6 +22442,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Guided Questions V1",
@@ -21148,11 +22507,20 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Download Analysis Report V1",
         "tags": [
           "v1"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact",
+          "capability",
+          "telemetry"
         ]
       }
     },
@@ -21201,6 +22569,14 @@
             "description": "Validation Error"
           }
         },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Restore Session V1",
         "tags": [
           "v1"
@@ -21249,6 +22625,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Review Queue V1",
@@ -21300,6 +22679,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Review Queue Summary V1",
@@ -21370,6 +22752,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Set Item Disposition V1",
@@ -21429,6 +22814,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Stakeholder Share V1",
@@ -21521,6 +22909,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Version History Endpoint V1",
@@ -21581,6 +22972,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Version Endpoint V1",
@@ -21649,6 +23043,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Compare Versions Endpoint V1",
@@ -21767,6 +23164,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Version Endpoint V1",
@@ -21797,6 +23197,26 @@
               "title": "Version Number",
               "type": "integer"
             }
+          },
+          {
+            "in": "header",
+            "name": "If-Match",
+            "required": true,
+            "schema": {
+              "title": "If-Match",
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Idempotency-Key",
+            "required": true,
+            "schema": {
+              "maxLength": 200,
+              "minLength": 8,
+              "title": "Idempotency-Key",
+              "type": "string"
+            }
           }
         ],
         "responses": {
@@ -21822,6 +23242,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Restore Version Endpoint V1",
@@ -22676,6 +24099,9 @@
         "security": [
           {
             "HTTPBearer": []
+          },
+          {
+            "APIKeyHeader": []
           }
         ],
         "summary": "Update Flag V1",
@@ -24064,6 +25490,28 @@
     "/api/v1/models/": {
       "get": {
         "operationId": "list_models_v1_api_v1_models__get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "skip",
+            "required": false,
+            "schema": {
+              "default": 0,
+              "title": "Skip",
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 100,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -24078,6 +25526,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "List Models V1",
@@ -24426,9 +25884,57 @@
         ]
       }
     },
+    "/api/v1/projects/diagrams": {
+      "post": {
+        "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
+        "operationId": "upload_diagram_v1_api_v1_projects_diagrams_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "$ref": "#/components/schemas/Body_upload_diagram_v1_api_v1_projects_diagrams_post"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Upload Diagram V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/api/v1/projects/{project_id}": {
       "get": {
-        "description": "Return project metadata and per-diagram analysis status.",
+        "description": "Return authorized project metadata and durable diagram status.",
         "operationId": "get_project_status_v1_api_v1_projects__project_id__get",
         "parameters": [
           {
@@ -24464,6 +25970,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Project Status V1",
@@ -24474,7 +25983,7 @@
     },
     "/api/v1/projects/{project_id}/analysis": {
       "get": {
-        "description": "Return a deterministic combined analysis for all analyzed project diagrams.",
+        "description": "Return a deterministic merge of authorized durable analysis snapshots.",
         "operationId": "get_project_analysis_v1_api_v1_projects__project_id__analysis_get",
         "parameters": [
           {
@@ -24510,6 +26019,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Project Analysis V1",
@@ -24518,65 +26030,9 @@
         ]
       }
     },
-    "/api/v1/projects/{project_id}/diagrams": {
-      "post": {
-        "description": "Upload an architecture diagram image for analysis.\n\nAccepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the\nconfigured MAX_UPLOAD_SIZE limit.",
-        "operationId": "upload_diagram_v1_api_v1_projects__project_id__diagrams_post",
-        "parameters": [
-          {
-            "in": "path",
-            "name": "project_id",
-            "required": true,
-            "schema": {
-              "title": "Project Id",
-              "type": "string"
-            }
-          }
-        ],
-        "requestBody": {
-          "content": {
-            "multipart/form-data": {
-              "schema": {
-                "$ref": "#/components/schemas/Body_upload_diagram_v1_api_v1_projects__project_id__diagrams_post"
-              }
-            }
-          },
-          "required": true
-        },
-        "responses": {
-          "200": {
-            "content": {
-              "application/json": {
-                "schema": {}
-              }
-            },
-            "description": "Successful Response"
-          },
-          "422": {
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
-                }
-              }
-            },
-            "description": "Validation Error"
-          }
-        },
-        "security": [
-          {
-            "APIKeyHeader": []
-          }
-        ],
-        "summary": "Upload Diagram V1",
-        "tags": [
-          "v1"
-        ]
-      }
-    },
     "/api/v1/projects/{project_id}/generate": {
       "post": {
-        "description": "Generate unified Infrastructure as Code from combined project analysis.",
+        "description": "Generate IaC only from authorized, PostgreSQL-canonical analyses.",
         "operationId": "generate_project_iac_v1_api_v1_projects__project_id__generate_post",
         "parameters": [
           {
@@ -24636,6 +26092,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Generate Project Iac V1",
@@ -24644,9 +26103,179 @@
         ]
       }
     },
+    "/api/v1/projects/{project_id}/members": {
+      "get": {
+        "operationId": "get_project_members_v1_api_v1_projects__project_id__members_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Project Members V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/projects/{project_id}/members/{member_user_id}": {
+      "delete": {
+        "operationId": "delete_project_member_v1_api_v1_projects__project_id__members__member_user_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_user_id",
+            "required": true,
+            "schema": {
+              "title": "Member User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Project Member V1",
+        "tags": [
+          "v1"
+        ]
+      },
+      "put": {
+        "operationId": "put_project_member_v1_api_v1_projects__project_id__members__member_user_id__put",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "project_id",
+            "required": true,
+            "schema": {
+              "title": "Project Id",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "member_user_id",
+            "required": true,
+            "schema": {
+              "title": "Member User Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ProjectMemberRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "security": [
+          {
+            "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Put Project Member V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
     "/api/v1/replay/events": {
       "post": {
-        "description": "Add an event to an existing replay recording.",
+        "description": "Append an event to a canonical replay recording.",
         "operationId": "add_event_v1_api_v1_replay_events_post",
         "requestBody": {
           "content": {
@@ -24692,7 +26321,7 @@
     },
     "/api/v1/replay/record": {
       "post": {
-        "description": "Start a new replay recording linked to an analysis.",
+        "description": "Start a new replay recording linked to an immutable analysis version.",
         "operationId": "start_recording_v1_api_v1_replay_record_post",
         "requestBody": {
           "content": {
@@ -24738,7 +26367,7 @@
     },
     "/api/v1/replay/{replay_id}": {
       "get": {
-        "description": "Get full replay with all events.",
+        "description": "Get the full canonical replay with all events.",
         "operationId": "get_replay_v1_api_v1_replay__replay_id__get",
         "parameters": [
           {
@@ -24785,7 +26414,7 @@
     },
     "/api/v1/replay/{replay_id}/export": {
       "get": {
-        "description": "Export replay as a JSON timeline.",
+        "description": "Export replay JSON bound to the version recorded at replay start.",
         "operationId": "export_replay_v1_api_v1_replay__replay_id__export_get",
         "parameters": [
           {
@@ -24827,12 +26456,16 @@
         "tags": [
           "Replay",
           "v1"
+        ],
+        "x-archmorph-effect-scope": "write",
+        "x-archmorph-effects": [
+          "artifact"
         ]
       }
     },
     "/api/v1/replays": {
       "get": {
-        "description": "List recent replays with pagination (max 20 per page).",
+        "description": "List recent canonical replays with bounded pagination.",
         "operationId": "list_replays_v1_api_v1_replays_get",
         "parameters": [
           {
@@ -25149,6 +26782,38 @@
           }
         },
         "summary": "Run Cloud Scan V1",
+        "tags": [
+          "v1"
+        ]
+      }
+    },
+    "/api/v1/schema-compatibility": {
+      "get": {
+        "description": "Sanitized activation preflight for green and rollback revisions.",
+        "operationId": "schema_compatibility_v1_api_v1_schema_compatibility_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaCompatibilityResponse"
+                }
+              }
+            },
+            "description": "This application revision supports the current database schema"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SchemaCompatibilityResponse"
+                }
+              }
+            },
+            "description": "This application revision cannot safely serve the current database schema"
+          }
+        },
+        "summary": "Schema Compatibility V1",
         "tags": [
           "v1"
         ]
@@ -25591,6 +27256,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Revoke Share V1",
@@ -25697,6 +27365,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Share Stats V1",
@@ -26797,7 +28468,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/WorkspaceStatusValue"
                 },
                 {
                   "type": "null"
@@ -26853,6 +28524,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Workspaces Endpoint V1",
@@ -26897,6 +28571,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Workspace Endpoint V1",
@@ -26908,7 +28585,7 @@
     },
     "/api/v1/workspaces/{workspace_id}": {
       "delete": {
-        "description": "Delete a workspace and its analyses/versions/artifacts.",
+        "description": "Converge all workspace-owned state to a confirmed deletion fixed point.",
         "operationId": "delete_workspace_endpoint_v1_api_v1_workspaces__workspace_id__delete",
         "parameters": [
           {
@@ -26944,6 +28621,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Delete Workspace Endpoint V1",
@@ -26989,6 +28669,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Workspace Endpoint V1",
@@ -27044,6 +28727,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Update Workspace Endpoint V1",
@@ -27114,6 +28800,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Analyses Endpoint V1",
@@ -27169,6 +28858,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Analysis Endpoint V1",
@@ -27466,7 +29158,7 @@
             "schema": {
               "anyOf": [
                 {
-                  "type": "string"
+                  "$ref": "#/components/schemas/WorkspaceStatusValue"
                 },
                 {
                   "type": "null"
@@ -27522,6 +29214,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Workspaces Endpoint",
@@ -27565,6 +29260,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Workspace Endpoint",
@@ -27575,7 +29273,7 @@
     },
     "/api/workspaces/{workspace_id}": {
       "delete": {
-        "description": "Delete a workspace and its analyses/versions/artifacts.",
+        "description": "Converge all workspace-owned state to a confirmed deletion fixed point.",
         "operationId": "delete_workspace_endpoint_api_workspaces__workspace_id__delete",
         "parameters": [
           {
@@ -27611,6 +29309,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Delete Workspace Endpoint",
@@ -27655,6 +29356,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Get Workspace Endpoint",
@@ -27709,6 +29413,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Update Workspace Endpoint",
@@ -27778,6 +29485,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "List Analyses Endpoint",
@@ -27832,6 +29542,9 @@
         "security": [
           {
             "APIKeyHeader": []
+          },
+          {
+            "HTTPBearer": []
           }
         ],
         "summary": "Create Analysis Endpoint",
@@ -27855,6 +29568,51 @@
           }
         },
         "summary": "Healthz"
+      }
+    },
+    "/readyz": {
+      "get": {
+        "description": "Anonymous sanitized readiness for required PostgreSQL and Redis.",
+        "operationId": "readyz_readyz_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "checks": {
+                    "database": "ready",
+                    "database_schema": "ready",
+                    "redis": "ready"
+                  },
+                  "status": "ready"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "Required PostgreSQL and Redis dependencies are ready"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "example": {
+                  "checks": {
+                    "database": "unavailable",
+                    "database_schema": "unavailable",
+                    "redis": "unavailable"
+                  },
+                  "status": "not_ready"
+                },
+                "schema": {
+                  "$ref": "#/components/schemas/ReadinessResponse"
+                }
+              }
+            },
+            "description": "A required dependency is unavailable"
+          }
+        },
+        "summary": "Readyz"
       }
     }
   }

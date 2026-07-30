@@ -23,6 +23,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 from database import Base
 from sqlalchemy import create_engine, event
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import sessionmaker
 
 import models  # noqa: F401 — register all ORM models with Base.metadata
@@ -44,7 +45,10 @@ from workspace_store import (
     list_decisions,
     list_source_assets,
     list_workspaces,
+    load_analysis_state,
     maybe_link_session,
+    persist_analysis_state,
+    persist_analysis_mutation,
     restore_analysis_version,
     save_analysis_version,
     update_workspace,
@@ -129,6 +133,42 @@ class TestWorkspaceCRUD:
         ws = create_workspace(db, owner_user_id="u5", name="WS")
         result = update_workspace(db, ws.id, owner_user_id="attacker", name="hacked")
         assert result is None
+
+    def test_archiving_default_clears_marker_and_next_analysis_gets_replacement(self, db):
+        first = persist_analysis_state(
+            db,
+            owner_user_id="archive-owner",
+            tenant_id="archive-tenant",
+            diagram_id="diag-before-archive",
+            snapshot={"mappings": []},
+        )
+
+        archived = update_workspace(
+            db,
+            first.analysis.workspace_id,
+            owner_user_id="archive-owner",
+            tenant_id="archive-tenant",
+            status="archived",
+        )
+        replacement = persist_analysis_state(
+            db,
+            owner_user_id="archive-owner",
+            tenant_id="archive-tenant",
+            diagram_id="diag-after-archive",
+            snapshot={"mappings": []},
+        )
+        replacement_workspace = get_workspace(
+            db,
+            replacement.analysis.workspace_id,
+            owner_user_id="archive-owner",
+            tenant_id="archive-tenant",
+        )
+
+        assert archived.status == "archived"
+        assert archived.is_default is False
+        assert replacement.analysis.workspace_id != archived.id
+        assert replacement_workspace.status == "active"
+        assert replacement_workspace.is_default is True
 
     def test_delete_workspace(self, db):
         ws = create_workspace(db, owner_user_id="u6", name="Delete Me")
@@ -361,7 +401,12 @@ class TestAnalysisVersions:
         save_analysis_version(db, analysis_id=a.id, owner_user_id="u1", snapshot={"step": "original"})
         save_analysis_version(db, analysis_id=a.id, owner_user_id="u1", snapshot={"step": "updated"})
         new_v = restore_analysis_version(
-            db, analysis_id=a.id, version_number=1, owner_user_id="u1"
+            db,
+            analysis_id=a.id,
+            version_number=1,
+            owner_user_id="u1",
+            expected_version=2,
+            idempotency_key="restore-version-creates-new",
         )
         assert new_v is not None
         assert new_v.restored_from == 1
@@ -373,7 +418,12 @@ class TestAnalysisVersions:
     def test_restore_nonexistent_version(self, db):
         a = self._make_analysis(db)
         result = restore_analysis_version(
-            db, analysis_id=a.id, version_number=99, owner_user_id="u1"
+            db,
+            analysis_id=a.id,
+            version_number=99,
+            owner_user_id="u1",
+            expected_version=0,
+            idempotency_key="restore-nonexistent-version",
         )
         assert result is None
 
@@ -392,6 +442,8 @@ class TestAnalysisVersions:
         restore_analysis_version(
             db, analysis_id=a.id, version_number=1, owner_user_id="u1",
             session_store=store,
+            expected_version=1,
+            idempotency_key="restore-updates-session-store",
         )
         assert "diag-v" in store.data
         assert store.data["diag-v"]["v"] == 1
@@ -417,6 +469,8 @@ class TestAnalysisVersions:
             version_number=1,
             owner_user_id="u1",
             session_store=store,
+            expected_version=1,
+            idempotency_key="restore-foreign-session-owner",
         )
         assert new_v is not None
         assert store.data["diag-v"]["_owner_user_id"] == "attacker"
@@ -592,6 +646,7 @@ class TestMaybeLinkSession:
         version = maybe_link_session(
             db,
             owner_user_id="u1",
+            tenant_id="tenant-1",
             diagram_id="new-diag",
             session=self._sample_session,
         )
@@ -608,12 +663,20 @@ class TestMaybeLinkSession:
     def test_uses_existing_analysis_for_same_diagram(self, db):
         # First call creates workspace + analysis + v1
         v1 = maybe_link_session(
-            db, owner_user_id="u1", diagram_id="diag-dup", session=self._sample_session
+            db,
+            owner_user_id="u1",
+            tenant_id="tenant-1",
+            diagram_id="diag-dup",
+            session=self._sample_session,
         )
         # Second call with updated session → v2 on same analysis
         updated = dict(self._sample_session, services_detected=5)
         v2 = maybe_link_session(
-            db, owner_user_id="u1", diagram_id="diag-dup", session=updated
+            db,
+            owner_user_id="u1",
+            tenant_id="tenant-1",
+            diagram_id="diag-dup",
+            session=updated,
         )
         assert v1 is not None
         assert v2 is not None
@@ -631,10 +694,11 @@ class TestMaybeLinkSession:
         assert result is None
 
     def test_uses_provided_workspace_id(self, db):
-        ws = create_workspace(db, owner_user_id="u2", name="My WS")
+        ws = create_workspace(db, owner_user_id="u2", tenant_id="tenant-2", name="My WS")
         v = maybe_link_session(
             db,
             owner_user_id="u2",
+            tenant_id="tenant-2",
             diagram_id="diag-linked",
             session=self._sample_session,
             workspace_id=ws.id,
@@ -677,3 +741,484 @@ class TestMaybeLinkSession:
         assert v1.analysis_id != v2.analysis_id
         assert list_workspaces(db, owner_user_id="u1", tenant_id="tenant-a")["total"] == 1
         assert list_workspaces(db, owner_user_id="u1", tenant_id="tenant-b")["total"] == 1
+
+
+class TestCanonicalAnalysisState:
+    class _FakeStore:
+        def __init__(self, *, accept_writes=True):
+            self.data = {}
+            self.accept_writes = accept_writes
+
+        def get(self, key):
+            return self.data.get(key)
+
+        def set(self, key, value):
+            if not self.accept_writes:
+                return False
+            self.data[key] = value
+            return True
+
+        def delete(self, key):
+            self.data.pop(key, None)
+            return key not in self.data
+
+        def update_if(self, key, predicate, updater):
+            current = self.data.get(key)
+            if not predicate(current):
+                return False, current
+            updated = updater(current)
+            if not self.set(key, updated):
+                return False, current
+            return True, updated
+
+        def clear(self):
+            self.data.clear()
+
+    def test_restart_and_cache_loss_hydrate_from_durable_version(self, db):
+        store = self._FakeStore()
+        persisted = persist_analysis_state(
+            db,
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+            diagram_id="diag-restart",
+            snapshot={"services_detected": 1, "mappings": [{"source_service": "S3"}]},
+            session_store=store,
+            cache_required=True,
+        )
+        assert persisted.cache_updated is True
+
+        store.clear()  # Redis loss / process restart
+        db.expunge_all()
+
+        hydrated = load_analysis_state(
+            db,
+            diagram_id="diag-restart",
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+            session_store=store,
+        )
+        assert hydrated is not None
+        assert hydrated["mappings"][0]["source_service"] == "S3"
+        assert store.data["diag-restart"]["_tenant_id"] == "tenant-a"
+
+    def test_cache_failure_does_not_replace_committed_canonical_state(self, db):
+        store = self._FakeStore(accept_writes=False)
+        result = persist_analysis_state(
+            db,
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+            diagram_id="diag-cache-loss",
+            snapshot={"services_detected": 2, "mappings": []},
+            session_store=store,
+        )
+        assert result.cache_updated is False
+        assert load_analysis_state(
+            db,
+            diagram_id="diag-cache-loss",
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+        )["services_detected"] == 2
+
+        retry = persist_analysis_state(
+            db,
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+            diagram_id="diag-cache-loss",
+            snapshot={"services_detected": 2, "mappings": []},
+            session_store=self._FakeStore(),
+        )
+        assert retry.version.id == result.version.id
+        assert list_analysis_versions(
+            db,
+            analysis_id=result.analysis.id,
+            owner_user_id="owner-a",
+            tenant_id="tenant-a",
+        ) == [result.version.to_dict()]
+
+    def test_failed_version_write_rolls_back_workspace_and_analysis(self, db, monkeypatch):
+        from models.workspace import Analysis, Workspace
+        import workspace_store
+
+        def fail_version(*_args, **_kwargs):
+            raise RuntimeError("synthetic version failure")
+
+        monkeypatch.setattr(workspace_store, "_stage_analysis_version", fail_version)
+
+        with pytest.raises(workspace_store.DurableAnalysisPersistenceError):
+            persist_analysis_state(
+                db,
+                owner_user_id="owner-rollback",
+                tenant_id="tenant-rollback",
+                diagram_id="diag-rollback",
+                snapshot={"mappings": []},
+            )
+
+        assert db.query(Workspace).filter_by(owner_user_id="owner-rollback").count() == 0
+        assert db.query(Analysis).filter_by(diagram_id="diag-rollback").count() == 0
+
+    def test_cross_tenant_lookup_matches_missing_lookup(self, db):
+        persist_analysis_state(
+            db,
+            owner_user_id="shared-user",
+            tenant_id="tenant-a",
+            diagram_id="diag-private",
+            snapshot={"mappings": []},
+        )
+
+        forbidden = load_analysis_state(
+            db,
+            diagram_id="diag-private",
+            owner_user_id="shared-user",
+            tenant_id="tenant-b",
+        )
+        missing = load_analysis_state(
+            db,
+            diagram_id="diag-missing",
+            owner_user_id="shared-user",
+            tenant_id="tenant-b",
+        )
+        assert forbidden is None
+        assert missing is None
+
+    def test_authenticated_durable_write_requires_explicit_tenant(self, db):
+        with pytest.raises(ValueError, match="require owner_user_id and tenant_id"):
+            persist_analysis_state(
+                db,
+                owner_user_id="owner-a",
+                tenant_id=None,
+                diagram_id="diag-no-tenant",
+                snapshot={"mappings": []},
+            )
+
+    @pytest.mark.parametrize(
+        ("label", "mutation"),
+        [
+            ("analysis-services-added", {"mappings": [{"source_service": "S3"}]}),
+            ("guided-answers-applied", {"guided_answers": {"ha": "yes"}}),
+            ("review-disposition-accept", {"review_queue_dispositions": {"item": {"action": "accept"}}}),
+        ],
+    )
+    def test_each_analysis_mutation_survives_cache_loss(self, db, label, mutation):
+        store = self._FakeStore()
+        snapshot = {"services_detected": 1, "mappings": [], **mutation}
+        result = persist_analysis_mutation(
+            db,
+            owner_user_id="mutation-owner",
+            tenant_id="mutation-tenant",
+            diagram_id=f"diag-{label}",
+            snapshot=snapshot,
+            session_store=store,
+            label=label,
+            cache_required=True,
+        )
+
+        store.clear()
+        hydrated = load_analysis_state(
+            db,
+            diagram_id=f"diag-{label}",
+            owner_user_id="mutation-owner",
+            tenant_id="mutation-tenant",
+            session_store=store,
+        )
+
+        assert result.version.version_number == 1
+        for key, value in mutation.items():
+            assert hydrated[key] == value
+
+    @pytest.mark.parametrize(
+        ("artifact_type", "artifact_format", "content"),
+        [
+            ("hld", "markdown", "# Durable HLD"),
+            ("terraform", "terraform", 'resource "azurerm_resource_group" "main" {}'),
+            ("bicep", "bicep", "resource rg 'Microsoft.Resources/resourceGroups@2024-11-01' = {}"),
+        ],
+    )
+    def test_generated_artifact_and_snapshot_survive_cache_loss(
+        self,
+        db,
+        artifact_type,
+        artifact_format,
+        content,
+    ):
+        store = self._FakeStore()
+        snapshot = {"mappings": [], "generated": artifact_type}
+        result = persist_analysis_mutation(
+            db,
+            owner_user_id="artifact-owner",
+            tenant_id="artifact-tenant",
+            diagram_id=f"diag-{artifact_type}",
+            snapshot=snapshot,
+            session_store=store,
+            artifact_type=artifact_type,
+            artifact_format=artifact_format,
+            artifact_content=content,
+            cache_required=True,
+        )
+
+        store.clear()
+        hydrated = load_analysis_state(
+            db,
+            diagram_id=f"diag-{artifact_type}",
+            owner_user_id="artifact-owner",
+            tenant_id="artifact-tenant",
+        )
+        artifacts = list_artifacts(
+            db,
+            analysis_id=result.analysis.id,
+            owner_user_id="artifact-owner",
+            tenant_id="artifact-tenant",
+        )
+
+        assert hydrated["generated"] == artifact_type
+        assert result.artifact.version_id == result.version.id
+        assert artifacts["total"] == 1
+        persisted = get_artifact(
+            db,
+            result.artifact.id,
+            owner_user_id="artifact-owner",
+            tenant_id="artifact-tenant",
+        )
+        assert persisted.content == content
+
+    def test_canonical_uow_calls_artifact_repository(self, db, monkeypatch):
+        import workspace_store
+
+        calls = []
+        original = workspace_store.create_artifact
+
+        def capture(*args, **kwargs):
+            calls.append(kwargs)
+            return original(*args, **kwargs)
+
+        monkeypatch.setattr(workspace_store, "create_artifact", capture)
+        result = persist_analysis_mutation(
+            db,
+            owner_user_id="artifact-caller-owner",
+            tenant_id="artifact-caller-tenant",
+            diagram_id="diag-artifact-caller",
+            snapshot={"mappings": [], "hld": {"title": "HLD"}},
+            artifact_type="hld",
+            artifact_format="markdown",
+            artifact_content="# HLD",
+        )
+
+        assert result.artifact is not None
+        assert calls[0]["version_id"] == result.version.id
+        assert calls[0]["commit"] is False
+
+    def test_version_aware_cache_cas_rejects_reversed_projection(self, db):
+        store = self._FakeStore()
+        first = persist_analysis_mutation(
+            db,
+            owner_user_id="cas-owner",
+            tenant_id="cas-tenant",
+            diagram_id="diag-cas",
+            snapshot={"step": "first", "mappings": []},
+        )
+        second = persist_analysis_mutation(
+            db,
+            owner_user_id="cas-owner",
+            tenant_id="cas-tenant",
+            diagram_id="diag-cas",
+            snapshot={"step": "second", "mappings": [], "_analysis_version": 1},
+            expected_version=1,
+            operation="cas-second",
+            request_hash="2" * 64,
+            session_store=store,
+            cache_required=True,
+        )
+
+        from workspace_store import AnalysisCacheWriteError, _write_session_cache
+
+        with pytest.raises(AnalysisCacheWriteError):
+            _write_session_cache(
+                store,
+                diagram_id="diag-cas",
+                owner_user_id="cas-owner",
+                tenant_id="cas-tenant",
+                snapshot={"step": "first"},
+                version_number=first.version.version_number,
+            )
+        assert second.version.version_number == 2
+        assert store.data["diag-cas"]["step"] == "second"
+        assert store.data["diag-cas"]["_analysis_version"] == 2
+
+    def test_version_aware_cache_cas_rejects_ownerless_existing_entry(self, db):
+        from workspace_store import AnalysisCacheWriteError, _write_session_cache
+
+        store = self._FakeStore()
+        store.data["diag-ownerless"] = {
+            "_tenant_id": "cas-tenant",
+            "_analysis_version": 1,
+        }
+
+        with pytest.raises(AnalysisCacheWriteError):
+            _write_session_cache(
+                store,
+                diagram_id="diag-ownerless",
+                owner_user_id="cas-owner",
+                tenant_id="cas-tenant",
+                snapshot={"step": "second"},
+                version_number=2,
+            )
+
+    def test_expected_version_conflict_does_not_append(self, db):
+        first = persist_analysis_mutation(
+            db,
+            owner_user_id="optimistic-owner",
+            tenant_id="optimistic-tenant",
+            diagram_id="diag-optimistic",
+            snapshot={"mappings": []},
+        )
+        from workspace_store import AnalysisVersionConflictError
+
+        with pytest.raises(AnalysisVersionConflictError):
+            persist_analysis_mutation(
+                db,
+                owner_user_id="optimistic-owner",
+                tenant_id="optimistic-tenant",
+                diagram_id="diag-optimistic",
+                snapshot={"mappings": [], "stale": True, "_analysis_version": 0},
+                expected_version=0,
+                operation="stale-optimistic-write",
+                request_hash="3" * 64,
+            )
+        assert len(list_analysis_versions(
+            db,
+            analysis_id=first.analysis.id,
+            owner_user_id="optimistic-owner",
+            tenant_id="optimistic-tenant",
+        )) == 1
+
+    def test_database_uniqueness_matches_analysis_identity(self, db):
+        from models.workspace import Analysis
+
+        first = persist_analysis_mutation(
+            db,
+            owner_user_id="unique-owner",
+            tenant_id="unique-tenant",
+            diagram_id="diag-unique",
+            snapshot={"mappings": []},
+        )
+        duplicate = Analysis(
+            workspace_id=first.analysis.workspace_id,
+            owner_user_id="unique-owner",
+            tenant_id="unique-tenant",
+            diagram_id="diag-unique",
+        )
+        db.add(duplicate)
+        with pytest.raises(IntegrityError):
+            db.commit()
+        db.rollback()
+
+    def test_legacy_version_restore_survives_cache_loss(self, db):
+        store = self._FakeStore()
+        original = persist_analysis_mutation(
+            db,
+            owner_user_id="restore-owner",
+            tenant_id="restore-tenant",
+            diagram_id="diag-version-restore",
+            snapshot={"step": "original", "mappings": []},
+            session_store=store,
+            label="original",
+            cache_required=True,
+        )
+        persist_analysis_mutation(
+            db,
+            owner_user_id="restore-owner",
+            tenant_id="restore-tenant",
+            diagram_id="diag-version-restore",
+            snapshot={"step": "changed", "mappings": [], "_analysis_version": 1},
+            session_store=store,
+            label="changed",
+            expected_version=1,
+            operation="restore-test-changed",
+            request_hash="4" * 64,
+            cache_required=True,
+        )
+
+        restored = restore_analysis_version(
+            db,
+            analysis_id=original.analysis.id,
+            version_number=original.version.version_number,
+            owner_user_id="restore-owner",
+            tenant_id="restore-tenant",
+            session_store=store,
+            expected_version=2,
+            idempotency_key="restore-survives-cache-loss",
+        )
+        store.clear()
+        hydrated = load_analysis_state(
+            db,
+            diagram_id="diag-version-restore",
+            owner_user_id="restore-owner",
+            tenant_id="restore-tenant",
+            session_store=store,
+        )
+
+        assert restored.restored_from == original.version.version_number
+        assert hydrated["step"] == "original"
+        assert store.data["diag-version-restore"]["_analysis_version"] == restored.version_number
+
+
+def test_cache_loss_hydration_has_no_cross_tenant_existence_oracle(test_client, monkeypatch, db):
+    import database
+    from auth import AuthProvider, User, generate_session_token
+    from routers import shared
+
+    persist_analysis_state(
+        db,
+        owner_user_id="owner-http",
+        tenant_id="tenant-http-a",
+        diagram_id="diag-http-durable",
+        snapshot={"services_detected": 1, "mappings": []},
+    )
+    shared.SESSION_STORE.delete("diag-http-durable")
+
+    class _NonClosingSession:
+        def __getattr__(self, name):
+            return getattr(db, name)
+
+        def close(self):
+            pass
+
+    monkeypatch.setattr(database, "SessionLocal", _NonClosingSession)
+
+    def headers(user_id, tenant_id):
+        token = generate_session_token(
+            User(id=user_id, provider=AuthProvider.GITHUB, tenant_id=tenant_id)
+        )
+        return {"Authorization": f"Bearer {token}"}
+
+    owner = test_client.get(
+        "/api/diagrams/diag-http-durable/hld",
+        headers=headers("owner-http", "tenant-http-a"),
+    )
+    assert shared.SESSION_STORE.get("diag-http-durable")["_tenant_id"] == "tenant-http-a"
+    shared.SESSION_STORE.delete("diag-http-durable")
+    forbidden = test_client.get(
+        "/api/diagrams/diag-http-durable/hld",
+        headers=headers("owner-http", "tenant-http-b"),
+    )
+    missing = test_client.get(
+        "/api/diagrams/diag-http-missing/hld",
+        headers=headers("owner-http", "tenant-http-b"),
+    )
+
+    assert owner.status_code == 404  # analysis exists; HLD artifact does not
+    assert forbidden.status_code == missing.status_code == 404
+    assert forbidden.json()["error"]["message"] == missing.json()["error"]["message"]
+
+
+def test_workspace_route_rejects_authenticated_user_without_tenant(test_client):
+    from auth import User, generate_session_token
+
+    token = generate_session_token(User(id="tenantless-workspace-user"))
+    response = test_client.post(
+        "/api/workspaces",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"name": "Must not persist"},
+    )
+
+    assert response.status_code == 401
+    assert response.json()["error"]["details"]["error"] == "tenant_context_required"

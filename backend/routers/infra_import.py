@@ -9,9 +9,15 @@ from fastapi import APIRouter, Request, Depends
 from pydantic import Field
 from strict_models import StrictBaseModel
 import asyncio
+import json
 import logging
 
-from routers.shared import SESSION_STORE, limiter, verify_api_key, generate_session_id
+from routers.shared import (
+    generate_session_id,
+    limiter,
+    persist_diagram_mutation_async,
+    verify_api_key,
+)
 from usage_metrics import record_event, record_funnel_step
 from infra_import import parse_infrastructure, detect_format, InfraFormat
 
@@ -62,8 +68,26 @@ async def import_infrastructure(request: Request, body: InfraImportRequest, _aut
         logger.error("Infrastructure import failed: %s", e, exc_info=True)
         raise ArchmorphException(500, "Failed to parse infrastructure file")
 
-    # Store in session
-    SESSION_STORE[diagram_id] = analysis
+    await persist_diagram_mutation_async(
+        request,
+        diagram_id,
+        analysis,
+        artifact_type="infrastructure_import",
+        artifact_format="json",
+        artifact_content=json.dumps(
+            {
+                "diagram_id": diagram_id,
+                "source_format": fmt.value,
+                "source_provider": analysis.get("source_provider"),
+                "services_detected": analysis.get("services_detected", 0),
+                "mappings": analysis.get("mappings", []),
+                "import_metadata": analysis.get("import_metadata", {}),
+            },
+            sort_keys=True,
+            default=str,
+        ),
+        label=f"infrastructure-import-{fmt.value}",
+    )
     record_event("infra_imported", {
         "diagram_id": diagram_id,
         "format": fmt.value,

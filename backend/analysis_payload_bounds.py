@@ -13,6 +13,10 @@ from typing import Any
 
 
 MAX_ANALYSIS_LIST_ITEMS = 200
+MAX_RESTORE_BODY_BYTES = 12 * 1024 * 1024
+MAX_RESTORE_STRING_CHARS = 2 * 1024 * 1024
+MAX_RESTORE_NESTING_DEPTH = 20
+MAX_RESTORE_NODE_COUNT = 10_000
 
 RENDERER_ANALYSIS_LIST_FIELDS: tuple[str, ...] = (
     "zones",
@@ -43,6 +47,53 @@ class AnalysisPayloadTooLarge(ValueError):
             "count": self.count,
             "limit": self.limit,
         }
+
+
+def validate_restore_payload_shape(value: Any) -> None:
+    """Bound aggregate nodes, nesting, and strings before durable restore."""
+    seen = 0
+
+    def walk(node: Any, depth: int) -> None:
+        nonlocal seen
+        seen += 1
+        if seen > MAX_RESTORE_NODE_COUNT:
+            raise AnalysisPayloadTooLarge("body.nodes", seen, MAX_RESTORE_NODE_COUNT)
+        if depth > MAX_RESTORE_NESTING_DEPTH:
+            raise AnalysisPayloadTooLarge(
+                "body.depth",
+                depth,
+                MAX_RESTORE_NESTING_DEPTH,
+            )
+        if isinstance(node, str):
+            if len(node) > MAX_RESTORE_STRING_CHARS:
+                raise AnalysisPayloadTooLarge(
+                    "body.string",
+                    len(node),
+                    MAX_RESTORE_STRING_CHARS,
+                )
+            return
+        if isinstance(node, Mapping):
+            if len(node) > MAX_ANALYSIS_LIST_ITEMS:
+                raise AnalysisPayloadTooLarge(
+                    "body.object_fields",
+                    len(node),
+                    MAX_ANALYSIS_LIST_ITEMS,
+                )
+            for key, child in node.items():
+                walk(str(key), depth + 1)
+                walk(child, depth + 1)
+            return
+        if isinstance(node, (list, tuple)):
+            if len(node) > MAX_ANALYSIS_LIST_ITEMS:
+                raise AnalysisPayloadTooLarge(
+                    "body.array_items",
+                    len(node),
+                    MAX_ANALYSIS_LIST_ITEMS,
+                )
+            for child in node:
+                walk(child, depth + 1)
+
+    walk(value, 0)
 
 
 def validate_analysis_payload_bounds(

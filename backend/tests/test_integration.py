@@ -327,7 +327,7 @@ class TestFullPipelineIntegration:
         """Upload + analyze helper, returns diagram_id."""
         content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
         resp = client.post(
-            "/api/projects/proj-pipe/diagrams",
+            "/api/projects/diagrams",
             files={"file": ("pipe.png", io.BytesIO(content), "image/png")},
         )
         assert resp.status_code == 200
@@ -412,7 +412,7 @@ class TestSessionPersistenceIntegration:
         """Analysis result persists in session store across requests."""
         content = b"\x89PNG\r\n\x1a\n" + b"\x00" * 100
         resp = client.post(
-            "/api/projects/proj-sess/diagrams",
+            "/api/projects/diagrams",
             files={"file": ("sess.png", io.BytesIO(content), "image/png")},
         )
         diagram_id = resp.json()["diagram_id"]
@@ -421,7 +421,8 @@ class TestSessionPersistenceIntegration:
              patch("routers.diagrams.classify_image", return_value={
                  "is_architecture_diagram": True, "confidence": 0.95
              }):
-            client.post(f"/api/diagrams/{diagram_id}/analyze")
+            resp = client.post(f"/api/diagrams/{diagram_id}/analyze")
+        assert resp.status_code == 200
 
         # Session should exist
         assert diagram_id in SESSION_STORE
@@ -443,13 +444,13 @@ class TestSessionPersistenceIntegration:
 
         # Upload two diagrams
         resp1 = client.post(
-            "/api/projects/proj-iso/diagrams",
+            "/api/projects/diagrams",
             files={"file": ("d1.png", io.BytesIO(content), "image/png")},
         )
         did1 = resp1.json()["diagram_id"]
 
         resp2 = client.post(
-            "/api/projects/proj-iso/diagrams",
+            "/api/projects/diagrams",
             files={"file": ("d2.png", io.BytesIO(content), "image/png")},
         )
         did2 = resp2.json()["diagram_id"]

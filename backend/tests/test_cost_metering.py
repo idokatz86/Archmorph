@@ -136,6 +136,7 @@ class TestCostMeter:
 
         with patch("database.SessionLocal", return_value=db):
             meter = CostMeter.instance()
+            meter._hydrate_records_from_db()
 
         overview = meter.get_overview()
         assert overview.total_records == 1

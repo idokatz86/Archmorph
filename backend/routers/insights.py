@@ -10,24 +10,49 @@ from pydantic import Field
 from strict_models import StrictBaseModel
 from typing import Optional, List
 import asyncio
+import copy
 import csv
 import hashlib
 import io
+import json
 import logging
+from functools import partial
+from starlette.concurrency import run_in_threadpool
 
-from routers.shared import authorize_diagram_access, limiter, require_diagram_access, verify_api_key, SESSION_STORE
-from usage_metrics import record_event
+from routers.shared import (
+    SESSION_STORE,
+    authorize_diagram_access_async,
+    limiter,
+    persist_diagram_mutation_async,
+    require_api_write_or_user_session,
+    require_diagram_access,
+    verify_api_key,
+)
+from routers.shared import persist_diagram_mutation
 from cost_optimizer import analyze_cost_optimizations
 from cost_assumptions import build_cost_assumptions_artifact
 from services.azure_pricing import estimate_services_cost
 from terraform_preview import preview_terraform_plan
 from utils.chat_coercion import coerce_to_str_list
 from iac_generator import generate_iac_code
-from export_capabilities import consume_export_capability, issue_export_capability, verify_export_capability
+from log_sanitizer import log_model_output_metadata
+from route_effects import write_route_effects
+from export_capabilities import (
+    consume_export_capability,
+    issue_export_capability_for_request,
+    verify_export_capability,
+)
+from export_artifacts import persist_generated_export_async
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+async def _persist_mutation(request, diagram_id, snapshot, **kwargs):
+    return await run_in_threadpool(
+        partial(persist_diagram_mutation, request, diagram_id, snapshot, **kwargs)
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -37,9 +62,7 @@ router = APIRouter()
 @limiter.limit("15/minute")
 async def estimate_cost(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Estimate monthly Azure costs for the analysed architecture."""
-    record_event("cost_estimates", {"diagram_id": diagram_id})
-
-    session = authorize_diagram_access(request, diagram_id, purpose="view cost estimates")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view cost estimates")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -49,7 +72,12 @@ async def estimate_cost(request: Request, diagram_id: str, _auth=Depends(verify_
     sku_strategy = iac_params.get("sku_strategy", "Balanced")
 
     if mappings:
-        result = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+        result = estimate_services_cost(
+            mappings,
+            region=region,
+            sku_strategy=sku_strategy,
+            persist_cache=False,
+        )
         result["diagram_id"] = diagram_id
         return result
 
@@ -78,9 +106,7 @@ async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify
     optimization recommendations, cost-by-category, and source vs
     target comparison.
     """
-    record_event("cost_breakdown", {"diagram_id": diagram_id})
-
-    session = authorize_diagram_access(request, diagram_id, purpose="view cost breakdowns")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view cost breakdowns")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -90,7 +116,12 @@ async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify
 
     # Base cost estimate
     if mappings:
-        cost_data = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+        cost_data = estimate_services_cost(
+            mappings,
+            region=region,
+            sku_strategy=sku_strategy,
+            persist_cache=False,
+        )
     else:
         cost_data = {"services": [], "total_monthly_estimate": {"low": 0, "high": 0}}
 
@@ -188,7 +219,7 @@ async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify
                 "azure_doc_link": opt.get("azure_doc_link", ""),
             })
     except Exception:
-        logger.warning("Cost optimization analysis failed for %s", str(diagram_id).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+        logger.warning("Cost optimization analysis failed")
 
     # Source vs target comparison (rough estimate: source typically 10-20% more)
     total_mid = (total_low + total_high) / 2
@@ -252,7 +283,7 @@ async def cost_breakdown(request: Request, diagram_id: str, _auth=Depends(verify
 @limiter.limit("15/minute")
 async def get_cost_optimization(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get cost optimization recommendations for the architecture."""
-    analysis = authorize_diagram_access(request, diagram_id, purpose="view cost optimizations")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="view cost optimizations")
 
     answers = analysis.get("applied_answers", {})
     cost_estimate = analysis.get("cost_estimate")
@@ -275,7 +306,7 @@ async def preview_terraform_plan_endpoint(
     Uses simulation mode only — never executes real Terraform CLI
     to prevent Remote Code Execution via user-supplied HCL.
     """
-    analysis = authorize_diagram_access(request, diagram_id, purpose="preview Terraform")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="preview Terraform")
 
     iac_code = analysis.get("generated_iac")
     if not iac_code:
@@ -324,7 +355,7 @@ async def migration_chat(request: Request, diagram_id: str, _auth=Depends(verify
     Body: { "message": "user question" }
     Returns: { "reply": "...", "related_services": [...] }
     """
-    analysis = authorize_diagram_access(request, diagram_id, purpose="chat about migration insights")
+    analysis = await authorize_diagram_access_async(request, diagram_id, purpose="chat about migration insights")
 
     try:
         body = await request.json()
@@ -352,10 +383,13 @@ Zones: {zones_ctx}
 Total services: {len(mappings)}
 Diagram type: {analysis.get('diagram_type', 'unknown')}"""
 
+    raw = ""
+    model_name = "unconfigured"
     try:
         from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT
         import json as _json
         client = get_openai_client()
+        model_name = AZURE_OPENAI_DEPLOYMENT
 
         response = await asyncio.to_thread(
             lambda: client.chat.completions.create(
@@ -369,8 +403,15 @@ Diagram type: {analysis.get('diagram_type', 'unknown')}"""
                 response_format={"type": "json_object"},
             )
         )
-        raw = response.choices[0].message.content or "{}"
-        result = _json.loads(raw)
+        raw = response.choices[0].message.content or ""
+        result = _json.loads(raw or "{}")
+        log_model_output_metadata(
+            logger,
+            component="migration_chat",
+            model=model_name,
+            output=raw,
+            parse_status="parsed",
+        )
         return {
             "reply": result.get("reply", "I couldn't generate a response. Please try rephrasing."),
             # Coerce to strings — GPT JSON mode occasionally returns objects
@@ -380,7 +421,17 @@ Diagram type: {analysis.get('diagram_type', 'unknown')}"""
             "related_services": coerce_to_str_list(result.get("related_services", [])),
         }
     except Exception as exc:
-        logger.error("Migration chat failed: %s", str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+        log_model_output_metadata(
+            logger,
+            component="migration_chat",
+            model=model_name,
+            output=raw,
+            parse_status=(
+                "invalid_json" if isinstance(exc, json.JSONDecodeError) else "failed"
+            ),
+            exception=exc,
+            level=logging.ERROR,
+        )
         return {
             "reply": "Sorry, I couldn't process your question right now. Please try again.",
             "related_services": [],
@@ -511,9 +562,9 @@ async def configure_cost_estimate(
     _auth=Depends(verify_api_key),
 ):
     """Update per-service cost configuration (instance count, SKU, reserved capacity)."""
-    session = authorize_diagram_access(request, diagram_id, purpose="configure cost estimates")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="configure cost estimates")
 
-    overrides = session.get("_cost_overrides", {})
+    overrides = copy.deepcopy(session.get("_cost_overrides", {}))
     for item in body.overrides:
         overrides[item.service] = {
             "instance_count": item.instance_count,
@@ -521,8 +572,17 @@ async def configure_cost_estimate(
             "reserved_term": item.reserved_term,
         }
 
-    session["_cost_overrides"] = overrides
-    SESSION_STORE[diagram_id] = session
+    updated_session = copy.deepcopy(session)
+    updated_session["_cost_overrides"] = overrides
+    await _persist_mutation(
+        request,
+        diagram_id,
+        updated_session,
+        artifact_type="cost_configuration",
+        artifact_format="json",
+        artifact_content=json.dumps(overrides, sort_keys=True, separators=(",", ":")),
+        label="cost-estimate-configured",
+    )
 
     return {"status": "ok", "overrides_count": len(overrides)}
 
@@ -531,7 +591,7 @@ async def configure_cost_estimate(
 @limiter.limit("30/minute")
 async def get_configured_cost(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Get cost estimate with user-configured overrides applied."""
-    session = authorize_diagram_access(request, diagram_id, purpose="view configured cost estimates")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view configured cost estimates")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -547,7 +607,12 @@ async def get_configured_cost(request: Request, diagram_id: str, _auth=Depends(v
             "overrides_applied": 0,
         }
 
-    base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+    base = estimate_services_cost(
+        mappings,
+        region=region,
+        sku_strategy=sku_strategy,
+        persist_cache=False,
+    )
     overrides = session.get("_cost_overrides", {})
     configured = _apply_overrides(base.get("services", []), overrides)
 
@@ -566,14 +631,27 @@ async def get_configured_cost(request: Request, diagram_id: str, _auth=Depends(v
     }
 
 
-@router.get("/api/diagrams/{diagram_id}/cost-assumptions", response_model=CostAssumptionsResponse, dependencies=[Depends(require_diagram_access)])
+@router.get(
+    "/api/diagrams/{diagram_id}/cost-assumptions",
+    response_model=CostAssumptionsResponse,
+    dependencies=[Depends(require_diagram_access)],
+    openapi_extra=write_route_effects("artifact", "sql"),
+)
 @limiter.limit("15/minute")
 async def get_cost_assumptions(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Return a reviewable JSON artifact with cost-estimate assumptions."""
-    session = authorize_diagram_access(request, diagram_id, purpose="view cost assumptions")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view cost assumptions")
 
     artifact = build_cost_assumptions_artifact(session, analysis_id=diagram_id)
-    SESSION_STORE[diagram_id] = session
+    await persist_diagram_mutation_async(
+        request,
+        diagram_id,
+        session,
+        artifact_type="cost_assumptions",
+        artifact_format="json",
+        artifact_content=json.dumps(artifact, sort_keys=True, default=str),
+        label="cost-assumptions-generated",
+    )
     return artifact
 
 
@@ -581,7 +659,7 @@ async def get_cost_assumptions(request: Request, diagram_id: str, _auth=Depends(
 @limiter.limit("15/minute")
 async def get_ri_savings(request: Request, diagram_id: str, _auth=Depends(verify_api_key)):
     """Show Reserved Instance savings vs pay-as-you-go pricing."""
-    session = authorize_diagram_access(request, diagram_id, purpose="view reserved instance savings")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="view reserved instance savings")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -591,7 +669,12 @@ async def get_ri_savings(request: Request, diagram_id: str, _auth=Depends(verify
     if not mappings:
         return {"diagram_id": diagram_id, "savings": []}
 
-    base = estimate_services_cost(mappings, region=region, sku_strategy=sku_strategy)
+    base = estimate_services_cost(
+        mappings,
+        region=region,
+        sku_strategy=sku_strategy,
+        persist_cache=False,
+    )
     overrides = session.get("_cost_overrides", {})
     services = base.get("services", [])
 
@@ -637,18 +720,22 @@ async def get_ri_savings(request: Request, diagram_id: str, _auth=Depends(verify
     }
 
 
-@router.get("/api/diagrams/{diagram_id}/cost-estimate/export", dependencies=[Depends(require_diagram_access)])
+@router.get(
+    "/api/diagrams/{diagram_id}/cost-estimate/export",
+    dependencies=[Depends(require_diagram_access)],
+    openapi_extra=write_route_effects("artifact", "capability"),
+)
 @limiter.limit("10/minute")
 async def export_cost_csv(
     request: Request,
     diagram_id: str,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
     capability=Depends(verify_export_capability),
 ):
     """Export cost breakdown as CSV with overrides applied."""
     from starlette.responses import Response
 
-    session = authorize_diagram_access(request, diagram_id, purpose="export cost estimates")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="export cost estimates")
 
     mappings = session.get("mappings", [])
     iac_params = session.get("iac_parameters", {})
@@ -687,14 +774,36 @@ async def export_cost_csv(
     writer.writerow(["TOTAL", "", "", "", round(total_low, 2), round(total_high, 2), round(total_savings, 2), total_mid])
 
     csv_content = output.getvalue()
+    artifact = await persist_generated_export_async(
+        request,
+        diagram_id=diagram_id,
+        artifact_type="cost_estimate_export",
+        format="csv",
+        content=csv_content,
+    )
     consume_export_capability(capability)
     response = Response(
         content=csv_content,
         media_type="text/csv",
         headers={
             "Content-Disposition": f"attachment; filename=cost-estimate-{diagram_id}.csv",
-            "X-Artifact-SHA256": hashlib.sha256(csv_content.encode("utf-8")).hexdigest(),
+            "X-Artifact-SHA256": hashlib.sha256(
+                csv_content.encode("utf-8")
+            ).hexdigest(),
+            **(
+                {
+                    "X-Artifact-ID": artifact.id,
+                    "X-Analysis-Version-ID": artifact.version_id,
+                }
+                if artifact is not None
+                else {}
+            ),
         },
     )
-    response.headers["X-Export-Capability-Next"] = issue_export_capability(diagram_id)
+    response.headers[
+        "X-Export-Capability-Next"
+    ] = await issue_export_capability_for_request(
+        request,
+        diagram_id,
+    )
     return response

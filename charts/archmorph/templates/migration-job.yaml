@@ -1,0 +1,52 @@
+{{- if and .Values.migrations.enabled (eq .Values.migrations.phase "migrate") }}
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: {{ include "archmorph.fullname" . }}-migrate-{{ include "archmorph.migrationExecutionId" . }}
+  labels:
+    {{- include "archmorph.labels" . | nindent 4 }}
+    app.kubernetes.io/component: migration
+  annotations:
+    archmorph.io/release-phase: migrate
+spec:
+  ttlSecondsAfterFinished: {{ .Values.migrations.ttlSecondsAfterFinished }}
+  backoffLimit: {{ .Values.migrations.backoffLimit }}
+  activeDeadlineSeconds: {{ .Values.migrations.activeDeadlineSeconds }}
+  template:
+    metadata:
+      labels:
+        {{- include "archmorph.selectorLabels" . | nindent 8 }}
+        app.kubernetes.io/component: migration
+    spec:
+      restartPolicy: Never
+      serviceAccountName: {{ .Values.migrations.serviceAccountName | quote }}
+      automountServiceAccountToken: false
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: migrate
+          image: {{ include "archmorph.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command: ["python", "run_migrations.py"]
+          args:
+            - {{ include "archmorph.migrationRuntimeEnvelope" (dict "root" . "mode" "migrate") | quote }}
+          workingDir: /app
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: {{ include "archmorph.secretName" . }}
+                  key: DATABASE_URL
+            - name: ENVIRONMENT
+              value: {{ .Values.env.ENVIRONMENT | quote }}
+            - name: EXPECTED_ALEMBIC_HEAD
+              value: {{ .Values.migrations.expectedAlembicHead | quote }}
+            - name: MIGRATION_IMAGE_REFERENCE
+              value: {{ include "archmorph.image" . | quote }}
+{{- end }}

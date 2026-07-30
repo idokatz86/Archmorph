@@ -677,7 +677,7 @@ def _judge(workload: str, reference: Any, candidate: str, *, dry_run: bool) -> T
             bool(parsed.get("refusal", False)),
         )
     except Exception as exc:  # noqa: BLE001
-        logger.warning("judge call failed: %s", exc)
+        logger.warning("judge call failed error_type=%s", type(exc).__name__)
         return ({"accuracy": 0.0, "completeness": 0.0, "schema_validity": 0.0, "safety": 0.0, "concision": 0.0}, False)
 
 

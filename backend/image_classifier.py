@@ -11,6 +11,7 @@ import json
 import logging
 from typing import Any, Dict
 
+from log_sanitizer import log_model_output_metadata
 from openai_client import get_openai_client, AZURE_OPENAI_DEPLOYMENT, openai_retry
 from prompt_guard import PROMPT_ARMOR
 
@@ -113,7 +114,6 @@ def classify_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[
     )
 
     raw_text = response.choices[0].message.content.strip()
-    logger.info("Classification response: %s", raw_text[:200])
 
     # Parse JSON from response
     json_text = raw_text
@@ -127,7 +127,15 @@ def classify_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[
     try:
         result = json.loads(json_text.strip())
     except json.JSONDecodeError as exc:
-        logger.error("Failed to parse classification JSON: %s\nRaw: %s", exc, raw_text)
+        log_model_output_metadata(
+            logger,
+            component="image_classifier",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw_text,
+            parse_status="invalid_json",
+            exception=exc,
+            level=logging.ERROR,
+        )
         # On parse failure, reject (fail-closed) to avoid processing non-diagrams
         return {
             "is_architecture_diagram": False,
@@ -135,6 +143,14 @@ def classify_image(image_bytes: bytes, content_type: str = "image/png") -> Dict[
             "image_type": "unknown",
             "reason": "Classification parse error — rejecting for safety",
         }
+
+    log_model_output_metadata(
+        logger,
+        component="image_classifier",
+        model=AZURE_OPENAI_DEPLOYMENT,
+        output=raw_text,
+        parse_status="parsed",
+    )
 
     # Normalize result
     return {

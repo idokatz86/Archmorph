@@ -2,7 +2,9 @@ import io
 import os
 import sys
 import base64
+import hashlib
 import json
+import zipfile
 
 from fastapi.testclient import TestClient
 
@@ -17,7 +19,7 @@ from routers import shared  # noqa: E402
 
 
 OWNER_USER_ID = "aad_bridge-user"
-OWNER_TENANT_ID = "default_tenant"
+OWNER_TENANT_ID = "tenant-bridge"
 
 
 def _owner_headers() -> dict[str, str]:
@@ -52,6 +54,25 @@ def _owned_analysis(diagram_id: str) -> dict:
     }
 
 
+def _seed_owned_analysis(diagram_id: str) -> None:
+    from database import SessionLocal
+    from workspace_store import persist_analysis_state
+
+    db = SessionLocal()
+    try:
+        persist_analysis_state(
+            db,
+            owner_user_id=OWNER_USER_ID,
+            tenant_id=OWNER_TENANT_ID,
+            diagram_id=diagram_id,
+            snapshot=_owned_analysis(diagram_id),
+            session_store=shared.SESSION_STORE,
+            cache_required=True,
+        )
+    finally:
+        db.close()
+
+
 def _png_bytes() -> bytes:
     return b"\x89PNG\r\n\x1a\n" + b"\x00" * 32
 
@@ -62,7 +83,7 @@ def _swa_principal(user_id: str = "bridge-user") -> str:
         "userId": user_id,
         "userDetails": f"{user_id}@example.com",
         "userRoles": ["authenticated"],
-        "claims": [],
+        "claims": [{"typ": "tid", "val": OWNER_TENANT_ID}],
     }
     return base64.b64encode(json.dumps(principal).encode("utf-8")).decode("ascii")
 
@@ -74,7 +95,7 @@ def test_diagram_upload_accepts_authenticated_user_bearer_session(monkeypatch):
 
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.post(
-            "/api/projects/demo-project/diagrams",
+            "/api/projects/diagrams",
             headers=headers,
             files={"file": ("diagram.png", io.BytesIO(_png_bytes()), "image/png")},
         )
@@ -83,9 +104,24 @@ def test_diagram_upload_accepts_authenticated_user_bearer_session(monkeypatch):
     payload = response.json()
     assert payload["status"] == "uploaded"
     assert payload["diagram_id"].startswith("diag-")
+    assert payload["project_id"].startswith("proj-")
+    from database import SessionLocal
+    from models.workspace import SourceAsset
+
+    db = SessionLocal()
+    try:
+        source = db.query(SourceAsset).filter_by(diagram_id=payload["diagram_id"]).one()
+        assert source.workspace_id == payload["project_id"]
+        assert source.owner_user_id == OWNER_USER_ID
+        assert source.tenant_id == OWNER_TENANT_ID
+        assert source.filename.startswith("sha256:")
+        assert source.filename.endswith(":png")
+        assert source.content_type == "image/png"
+        assert source.file_size_bytes == len(_png_bytes())
+        assert source.content_hash == hashlib.sha256(_png_bytes()).hexdigest()
+    finally:
+        db.close()
     diagrams.IMAGE_STORE.delete(payload["diagram_id"])
-    shared.DIAGRAM_PROJECT_STORE.delete(payload["diagram_id"])
-    shared.PROJECT_STORE.delete("demo-project")
 
 
 def test_project_status_accepts_authenticated_user_bearer_session_when_api_key_configured(monkeypatch):
@@ -94,19 +130,18 @@ def test_project_status_accepts_authenticated_user_bearer_session_when_api_key_c
 
     with TestClient(app, raise_server_exceptions=False) as client:
         upload = client.post(
-            "/api/projects/demo-project/diagrams",
+            "/api/projects/diagrams",
             headers=headers,
             files={"file": ("diagram.png", io.BytesIO(_png_bytes()), "image/png")},
         )
         assert upload.status_code == 200, upload.text
-        response = client.get("/api/projects/demo-project", headers=headers)
+        project_id = upload.json()["project_id"]
+        response = client.get(f"/api/projects/{project_id}", headers=headers)
 
     assert response.status_code == 200, response.text
-    assert response.json()["project_id"] == "demo-project"
+    assert response.json()["project_id"] == project_id
     diagram_id = upload.json()["diagram_id"]
     diagrams.IMAGE_STORE.delete(diagram_id)
-    shared.DIAGRAM_PROJECT_STORE.delete(diagram_id)
-    shared.PROJECT_STORE.delete("demo-project")
 
 
 def test_guided_questions_accept_authenticated_user_bearer_session_when_api_key_configured(monkeypatch):
@@ -126,7 +161,11 @@ def test_architecture_package_accepts_authenticated_user_bearer_session_when_api
     monkeypatch.setattr(shared, "API_KEY", "test-api-key")
     monkeypatch.setenv("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
     diagram_id = "diag-bearer-architecture-package"
-    shared.SESSION_STORE[diagram_id] = _owned_analysis(diagram_id)
+    monkeypatch.setattr(
+        "export_artifacts._upload_blob",
+        lambda **kwargs: f"testblob://{kwargs['content_hash']}",
+    )
+    _seed_owned_analysis(diagram_id)
 
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.post(
@@ -143,7 +182,11 @@ def test_migration_package_accepts_authenticated_user_bearer_session_when_api_ke
     monkeypatch.setattr(shared, "API_KEY", "test-api-key")
     monkeypatch.setenv("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
     diagram_id = "diag-bearer-migration-package"
-    shared.SESSION_STORE[diagram_id] = _owned_analysis(diagram_id)
+    monkeypatch.setattr(
+        "export_artifacts._upload_blob",
+        lambda **kwargs: f"testblob://{kwargs['content_hash']}",
+    )
+    _seed_owned_analysis(diagram_id)
 
     with TestClient(app, raise_server_exceptions=False) as client:
         response = client.post(
@@ -156,6 +199,11 @@ def test_migration_package_accepts_authenticated_user_bearer_session_when_api_ke
     payload = response.json()
     assert payload["content_type"] == "application/zip"
     assert payload["content_b64"]
+    with zipfile.ZipFile(io.BytesIO(base64.b64decode(payload["content_b64"]))) as package:
+        embedded_docx = package.read("documents/high-level-design.docx")
+        assert embedded_docx.startswith(b"PK\x03\x04")
+        with zipfile.ZipFile(io.BytesIO(embedded_docx)) as document:
+            assert "word/document.xml" in document.namelist()
     shared.SESSION_STORE.delete(diagram_id)
 
 

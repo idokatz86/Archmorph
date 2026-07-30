@@ -12,6 +12,7 @@ def _origin_lock_headers(*, fdid: str = "fd-guid", host: str = "example.azurefd.
 
 def test_origin_lock_blocks_production_requests_without_front_door_headers(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("REQUIRE_REDIS", "false")
     monkeypatch.setenv("TRUSTED_FRONT_DOOR_FDID", "fd-guid")
     monkeypatch.setenv("TRUSTED_FRONT_DOOR_HOSTS", "example.azurefd.net")
 
@@ -24,6 +25,7 @@ def test_origin_lock_blocks_production_requests_without_front_door_headers(monke
 
 def test_origin_lock_allows_configured_front_door_contract(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("REQUIRE_REDIS", "false")
     monkeypatch.setenv("TRUSTED_FRONT_DOOR_FDID", "fd-guid")
     monkeypatch.setenv("TRUSTED_FRONT_DOOR_HOSTS", "example.azurefd.net")
 
@@ -36,6 +38,7 @@ def test_origin_lock_allows_configured_front_door_contract(monkeypatch):
 
 def test_origin_lock_rejects_wrong_front_door_profile(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("REQUIRE_REDIS", "false")
     monkeypatch.setenv("TRUSTED_FRONT_DOOR_FDID", "fd-guid")
     monkeypatch.setenv("TRUSTED_FRONT_DOOR_HOSTS", "example.azurefd.net")
 
@@ -51,6 +54,7 @@ def test_origin_lock_rejects_wrong_front_door_profile(monkeypatch):
 
 def test_origin_lock_keeps_healthz_available_for_platform_probes(monkeypatch):
     monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("REQUIRE_REDIS", "false")
     monkeypatch.setenv("TRUSTED_FRONT_DOOR_FDID", "fd-guid")
     monkeypatch.setenv("TRUSTED_FRONT_DOOR_HOSTS", "example.azurefd.net")
 

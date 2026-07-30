@@ -14,6 +14,7 @@ from models.job import JobRecord  # noqa: F401
 from models.tenant import Organization, TeamMember, Invitation  # noqa: F401
 from .deployment_state import DeploymentState  # noqa: F401
 from models.agent import Agent, AgentVersion  # noqa: F401
+from models.cost import CostAlertModel, CostBudgetModel, CostRecordModel  # noqa: F401
 
 from models.execution import Execution  # noqa: F401
 from models.memory import AgentMemoryDocument, AgentEpisodicMemory, AgentEntityMemory  # noqa: F401
@@ -22,9 +23,23 @@ from models.model_registry import ModelEndpoint  # noqa: F401
 from models.user import UserRecord  # noqa: F401
 from models.workspace import (  # noqa: F401
     Workspace,
+    APIKeyCredential,
     SourceAsset,
     Analysis,
     AnalysisVersion,
     Artifact,
     Decision,
+    DecisionSeverity,
+    DecisionStatus,
+    DecisionType,
+    AnalysisMutationReceipt,
+    DiagramLifecycle,
+    ProjectMember,
+    PurgeOperation,
+    RestoreGrant,
+    MigrationReplay,
+    MigrationReplayEvent,
+    TenantRehomeAudit,
+    TenantRehomeAlias,
+    WorkspaceStatus,
 )

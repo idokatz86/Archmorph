@@ -9,6 +9,7 @@ const principal = {
   claims: [
     { typ: 'name', val: 'Ido Katz' },
     { typ: 'http://schemas.xmlsoap.org/ws/2005/05/identity/claims/emailaddress', val: 'ido@example.com' },
+    { typ: 'tid', val: 'tenant-123' },
   ],
 };
 
@@ -51,7 +52,55 @@ describe('useAuthStore', () => {
       name: 'Ido Katz',
       email: 'ido@example.com',
       provider: 'microsoft',
+      tenant_id: 'tenant-123',
     });
+  });
+
+  it.each([
+    ['github', 'github-user-42', 'github'],
+    ['google', 'google-user-42', 'google'],
+  ])('derives a stable opaque tenant scope for SWA %s principals', async (identityProvider, userId, provider) => {
+    const providerPrincipal = {
+      identityProvider,
+      userId,
+      userDetails: 'mutable@example.com',
+      userRoles: ['authenticated'],
+      claims: [],
+    };
+    fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ clientPrincipal: providerPrincipal }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ authenticated: false, tier: 'free' }),
+      })
+      .mockResolvedValueOnce({ ok: false, status: 401 });
+
+    await useAuthStore.getState().initialize();
+
+    expect(useAuthStore.getState().user).toMatchObject({ provider });
+    const tenantId = useAuthStore.getState().user.tenant_id;
+    expect(tenantId).toMatch(/^idp:[a-f0-9]{32}$/);
+    expect(tenantId).not.toContain(userId);
+  });
+
+  it('keeps the real SWA AAD tenant claim instead of deriving a fallback', async () => {
+    fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ clientPrincipal: principal }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        json: () => Promise.resolve({ authenticated: false, tier: 'free' }),
+      })
+      .mockResolvedValueOnce({ ok: false, status: 401 });
+
+    await useAuthStore.getState().initialize();
+
+    expect(useAuthStore.getState().user.tenant_id).toBe('tenant-123');
   });
 
   it('exchanges SWA consent for a backend session when the API profile is anonymous', async () => {

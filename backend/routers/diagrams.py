@@ -16,27 +16,40 @@ from strict_models import StrictBaseModel
 from typing import Dict, Any, Optional
 import asyncio
 import base64
+import copy
 import hashlib
+import json
 import logging
+from functools import partial
+from starlette.concurrency import run_in_threadpool
 
 from database import get_db, SessionLocal
 from routers.shared import (
-    SESSION_STORE, IMAGE_STORE, PROJECT_STORE, SHARE_STORE, EXPORT_CAPABILITY_STORE,
+    SESSION_STORE, IMAGE_STORE,
     limiter, verify_api_key, verify_api_key_or_user_session, MAX_UPLOAD_SIZE, generate_session_id,
-    require_authenticated_user, get_api_key_service_principal,
+    get_api_key_service_principal, get_request_durable_principal,
     require_diagram_access,
 )
 import ci_smoke
 from job_queue import job_manager, AdmissionRejected, AdmissionStoreError, JobStoreError
-from usage_metrics import record_event, record_funnel_step
-from export_capabilities import attach_export_capability
+from usage_metrics import (
+    record_event,
+    record_event_and_funnel_step,
+    record_funnel_step,
+)
+from export_capabilities import (
+    attach_export_capability_for_persisted_job,
+    attach_export_capability_for_request,
+    binding_from_analysis_write_result,
+    decode_restore_capability,
+    issue_restore_capability,
+)
 from data_lifecycle import attach_trust_receipt, build_trust_receipt
 from image_classifier import classify_image
 from vision_analyzer import analyze_image, VISION_PROMPT_HASH
 from openai_client import AZURE_OPENAI_DEPLOYMENT, OpenAIServiceError, handle_openai_error
 from hld_generator import generate_hld, generate_hld_markdown  # noqa: F401 — re-exported for test monkeypatching
 from auth import get_user_from_request_headers
-from analysis_history import maybe_save_from_session
 from error_envelope import ArchmorphException
 from upload_validator import validate_upload, UploadValidationError
 from sku_translator import get_sku_translator
@@ -45,18 +58,23 @@ from architecture_rules import evaluate as evaluate_architecture_rules
 from architecture_review import build_audit_pipeline_issue, classify_regulated_workload
 from source_provider import normalize_source_provider
 from project_store import (
-    mark_diagram_analyzed,
+    acquire_project,
+    get_project,
     register_diagram,
-    remove_diagram,
     get_project_id_for_diagram,
 )
-import shareable_reports
-from iac_chat import clear_iac_chat
 from analysis_payload_bounds import (
     AnalysisPayloadTooLarge,
+    MAX_RESTORE_BODY_BYTES,
     validate_analysis_payload_bounds,
+    validate_restore_payload_shape,
 )
-from workspace_store import maybe_link_session
+from workspace_store import (
+    AnalysisCacheWriteError,
+    CanonicalWriteDeniedError,
+    DurableAnalysisPersistenceError,
+    persist_analysis_state,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -64,6 +82,11 @@ router = APIRouter()
 
 UPLOAD_CHUNK_SIZE_BYTES = 1024 * 1024
 VISIO_EXTENSION = ".vsdx"
+
+
+def _diagram_log_ref(diagram_id: object) -> str:
+    """Return a non-reversible diagram reference for operational logs."""
+    return hashlib.sha256(str(diagram_id).encode("utf-8")).hexdigest()[:12]
 
 
 def _enrich_with_sku(result: dict) -> dict:
@@ -105,7 +128,7 @@ def _enrich_with_provenance(result: dict) -> dict:
         try:
             m["confidence_provenance"] = build_provenance(m)
         except Exception:
-            logger.debug("Provenance enrichment skipped for mapping: %s", m.get("source_service"))
+            logger.debug("Provenance enrichment skipped for mapping")
     return result
 
 
@@ -135,8 +158,8 @@ def _enrich_with_architecture_issues(result: dict) -> dict:
         result["architecture_issues_summary"] = summary
     except Exception as exc:
         logger.warning(
-            "architecture_rules evaluation failed: %s",
-            str(exc).replace("\n", " ").replace("\r", " "),
+            "architecture_rules evaluation failed error_type=%s",
+            type(exc).__name__,
         )
         result.setdefault("architecture_issues", [])
         result.setdefault(
@@ -177,27 +200,43 @@ class RestoreSessionRequest(StrictBaseModel):
     iac_format: Optional[str] = None
     image_base64: Optional[str] = None
     image_content_type: Optional[str] = None
+    restore_capability: Optional[str] = None
 
 
-def _purge_store_records_for_diagram(store, diagram_id: str) -> int:
-    purged = 0
-    for key in list(store.keys("*")):
-        value = store.get(key)
-        if isinstance(value, dict) and value.get("diagram_id") == diagram_id:
-            store.delete(key)
-            purged += 1
-    return purged
-
-
-def _diagram_project_metadata(diagram_id: str) -> tuple[Optional[str], Dict[str, Any]]:
-    project_id = get_project_id_for_diagram(diagram_id)
-    if not project_id:
+def _diagram_project_metadata(
+    diagram_id: str,
+    *,
+    principal: Optional[dict] = None,
+) -> tuple[Optional[str], Dict[str, Any]]:
+    if principal is None or not principal.get("tenant_id"):
         return None, {}
-    project = PROJECT_STORE.get(project_id) or {}
-    for diagram in project.get("diagrams", []):
-        if diagram.get("diagram_id") == diagram_id:
-            return project_id, diagram
-    return project_id, {}
+    db = SessionLocal()
+    try:
+        project_id = get_project_id_for_diagram(
+            db,
+            diagram_id,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+        )
+        if not project_id:
+            return None, {}
+        project = get_project(
+            db,
+            project_id,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+        ) or {}
+        diagram = next(
+            (
+                item
+                for item in project.get("diagrams", [])
+                if item.get("diagram_id") == diagram_id
+            ),
+            {},
+        )
+        return project_id, diagram
+    finally:
+        db.close()
 
 
 def _attach_lifecycle_receipt(
@@ -206,8 +245,12 @@ def _attach_lifecycle_receipt(
     *,
     image_present: Optional[bool] = None,
     session_present: Optional[bool] = None,
+    principal: Optional[dict] = None,
 ) -> Dict[str, Any]:
-    project_id, diagram_meta = _diagram_project_metadata(diagram_id)
+    project_id, diagram_meta = _diagram_project_metadata(
+        diagram_id,
+        principal=principal,
+    )
     return attach_trust_receipt(
         payload,
         diagram_id,
@@ -219,22 +262,226 @@ def _attach_lifecycle_receipt(
     )
 
 
-def _persist_workspace_snapshot(db, *, user_id: str, tenant_id: Optional[str], diagram_id: str, session: Dict[str, Any]) -> None:
-    maybe_link_session(
-        db,
-        owner_user_id=user_id,
-        tenant_id=tenant_id,
-        diagram_id=diagram_id,
-        session=session,
-    )
+def _persist_authenticated_analysis(
+    db,
+    *,
+    user_id: str,
+    tenant_id: Optional[str],
+    diagram_id: str,
+    session: Dict[str, Any],
+    owner_api_key_id: Optional[str] = None,
+    cache_required: bool = False,
+    require_project_membership: bool = False,
+    precommit_hook=None,
+) -> Any:
+    try:
+        if tenant_id and owner_api_key_id is None:
+            from project_store import PROJECT_EDIT_ROLES, resolve_diagram_principal
+
+            project_principal = resolve_diagram_principal(
+                db,
+                diagram_id,
+                caller_user_id=user_id,
+                tenant_id=tenant_id,
+                allowed_roles=PROJECT_EDIT_ROLES,
+            )
+            if project_principal is None:
+                raise ValueError("Durable project edit permission not found")
+            user_id = project_principal["owner_user_id"]
+        from workspace_store import get_analysis_by_diagram
+
+        workspace_id = get_project_id_for_diagram(
+            db,
+            diagram_id,
+            owner_user_id=user_id,
+            tenant_id=tenant_id,
+        ) if tenant_id else None
+        if workspace_id is None and require_project_membership:
+            raise ValueError("Durable project membership not found")
+        durable_analysis = get_analysis_by_diagram(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=user_id,
+            tenant_id=tenant_id,
+        ) if tenant_id else None
+        expected_version = (
+            int(durable_analysis.current_version or 0)
+            if durable_analysis is not None and int(durable_analysis.current_version or 0) > 0
+            else None
+        )
+        operation = "analysis-result"
+        request_snapshot = copy.deepcopy(session)
+        request_snapshot.pop("_analysis_version", None)
+        request_hash = hashlib.sha256(json.dumps(
+            {
+                "diagram_id": diagram_id,
+                "operation": operation,
+                "expected_version": expected_version,
+                "snapshot": request_snapshot,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+            default=str,
+        ).encode("utf-8")).hexdigest()
+        result = persist_analysis_state(
+            db,
+            owner_user_id=user_id,
+            tenant_id=tenant_id,
+            diagram_id=diagram_id,
+            snapshot=session,
+            workspace_id=workspace_id,
+            session_store=SESSION_STORE,
+            cache_owner_api_key_id=owner_api_key_id,
+            cache_required=cache_required,
+            allow_unowned_upload_claim=True,
+            expected_version=expected_version,
+            operation=operation,
+            request_hash=request_hash,
+            require_snapshot_version=False,
+            precommit_hook=precommit_hook,
+        )
+        session["_analysis_version"] = result.version.version_number
+        return result
+    except CanonicalWriteDeniedError as exc:
+        raise ArchmorphException(404, "Diagram not found") from exc
+    except ValueError as exc:
+        if not tenant_id:
+            raise ArchmorphException(
+                401,
+                "Authenticated tenant context is required for durable analysis state.",
+                details={"error": "tenant_context_required"},
+            ) from exc
+        raise ArchmorphException(
+            503,
+            "Analysis persistence is temporarily unavailable. Please retry shortly.",
+            details={"error": "analysis_persistence_unavailable"},
+            headers={"Retry-After": "30"},
+        ) from exc
+    except DurableAnalysisPersistenceError as exc:
+        raise ArchmorphException(
+            503,
+            "Analysis persistence is temporarily unavailable. Please retry shortly.",
+            details={"error": "analysis_persistence_unavailable"},
+            headers={"Retry-After": "30"},
+        ) from exc
+    except AnalysisCacheWriteError as exc:
+        raise ArchmorphException(
+            503,
+            "Analysis cache is temporarily unavailable. The durable record was saved; retry to continue.",
+            details={"error": "analysis_cache_unavailable", "durable_saved": True},
+            headers={"Retry-After": "5"},
+        ) from exc
+
+
+def _persist_authenticated_analysis_in_worker(**kwargs):
+    include_capability_binding = kwargs.pop("_include_capability_binding", False)
+    caller_owner_user_id = kwargs["user_id"]
+    tenant_id = kwargs["tenant_id"]
+    owner_api_key_id = kwargs.get("owner_api_key_id")
+    db = SessionLocal()
+    try:
+        write_result = _persist_authenticated_analysis(db, **kwargs)
+        if not include_capability_binding:
+            return write_result
+        return write_result, binding_from_analysis_write_result(
+            write_result,
+            caller_owner_user_id=caller_owner_user_id,
+            tenant_id=tenant_id,
+            owner_api_key_id=owner_api_key_id,
+        )
+    finally:
+        db.close()
 
 
 # ─────────────────────────────────────────────────────────────
 # Diagrams — Upload
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/projects/{project_id}/diagrams")
+def _new_project_upload() -> None:
+    return None
+
+
+def _persist_project_upload(
+    *,
+    request: Request,
+    requested_project_id: Optional[str],
+    caller_owner_user_id: str,
+    tenant_id: str,
+    diagram_id: str,
+    filename: Optional[str],
+    content_type: Optional[str],
+    file_size_bytes: int,
+    content_hash: str,
+) -> tuple[str, str, str]:
+    from project_store import PROJECT_EDIT_ROLES, require_project_access
+
+    db = SessionLocal()
+    try:
+        canonical_owner_user_id = caller_owner_user_id
+        authorized_project_id = None
+        if requested_project_id:
+            resolved = require_project_access(
+                db,
+                project_id=requested_project_id,
+                caller_user_id=caller_owner_user_id,
+                tenant_id=tenant_id,
+                allowed_roles=PROJECT_EDIT_ROLES,
+            )
+            if resolved is None:
+                from models.workspace import Workspace
+                from workspace_store import CanonicalWriteDeniedError
+
+                same_scope_project = (
+                    db.query(Workspace.id)
+                    .filter(
+                        Workspace.id == requested_project_id,
+                        Workspace.owner_user_id == caller_owner_user_id,
+                        Workspace.tenant_id == tenant_id,
+                    )
+                    .first()
+                )
+                if same_scope_project is not None:
+                    raise CanonicalWriteDeniedError("Canonical state not found")
+            else:
+                project, _role = resolved
+                authorized_project_id = project.id
+                canonical_owner_user_id = project.owner_user_id
+        project = acquire_project(
+            db,
+            owner_user_id=canonical_owner_user_id,
+            tenant_id=tenant_id,
+            project_id=authorized_project_id,
+        )
+        register_diagram(
+            db,
+            project_id=project.id,
+            diagram_id=diagram_id,
+            owner_user_id=project.owner_user_id,
+            tenant_id=tenant_id,
+            filename=filename,
+            content_type=content_type,
+            file_size_bytes=file_size_bytes,
+            content_hash=content_hash,
+        )
+        restore_capability = issue_restore_capability(
+            request,
+            diagram_id,
+            db=db,
+            owner_user_id=project.owner_user_id,
+            tenant_id=tenant_id,
+        )
+        return project.id, project.owner_user_id, restore_capability
+    finally:
+        db.close()
+
+
+@router.post("/api/projects/diagrams")
 @limiter.limit("10/minute")
-async def upload_diagram(request: Request, project_id: str, file: UploadFile = File(...), _auth=Depends(verify_api_key_or_user_session)):
+async def upload_diagram(
+    request: Request,
+    file: UploadFile = File(...),
+    _auth=Depends(verify_api_key_or_user_session),
+    requested_project_id: Optional[str] = Depends(_new_project_upload),
+):
     """Upload an architecture diagram image for analysis.
 
     Accepts PNG, JPEG, SVG, PDF, and Visio (.vsdx) files up to the
@@ -271,6 +518,17 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
     image_bytes = b"".join(chunks)
 
     # Content-level validation (magic bytes, active PDF/SVG/ZIP content, etc.)
+    original_filename = file.filename or "upload"
+    filename_suffix = (
+        original_filename.rsplit(".", 1)[-1].lower()[:16]
+        if "." in original_filename
+        else "bin"
+    )
+    retained_filename = (
+        "sha256:"
+        f"{hashlib.sha256(original_filename.encode('utf-8')).hexdigest()}:"
+        f"{filename_suffix}"
+    )
     try:
         validate_upload(image_bytes, file.content_type or "", file.filename)
     except UploadValidationError as exc:
@@ -278,7 +536,57 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
 
     # Base64-encode for Redis/FileStore compatibility
     IMAGE_STORE[diagram_id] = (base64.b64encode(image_bytes).decode("ascii"), file.content_type)
-    logger.info("Stored image for %s (%s bytes, %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''), str(file.content_type).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+    headers = dict(request.headers)
+    upload_user = get_user_from_request_headers(headers)
+    upload_principal = get_request_durable_principal(request)
+    upload_api_key_id = get_api_key_service_principal(headers)
+    if upload_principal is None and upload_api_key_id:
+        upload_principal = {
+            "owner_user_id": upload_api_key_id,
+            "tenant_id": f"service:{upload_api_key_id.split(':', 1)[-1]}",
+            "owner_api_key_id": upload_api_key_id,
+            "legacy_owner_user_ids": [],
+        }
+    if upload_principal is None or not upload_principal.get("tenant_id"):
+        IMAGE_STORE.delete(diagram_id)
+        raise ArchmorphException(401, "Authenticated tenant context is required")
+    try:
+        project_id, canonical_owner_user_id, restore_capability = await run_in_threadpool(partial(
+            _persist_project_upload,
+            request=request,
+            requested_project_id=requested_project_id,
+            caller_owner_user_id=upload_principal["owner_user_id"],
+            tenant_id=upload_principal["tenant_id"],
+            diagram_id=diagram_id,
+            filename=retained_filename,
+            content_type=file.content_type,
+            file_size_bytes=len(image_bytes),
+            content_hash=hashlib.sha256(image_bytes).hexdigest(),
+        ))
+        upload_principal = {
+            **upload_principal,
+            "owner_user_id": canonical_owner_user_id,
+        }
+    except Exception as exc:
+        IMAGE_STORE.delete(diagram_id)
+        from workspace_store import CanonicalWriteDeniedError
+
+        if isinstance(exc, CanonicalWriteDeniedError):
+            raise ArchmorphException(404, "Project not found") from exc
+        raise ArchmorphException(503, "Project persistence is temporarily unavailable") from exc
+    namespace_claim = {"diagram_id": diagram_id, "status": "uploaded"}
+    if upload_user:
+        namespace_claim["_owner_user_id"] = upload_principal["owner_user_id"]
+        namespace_claim["_tenant_id"] = upload_user.tenant_id
+    elif upload_api_key_id:
+        namespace_claim["_owner_api_key_id"] = upload_api_key_id
+        namespace_claim["_tenant_id"] = f"service:{upload_api_key_id.split(':', 1)[-1]}"
+    SESSION_STORE.set(diagram_id, namespace_claim)
+    logger.info(
+        "Stored image diagram_sha256=%s image_bytes=%d",
+        _diagram_log_ref(diagram_id),
+        len(image_bytes),
+    )
 
     # Proactive capacity warning (#177)
     img_usage = len(IMAGE_STORE) / IMAGE_STORE.maxsize
@@ -288,17 +596,55 @@ async def upload_diagram(request: Request, project_id: str, file: UploadFile = F
             str(img_usage * 100).replace('\n', '').replace('\r', ''), str(len(IMAGE_STORE)).replace('\n', '').replace('\r', ''), str(IMAGE_STORE.maxsize).replace('\n', '').replace('\r', ''),
         )
 
-    register_diagram(project_id, diagram_id, file.filename, len(image_bytes))
-
-    record_event("diagrams_uploaded", {"filename": file.filename})
+    record_event(
+        "diagrams_uploaded",
+        {
+            "filename_sha256": hashlib.sha256(
+                original_filename.encode("utf-8")
+            ).hexdigest(),
+            "extension": filename_suffix,
+        },
+    )
     record_funnel_step(diagram_id, "upload")
-    return _attach_lifecycle_receipt(attach_export_capability({
-        "diagram_id": diagram_id,
-        "project_id": project_id,
-        "filename": file.filename,
-        "size": len(image_bytes),
-        "status": "uploaded"
-    }, diagram_id), diagram_id, image_present=True, session_present=False)
+    capability_payload = await attach_export_capability_for_request(
+        request=request,
+        diagram_id=diagram_id,
+        payload={
+            "diagram_id": diagram_id,
+            "project_id": project_id,
+            "filename": file.filename,
+            "size": len(image_bytes),
+            "status": "uploaded",
+            "restore_capability": restore_capability,
+        },
+    )
+    return _attach_lifecycle_receipt(
+        capability_payload,
+        diagram_id,
+        image_present=True,
+        session_present=False,
+        principal=upload_principal,
+    )
+
+
+@router.post(
+    "/api/projects/{project_id}/diagrams",
+    include_in_schema=False,
+)
+@limiter.limit("10/minute")
+async def upload_diagram_to_project(
+    request: Request,
+    project_id: str,
+    file: UploadFile = File(...),
+    _auth=Depends(verify_api_key_or_user_session),
+):
+    """Compatibility path; the supplied ID is only an authorized reacquisition hint."""
+    return await upload_diagram(
+        request=request,
+        file=file,
+        _auth=_auth,
+        requested_project_id=project_id,
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -310,7 +656,7 @@ async def restore_session(
     request: Request,
     diagram_id: str,
     body: RestoreSessionRequest,
-    user=Depends(require_authenticated_user),
+    _auth=Depends(verify_api_key_or_user_session),
     db=Depends(get_db),
 ):
     """Re-inject a cached analysis result into the session store.
@@ -319,85 +665,188 @@ async def restore_session(
     restarts and the in-memory store is wiped, the frontend can push its
     cached copy here to transparently restore the session.
     """
-    analysis = body.analysis
-    if not analysis or not isinstance(analysis, dict):
-        raise ArchmorphException(400, "Invalid analysis payload")
+    content_length = request.headers.get("content-length")
     try:
-        validate_analysis_payload_bounds(analysis)
+        declared_length = int(content_length) if content_length is not None else 0
+    except ValueError:
+        raise ArchmorphException(400, "Invalid Content-Length")
+    if declared_length > MAX_RESTORE_BODY_BYTES:
+        raise ArchmorphException(413, "Restore request body is too large")
+    try:
+        validate_restore_payload_shape(body.model_dump())
     except AnalysisPayloadTooLarge as exc:
         raise ArchmorphException(
             413,
             detail={
-                "error": "analysis_payload_too_large",
+                "error": "restore_payload_too_large",
                 "message": str(exc),
                 **exc.details,
             },
         )
+    analysis = copy.deepcopy(body.analysis)
+    if not analysis or not isinstance(analysis, dict):
+        raise ArchmorphException(400, "Invalid analysis payload")
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal["tenant_id"]:
+        raise ArchmorphException(401, "Authentication required")
+    owner_user_id = principal["owner_user_id"]
+    tenant_id = principal["tenant_id"]
+    owner_api_key_id = principal["owner_api_key_id"]
 
-    existing = SESSION_STORE.get(diagram_id)
-    if isinstance(existing, dict):
-        existing_owner = existing.get("_owner_user_id")
-        existing_tenant = existing.get("_tenant_id")
-        if existing_owner and existing_owner != user.id:
-            raise ArchmorphException(403, "Forbidden: session owner mismatch")
-        if existing_tenant and existing_tenant != user.tenant_id:
-            raise ArchmorphException(403, "Forbidden: tenant mismatch")
+    from workspace_store import consume_restore_grant, load_analysis_state, snapshot_payload_hash
 
-    analysis["diagram_id"] = diagram_id
-    analysis["_owner_user_id"] = user.id
-    analysis["_tenant_id"] = user.tenant_id
-
-    if body.hld:
-        analysis["hld"] = body.hld
-    if body.hld_markdown:
-        analysis["hld_markdown"] = body.hld_markdown
-    if body.iac_code:
-        analysis["_cached_iac_code"] = body.iac_code
-    if body.iac_format:
-        analysis["_cached_iac_format"] = body.iac_format
-
-    SESSION_STORE[diagram_id] = analysis
-    restored_parts = ["analysis"]
-    if body.hld:
-        restored_parts.append("hld")
-    if body.iac_code:
-        restored_parts.append("iac")
-    if body.image_base64:
+    durable = load_analysis_state(
+        db,
+        diagram_id=diagram_id,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+    )
+    if durable is not None:
+        analysis = durable
+        decoded_image: Optional[bytes] = None
+        restored_content_type: Optional[str] = None
+    else:
         try:
-            decoded = base64.b64decode(body.image_base64, validate=True)
-        except Exception as exc:
-            raise ArchmorphException(400, f"Invalid image_base64 payload: {str(exc)}")
-        if len(decoded) > MAX_UPLOAD_SIZE:
+            validate_analysis_payload_bounds(analysis)
+        except AnalysisPayloadTooLarge as exc:
             raise ArchmorphException(
                 413,
-                f"image_base64 too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB.",
+                detail={
+                    "error": "analysis_payload_too_large",
+                    "message": str(exc),
+                    **exc.details,
+                },
             )
-        restored_content_type = body.image_content_type or "image/png"
-        try:
-            validate_upload(decoded, restored_content_type, None)
-        except UploadValidationError as exc:
-            raise ArchmorphException(exc.status_code, exc.message)
+        decoded_image = None
+        restored_content_type = None
+        if body.image_base64:
+            try:
+                decoded_image = base64.b64decode(body.image_base64, validate=True)
+            except Exception as exc:
+                raise ArchmorphException(400, f"Invalid image_base64 payload: {str(exc)}")
+            if len(decoded_image) > MAX_UPLOAD_SIZE:
+                raise ArchmorphException(
+                    413,
+                    f"image_base64 too large. Maximum allowed: {MAX_UPLOAD_SIZE // (1024*1024)} MB.",
+                )
+            restored_content_type = body.image_content_type or "image/png"
+            try:
+                validate_upload(decoded_image, restored_content_type, None)
+            except UploadValidationError as exc:
+                raise ArchmorphException(exc.status_code, exc.message)
+        claims = decode_restore_capability(
+            request,
+            diagram_id,
+            body.restore_capability,
+        )
+        payload_hash = snapshot_payload_hash(analysis)
+        if claims is None:
+            raise ArchmorphException(404, "Diagram not found")
+        grant_kwargs = {
+            "nonce": str(claims.get("nonce") or ""),
+            "owner_user_id": owner_user_id,
+            "tenant_id": tenant_id,
+            "diagram_id": diagram_id,
+            "generation": int(claims.get("generation", -1)),
+            "expected_version": int(claims.get("expected_version", -1)),
+            "payload_hash": payload_hash,
+        }
+
+    analysis["diagram_id"] = diagram_id
+    analysis["_tenant_id"] = tenant_id
+    if owner_api_key_id:
+        analysis["_owner_api_key_id"] = owner_api_key_id
+        analysis.pop("_owner_user_id", None)
+    else:
+        analysis["_owner_user_id"] = owner_user_id
+        analysis.pop("_owner_api_key_id", None)
+
+    if durable is None:
+        if body.hld:
+            analysis["hld"] = body.hld
+        if body.hld_markdown:
+            analysis["hld_markdown"] = body.hld_markdown
+        if body.iac_code:
+            analysis["_cached_iac_code"] = body.iac_code
+        if body.iac_format:
+            analysis["_cached_iac_format"] = body.iac_format
+
+    if durable is not None:
+        from workspace_store import _write_session_cache
+
+        _write_session_cache(
+            SESSION_STORE,
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            snapshot=analysis,
+            version_number=int(analysis["_analysis_version"]),
+            owner_api_key_id=owner_api_key_id,
+        )
+    else:
+        _persist_authenticated_analysis(
+            db,
+            user_id=owner_user_id,
+            tenant_id=tenant_id,
+            diagram_id=diagram_id,
+            session=analysis,
+            owner_api_key_id=owner_api_key_id,
+            cache_required=True,
+            precommit_hook=lambda transaction: (
+                consume_restore_grant(transaction, **grant_kwargs, commit=False)
+                or (_ for _ in ()).throw(ValueError("Restore grant unavailable"))
+            ),
+        )
+    restored_parts = ["analysis"]
+    if durable is None and body.hld:
+        restored_parts.append("hld")
+    if durable is None and body.iac_code:
+        restored_parts.append("iac")
+    if durable is None and body.image_base64:
+        assert decoded_image is not None
+        assert restored_content_type is not None
         IMAGE_STORE[diagram_id] = (
             body.image_base64,
             restored_content_type,
         )
         restored_parts.append("image")
-    logger.info("Session restored for %s via client cache (%s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(", ".join(restored_parts)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
-    record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
-    _persist_workspace_snapshot(
-        db,
-        user_id=user.id,
-        tenant_id=user.tenant_id,
-        diagram_id=diagram_id,
-        session=analysis,
+    logger.info(
+        "Session restored via client cache diagram_sha256=%s parts_count=%d",
+        _diagram_log_ref(diagram_id),
+        len(restored_parts),
     )
-    return _attach_lifecycle_receipt(attach_export_capability(
-        {"status": "restored", "diagram_id": diagram_id, "restored": restored_parts},
+    record_event("sessions_restored", {"diagram_id": diagram_id, "parts": restored_parts})
+    next_restore_capability = issue_restore_capability(
+        request,
         diagram_id,
-    ), diagram_id, image_present=diagram_id in IMAGE_STORE, session_present=True)
+        db=db,
+        owner_user_id=owner_user_id,
+        tenant_id=tenant_id,
+        payload_hash=snapshot_payload_hash(analysis),
+    )
+    capability_payload = await attach_export_capability_for_request(
+        {
+            "status": "restored",
+            "diagram_id": diagram_id,
+            "restored": restored_parts,
+            "analysis": analysis,
+            "restore_capability": next_restore_capability,
+        },
+        request,
+        diagram_id,
+    )
+    return _attach_lifecycle_receipt(
+        capability_payload,
+        diagram_id,
+        image_present=diagram_id in IMAGE_STORE,
+        session_present=True,
+    )
 
 
-@router.delete("/api/diagrams/{diagram_id}/purge", dependencies=[Depends(require_diagram_access)])
+@router.delete(
+    "/api/diagrams/{diagram_id}/purge",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("20/minute")
 async def purge_diagram_session(
     request: Request,
@@ -416,61 +865,53 @@ async def purge_diagram_session(
     Uploaded data is processed by model services for analysis and is not used
     by Archmorph for model training.
     """
-    image_record = IMAGE_STORE.get(diagram_id)
-    session_record = SESSION_STORE.get(diagram_id)
-    image_deleted = image_record is not None
-    session_deleted = session_record is not None
-    project_id = get_project_id_for_diagram(diagram_id)
-    _, diagram_meta = _diagram_project_metadata(diagram_id)
-    if image_record is not None:
-        IMAGE_STORE.delete(diagram_id)
-    if session_record is not None:
-        SESSION_STORE.delete(diagram_id)
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal.get("tenant_id"):
+        raise ArchmorphException(404, "Diagram not found")
+    project_id, diagram_meta = _diagram_project_metadata(
+        diagram_id,
+        principal=principal,
+    )
+    from purge_service import PurgeIncompleteError, purge_diagram
 
-    project_index_deleted = project_id is not None
-    remove_diagram(diagram_id)
+    try:
+        result = purge_diagram(
+            diagram_id=diagram_id,
+            owner_user_id=principal["owner_user_id"],
+            tenant_id=principal["tenant_id"],
+        )
+    except PurgeIncompleteError as exc:
+        raise ArchmorphException(
+            503,
+            "Analysis purge is incomplete and can be retried.",
+            details={
+                "error": "analysis_purge_unavailable",
+                "operation_id": exc.operation_id,
+                "pending_stage": exc.stage,
+            },
+            headers={"Retry-After": "5"},
+        ) from exc
 
-    export_capabilities_deleted = _purge_store_records_for_diagram(EXPORT_CAPABILITY_STORE, diagram_id)
-    share_store_deleted = _purge_store_records_for_diagram(SHARE_STORE, diagram_id)
-    share_links_deleted = shareable_reports.purge_diagram_shares(diagram_id)
-    jobs_deleted = job_manager.purge_diagram(diagram_id)
-    iac_chat_deleted = clear_iac_chat(diagram_id)
-
-    record_event("diagram_data_purged", {
-        "diagram_id": diagram_id,
-        "project_id": project_id,
-        "image_deleted": image_deleted,
-        "session_deleted": session_deleted,
-        "export_capabilities_deleted": export_capabilities_deleted,
-        "share_store_deleted": share_store_deleted,
-        "share_links_deleted": share_links_deleted,
-        "jobs_deleted": jobs_deleted,
-        "iac_chat_deleted": iac_chat_deleted,
-    })
+    # Preserve only the irreversible aggregate counter. Emitting the diagram,
+    # project, operation, or a derived hash here would recreate purgeable data.
+    record_event("diagram_data_purged")
     purge_confirmation = {
         "status": "purged",
-        "server_content_deleted": bool(
-            image_deleted
-            or session_deleted
-            or project_index_deleted
-            or export_capabilities_deleted
-            or share_store_deleted
-            or share_links_deleted
-            or jobs_deleted
-            or iac_chat_deleted
-        ),
+        "operation_id": result.operation_id,
+        "server_content_deleted": True,
         "client_cache_action": "clear_session_storage_after_successful_purge",
         "audit_security_logs_retained": True,
     }
     artifact_status = {
-        "uploaded_content": "purged" if image_deleted else "not_present",
-        "analysis_session": "purged" if session_deleted else "not_present",
-        "project_index": "purged" if project_index_deleted else "not_present",
-        "share_links": share_links_deleted,
-        "share_store": share_store_deleted,
-        "export_capabilities": export_capabilities_deleted,
-        "async_jobs": jobs_deleted,
-        "iac_chat": bool(iac_chat_deleted),
+        "uploaded_content": "purged",
+        "analysis_session": "purged",
+        "project_index": "purged",
+        "share_links": "confirmed_absent",
+        "share_store": "confirmed_absent",
+        "export_capabilities": "confirmed_absent",
+        "async_jobs": "physically_deleted",
+        "iac_chat": "confirmed_absent",
+        "durable_analysis": "confirmed_absent",
     }
     trust_receipt = build_trust_receipt(
         diagram_id,
@@ -485,16 +926,9 @@ async def purge_diagram_session(
         "status": "purged",
         "diagram_id": diagram_id,
         "project_id": project_id,
+        "operation_id": result.operation_id,
         "trust_receipt": trust_receipt,
-        "purged": {
-            "image": image_deleted,
-            "session": session_deleted,
-            "export_capabilities": export_capabilities_deleted,
-            "share_store": share_store_deleted,
-            "share_links": share_links_deleted,
-            "jobs": jobs_deleted,
-            "iac_chat": iac_chat_deleted,
-        },
+        "purged": result.deleted,
     }
 
 
@@ -533,7 +967,10 @@ def _raise_analysis_service_failure(exc: Exception) -> None:
     raise ArchmorphException(service_error.status_code, service_error.args[0] if service_error.args else "Vision analysis failed.")
 
 
-@router.post("/api/diagrams/{diagram_id}/analyze")
+@router.post(
+    "/api/diagrams/{diagram_id}/analyze",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("5/minute")
 async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verify_api_key_or_user_session)):
     """Analyze an uploaded architecture diagram using GPT-4o vision.
@@ -546,37 +983,74 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     image_b64, content_type = IMAGE_STORE[diagram_id]
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
-    logger.info("Analyzing diagram %s (%s bytes)", str(diagram_id).replace('\n', '').replace('\r', ''), str(len(image_bytes)).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+    logger.info(
+        "Analyzing diagram diagram_sha256=%s image_bytes=%d",
+        _diagram_log_ref(diagram_id),
+        len(image_bytes),
+    )
 
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
+    principal = get_request_durable_principal(request)
     api_key_principal_id = get_api_key_service_principal(headers)
 
     if ci_smoke.enabled():
         result = ci_smoke.clone_analysis(diagram_id)
+        capability_binding = None
         if user:
-            result["_owner_user_id"] = user.id
+            result["_owner_user_id"] = principal["owner_user_id"]
             result["_tenant_id"] = user.tenant_id
         elif api_key_principal_id:
             result["_owner_api_key_id"] = api_key_principal_id
-        SESSION_STORE[diagram_id] = result
-        mark_diagram_analyzed(diagram_id, result)
-        record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
-        record_funnel_step(diagram_id, "analyze")
         if user:
-            maybe_save_from_session(user.id, result, diagram_id)
-            db = SessionLocal()
-            try:
-                _persist_workspace_snapshot(
-                    db,
-                    user_id=user.id,
+            _write_result, capability_binding = await run_in_threadpool(
+                partial(
+                    _persist_authenticated_analysis_in_worker,
+                    _include_capability_binding=True,
+                    user_id=principal["owner_user_id"],
                     tenant_id=user.tenant_id,
                     diagram_id=diagram_id,
                     session=result,
+                    cache_required=True,
+                    require_project_membership=True,
                 )
-            finally:
-                db.close()
-        return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
+            )
+        elif api_key_principal_id:
+            _write_result, capability_binding = await run_in_threadpool(
+                partial(
+                    _persist_authenticated_analysis_in_worker,
+                    _include_capability_binding=True,
+                    user_id=api_key_principal_id,
+                    tenant_id=f"service:{api_key_principal_id.split(':', 1)[-1]}",
+                    diagram_id=diagram_id,
+                    session=result,
+                    owner_api_key_id=api_key_principal_id,
+                    cache_required=True,
+                    require_project_membership=True,
+                )
+            )
+        else:
+            SESSION_STORE[diagram_id] = result
+        record_event_and_funnel_step(
+            "analyses_run",
+            {"diagram_id": diagram_id, "services": result["services_detected"]},
+            diagram_id=diagram_id,
+            step="analyze",
+            durable_subject=principal is not None,
+        )
+        return _attach_lifecycle_receipt(
+            await attach_export_capability_for_request(
+                result,
+                request,
+                diagram_id,
+                binding=capability_binding,
+                binding_resolved=True,
+            ),
+            diagram_id,
+            image_present=True,
+            session_present=True,
+            principal=principal,
+        )
 
     # No need to pre-compress, vision analyzer and classifier handle it internally
     compressed_bytes, compressed_type = image_bytes, content_type
@@ -586,11 +1060,22 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
         try:
             return await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
         except Exception as exc:
-            logger.warning("Image classification failed for %s: %s — proceeding with analysis", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+            logger.warning(
+                "Image classification failed diagram_sha256=%s error_type=%s; proceeding",
+                _diagram_log_ref(diagram_id),
+                type(exc).__name__,
+            )
             return {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown", "reason": "Classification unavailable"}
 
     async def _analyze():
-        return await asyncio.to_thread(analyze_image, compressed_bytes, compressed_type)
+        return await asyncio.to_thread(
+            analyze_image,
+            compressed_bytes,
+            compressed_type,
+            diagram_id=diagram_id,
+            owner_user_id=(principal or {}).get("owner_user_id"),
+            tenant_id=(principal or {}).get("tenant_id"),
+        )
 
     classification, analysis_result_or_exc = await asyncio.gather(
         _classify(),
@@ -599,8 +1084,14 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     )
 
     if not classification["is_architecture_diagram"]:
-        logger.info("Image rejected for %s: %s (confidence: %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(classification["reason"]).replace('\n', '').replace('\r', ''), str(classification["confidence"]).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
-        record_event("images_rejected", {"diagram_id": diagram_id, "image_type": classification["image_type"], "reason": classification["reason"]})
+        logger.info(
+            "Image rejected diagram_sha256=%s",
+            _diagram_log_ref(diagram_id),
+        )
+        record_event(
+            "images_rejected",
+            {"diagram_id": diagram_id},
+        )
         raise ArchmorphException(
             status_code=422,
             detail={
@@ -610,10 +1101,17 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
             },
         )
 
-    logger.info("Image classified as architecture diagram for %s (confidence: %s)", str(diagram_id).replace('\n', '').replace('\r', ''), str(classification["confidence"]).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+    logger.info(
+        "Image classified as architecture diagram diagram_sha256=%s",
+        _diagram_log_ref(diagram_id),
+    )
 
     if isinstance(analysis_result_or_exc, Exception):
-        logger.error("Vision analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(analysis_result_or_exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
+        logger.error(
+            "Vision analysis failed diagram_sha256=%s error_type=%s",
+            _diagram_log_ref(diagram_id),
+            type(analysis_result_or_exc).__name__,
+        )
         _raise_analysis_service_failure(analysis_result_or_exc)
 
     result = await asyncio.to_thread(_normalize_analysis, analysis_result_or_exc)
@@ -622,7 +1120,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     # Save to user history if authenticated (#245)
     if user:
-        result["_owner_user_id"] = user.id
+        result["_owner_user_id"] = principal["owner_user_id"]
         result["_tenant_id"] = user.tenant_id
     elif api_key_principal_id:
         result["_owner_api_key_id"] = api_key_principal_id
@@ -630,32 +1128,66 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
     if len(SESSION_STORE) >= SESSION_STORE.maxsize:
         logger.warning("Session store at capacity (%d/%d) — oldest sessions will be evicted",
                        str(len(SESSION_STORE)).replace('\n', '').replace('\r', ''), str(SESSION_STORE.maxsize).replace('\n', '').replace('\r', ''))
-    SESSION_STORE[diagram_id] = result
-    mark_diagram_analyzed(diagram_id, result)
-    record_event("analyses_run", {"diagram_id": diagram_id, "services": result["services_detected"]})
-    record_funnel_step(diagram_id, "analyze")
-
+    capability_binding = None
     if user:
-        maybe_save_from_session(user.id, result, diagram_id)
-        db = SessionLocal()
-        try:
-            _persist_workspace_snapshot(
-                db,
-                user_id=user.id,
+        _write_result, capability_binding = await run_in_threadpool(
+            partial(
+                _persist_authenticated_analysis_in_worker,
+                _include_capability_binding=True,
+                user_id=principal["owner_user_id"],
                 tenant_id=user.tenant_id,
                 diagram_id=diagram_id,
                 session=result,
+                cache_required=True,
+                require_project_membership=True,
             )
-        finally:
-            db.close()
+        )
+    elif api_key_principal_id:
+        _write_result, capability_binding = await run_in_threadpool(
+            partial(
+                _persist_authenticated_analysis_in_worker,
+                _include_capability_binding=True,
+                user_id=api_key_principal_id,
+                tenant_id=f"service:{api_key_principal_id.split(':', 1)[-1]}",
+                diagram_id=diagram_id,
+                session=result,
+                owner_api_key_id=api_key_principal_id,
+                cache_required=True,
+                require_project_membership=True,
+            )
+        )
+    else:
+        SESSION_STORE[diagram_id] = result
+    record_event_and_funnel_step(
+        "analyses_run",
+        {"diagram_id": diagram_id, "services": result["services_detected"]},
+        diagram_id=diagram_id,
+        step="analyze",
+        durable_subject=principal is not None,
+    )
 
-    return _attach_lifecycle_receipt(attach_export_capability(result, diagram_id), diagram_id, image_present=True, session_present=True)
+    return _attach_lifecycle_receipt(
+        await attach_export_capability_for_request(
+            result,
+            request,
+            diagram_id,
+            binding=capability_binding,
+            binding_resolved=True,
+        ),
+        diagram_id,
+        image_present=True,
+        session_present=True,
+        principal=principal,
+    )
 
 
 # ─────────────────────────────────────────────────────────────
 # Async Analysis (Issue #172)
 # ─────────────────────────────────────────────────────────────
-@router.post("/api/diagrams/{diagram_id}/analyze-async")
+@router.post(
+    "/api/diagrams/{diagram_id}/analyze-async",
+    dependencies=[Depends(require_diagram_access)],
+)
 @limiter.limit("5/minute")
 async def analyze_diagram_async(
     request: Request,
@@ -673,11 +1205,12 @@ async def analyze_diagram_async(
 
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
+    principal = get_request_durable_principal(request)
     api_key_principal_id = get_api_key_service_principal(headers)
 
     # Admission control: enforce per-user/per-tenant active-job limits.
-    owner_user_id = user.id if user else None
-    tenant_id = user.tenant_id if user else None
+    owner_user_id = principal["owner_user_id"] if user else None
+    tenant_id = principal["tenant_id"] if principal else None
     owner_api_key_id = api_key_principal_id if not user else None
     image_b64, content_type = IMAGE_STORE[diagram_id]
     image_bytes = base64.b64decode(image_b64) if isinstance(image_b64, str) else image_b64
@@ -756,7 +1289,11 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         try:
             classification = await asyncio.to_thread(classify_image, compressed_bytes, compressed_type)
         except Exception as exc:
-            logger.warning("Classification failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+            logger.warning(
+                "Classification failed diagram_sha256=%s error_type=%s",
+                _diagram_log_ref(diagram_id),
+                type(exc).__name__,
+            )
             classification = {"is_architecture_diagram": True, "confidence": 0.5, "image_type": "unknown"}
 
         if not classification.get("is_architecture_diagram", True):
@@ -772,7 +1309,24 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
             return
 
         job_manager.update_progress(job_id, 40, "Analyzing cloud services and topology...", phase="analyzing")
-        result = await asyncio.to_thread(analyze_image, compressed_bytes, compressed_type)
+        result = await asyncio.to_thread(
+            analyze_image,
+            compressed_bytes,
+            compressed_type,
+            diagram_id=diagram_id,
+            owner_user_id=(
+                getattr(job_manager.get(job_id), "owner_user_id", None)
+                or getattr(job_manager.get(job_id), "owner_api_key_id", None)
+            ),
+            tenant_id=(
+                getattr(job_manager.get(job_id), "tenant_id", None)
+                or (
+                    f"service:{getattr(job_manager.get(job_id), 'owner_api_key_id').split(':', 1)[-1]}"
+                    if getattr(job_manager.get(job_id), "owner_api_key_id", None)
+                    else None
+                )
+            ),
+        )
 
         if not job_manager.owns_current_lease(job_id):
             return
@@ -807,42 +1361,72 @@ async def _run_analysis_job(job_id: str, payload: Dict[str, Any]) -> None:
         if hashlib.sha256(latest_image_bytes).hexdigest() != payload.get("image_sha256"):
             job_manager.fail(job_id, "Uploaded image changed while analysis was running")
             return
-        SESSION_STORE[diagram_id] = result
-        mark_diagram_analyzed(diagram_id, result)
-
+        if job_user_id:
+            await run_in_threadpool(partial(
+                _persist_authenticated_analysis_in_worker,
+                    user_id=job_user_id,
+                    tenant_id=job_tenant_id,
+                    diagram_id=diagram_id,
+                    session=result,
+                    cache_required=True,
+                    require_project_membership=True,
+            ))
+        elif job_api_principal_id:
+            await run_in_threadpool(partial(
+                _persist_authenticated_analysis_in_worker,
+                    user_id=job_api_principal_id,
+                    tenant_id=f"service:{job_api_principal_id.split(':', 1)[-1]}",
+                    diagram_id=diagram_id,
+                    session=result,
+                    owner_api_key_id=job_api_principal_id,
+                    cache_required=True,
+                    require_project_membership=True,
+            ))
+        else:
+            SESSION_STORE[diagram_id] = result
         job_manager.update_progress(job_id, 90, "Saving guided questions and evidence...", phase="saving")
 
         record_event("analyses_run", {"diagram_id": diagram_id, "services": result.get("services_detected", 0)})
         record_funnel_step(diagram_id, "analyze")
 
-        # Save to user history if job carries an authenticated owner.
-        if job_user_id:
-            maybe_save_from_session(job_user_id, result, diagram_id)
-            db = SessionLocal()
-            try:
-                _persist_workspace_snapshot(
-                    db,
-                    user_id=job_user_id,
-                    tenant_id=job_tenant_id,
-                    diagram_id=diagram_id,
-                    session=result,
-                )
-            finally:
-                db.close()
-        elif job_api_principal_id:
+        if job_api_principal_id:
             logger.debug(
                 "Skipping user history persistence for API principal-owned async analysis %s",
-                str(diagram_id).replace('\n', '').replace('\r', ''),
+                str(diagram_id).replace("\n", "").replace("\r", ""),
             )
 
         job_manager.update_progress(job_id, 95, "Finalizing...", phase="saving")
-        job_manager.complete(job_id, result=_attach_lifecycle_receipt(
-            attach_export_capability(result, diagram_id),
+        job_principal = {
+            "owner_user_id": job_user_id or job_api_principal_id,
+            "tenant_id": (
+                job_tenant_id
+                if job_user_id
+                else f"service:{job_api_principal_id.split(':', 1)[-1]}"
+                if job_api_principal_id
+                else None
+            ),
+        }
+        completion_result = await attach_export_capability_for_persisted_job(
+            result,
+            job_manager,
+            job_id,
             diagram_id,
-            image_present=diagram_id in IMAGE_STORE,
-            session_present=True,
-        ))
+        )
+        job_manager.complete(
+            job_id,
+            result=_attach_lifecycle_receipt(
+                completion_result,
+                diagram_id,
+                image_present=diagram_id in IMAGE_STORE,
+                session_present=True,
+                principal=job_principal,
+            ),
+        )
 
     except Exception as exc:
-        logger.error("Async analysis failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
+        logger.error(
+            "Async analysis failed diagram_sha256=%s error_type=%s",
+            _diagram_log_ref(diagram_id),
+            type(exc).__name__,
+        )
         job_manager.fail(job_id, str(exc))

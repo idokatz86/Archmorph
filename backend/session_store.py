@@ -54,11 +54,48 @@ class SessionStore:
     def set(self, key: str, value: Any, ttl: Optional[int] = None) -> bool:
         raise NotImplementedError
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str) -> bool:
+        """Delete *key* and confirm that it is absent from the backing store."""
+        raise NotImplementedError
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        """Atomically return and delete *key*, or return *default* when absent.
+
+        Backends must raise when deletion cannot be confirmed.  A non-atomic
+        ``get`` followed by ``delete`` is intentionally not provided because
+        capability consumers rely on exactly one concurrent caller winning.
+        """
         raise NotImplementedError
 
     def keys(self, pattern: str = "*") -> List[str]:
         raise NotImplementedError
+
+    def values(self, pattern: str = "*") -> List[Any]:
+        """Return confirmed present values matching *pattern*."""
+        values = []
+        for key in self.keys(pattern):
+            value = self.peek(key, self._MISSING)
+            if value is not self._MISSING:
+                values.append(value)
+        return values
+
+    def page(
+        self,
+        *,
+        pattern: str = "*",
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[List[tuple[str, Any]], int]:
+        """Return a deterministic bounded page and total matching item count."""
+        if offset < 0 or limit < 1:
+            raise ValueError("offset must be non-negative and limit must be positive")
+        keys = sorted(self.keys(pattern))
+        items: List[tuple[str, Any]] = []
+        for key in keys[offset : offset + limit]:
+            value = self.peek(key, self._MISSING)
+            if value is not self._MISSING:
+                items.append((key, value))
+        return items, len(keys)
 
     def clear(self) -> None:
         raise NotImplementedError
@@ -198,11 +235,20 @@ class InMemoryStore(SessionStore):
             self._total_bytes += entry_size
             return True
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str) -> bool:
         with self._lock:
             val = self._cache.pop(key, None)
             if val is not None:
                 self._total_bytes -= self._estimate_entry_size(val)
+            return key not in self._cache
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        with self._lock:
+            value = self._cache.pop(key, self._MISSING)
+            if value is self._MISSING:
+                return default
+            self._total_bytes -= self._estimate_entry_size(value)
+            return value
 
     def update_if(
         self,
@@ -372,11 +418,35 @@ class FileStore(SessionStore):
             finally:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str) -> bool:
         with open(self._lock_path(key), "a+") as lock_file:
             fcntl.flock(lock_file, fcntl.LOCK_EX)
             try:
                 self._path(key).unlink(missing_ok=True)
+                return not self._path(key).exists()
+            finally:
+                fcntl.flock(lock_file, fcntl.LOCK_UN)
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        path = self._path(key)
+        with open(self._lock_path(key), "a+") as lock_file:
+            fcntl.flock(lock_file, fcntl.LOCK_EX)
+            try:
+                if not path.exists():
+                    return default
+                try:
+                    with open(path, "r") as value_file:
+                        data = _json.load(value_file)
+                    if data.get("expires_at", 0) < _time.time():
+                        path.unlink(missing_ok=True)
+                        return default
+                    value = data.get("value")
+                except (ValueError, OSError, KeyError) as exc:
+                    raise OSError("FileStore value could not be consumed") from exc
+                path.unlink(missing_ok=True)
+                if path.exists():
+                    raise OSError("FileStore deletion could not be confirmed")
+                return value
             finally:
                 fcntl.flock(lock_file, fcntl.LOCK_UN)
 
@@ -611,12 +681,35 @@ class RedisStore(SessionStore):
                 logger.warning("Redis conditional update failed (error_type=%s)", type(exc).__name__)
                 return False, self.get(key)
 
-    def delete(self, key: str) -> None:
+    def delete(self, key: str) -> bool:
         from circuit_breakers import redis_breaker
         try:
             redis_breaker.call(self._redis.delete, self._key(key))
+            return redis_breaker.call(self._redis.exists, self._key(key)) == 0
         except Exception as exc:
             logger.warning("Redis DELETE failed (error_type=%s)", type(exc).__name__)
+            return False
+
+    def pop(self, key: str, default: Any = None) -> Any:
+        """Atomically consume a value with Redis ``GETDEL``.
+
+        Backend errors are raised rather than collapsed into a cache miss so
+        security-sensitive callers cannot report success without deletion
+        confirmation.
+        """
+        from circuit_breakers import redis_breaker
+
+        try:
+            raw = redis_breaker.call(self._redis.getdel, self._key(key))
+        except Exception as exc:
+            logger.warning("Redis GETDEL failed (error_type=%s)", type(exc).__name__)
+            raise RuntimeError("Redis atomic deletion could not be confirmed") from exc
+        if raw is None:
+            return default
+        try:
+            return self._json.loads(raw)
+        except (self._json.JSONDecodeError, TypeError):
+            return raw
 
     def keys(self, pattern: str = "*") -> List[str]:
         full_pattern = f"{self._prefix}:{pattern}"
@@ -629,6 +722,39 @@ class RedisStore(SessionStore):
             if cursor == 0:
                 break
         return result
+
+    def page(
+        self,
+        *,
+        pattern: str = "*",
+        offset: int = 0,
+        limit: int = 20,
+    ) -> tuple[List[tuple[str, Any]], int]:
+        """Page Redis values via SCAN and a bounded MGET batch."""
+        if offset < 0 or limit < 1:
+            raise ValueError("offset must be non-negative and limit must be positive")
+        full_pattern = f"{self._prefix}:{pattern}"
+        prefix_len = len(self._prefix) + 1
+        keys: List[str] = []
+        cursor = 0
+        while True:
+            cursor, batch = self._redis.scan(cursor=cursor, match=full_pattern, count=100)
+            keys.extend(batch)
+            if cursor == 0:
+                break
+        keys.sort()
+        selected = keys[offset : offset + limit]
+        raw_values = self._redis.mget(selected) if selected else []
+        items: List[tuple[str, Any]] = []
+        for redis_key, raw in zip(selected, raw_values):
+            if raw is None:
+                continue
+            try:
+                value = self._json.loads(raw)
+            except (self._json.JSONDecodeError, TypeError):
+                value = raw
+            items.append((redis_key[prefix_len:], value))
+        return items, len(keys)
 
     def clear(self) -> None:
         cursor = 0
@@ -660,7 +786,13 @@ REDIS_URL = os.getenv("REDIS_URL", "")  # kept for backward compat
 REDIS_HOST = os.getenv("REDIS_HOST", "")  # Entra ID mode
 WORKER_COUNT = int(os.getenv("WEB_CONCURRENCY", os.getenv("UVICORN_WORKERS", "1")))
 ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
-REQUIRE_REDIS = os.getenv("REQUIRE_REDIS", os.getenv("ENFORCE_REDIS", "")).lower() in ("1", "true", "yes")
+REQUIRE_REDIS = os.getenv(
+    "REQUIRE_REDIS",
+    os.getenv(
+        "ENFORCE_REDIS",
+        "true" if ENVIRONMENT in ("production", "prod", "staging") else "false",
+    ),
+).lower() in ("1", "true", "yes")
 
 
 def _env_int(name: str, default: int = 1) -> int:
@@ -695,10 +827,12 @@ def _is_production() -> bool:
 
 def _redis_required() -> bool:
     """Return True when Redis is an explicit hard dependency."""
-    return os.getenv(
-        "REQUIRE_REDIS",
-        os.getenv("ENFORCE_REDIS", "true" if REQUIRE_REDIS else ""),
-    ).lower() in ("1", "true", "yes")
+    configured = os.getenv("REQUIRE_REDIS", "").strip()
+    if not configured:
+        configured = os.getenv("ENFORCE_REDIS", "").strip()
+    if not configured:
+        return _is_production()
+    return configured.lower() in ("1", "true", "yes")
 
 
 def session_store_backend() -> str:
@@ -713,12 +847,26 @@ def session_store_backend() -> str:
 def session_store_readiness() -> dict[str, Any]:
     """Return operator-facing readiness metadata for release gates."""
     backend = session_store_backend()
-    redis_ready = backend == "redis"
+    redis_reachable = False
+    redis_error: Optional[str] = None
+    redis_client = None
+    if redis_configured():
+        try:
+            redis_client = _create_redis_client(socket_connect_timeout=2)
+            redis_reachable = True
+        except Exception as exc:
+            redis_error = type(exc).__name__
+        finally:
+            if redis_client is not None:
+                redis_client.close()
+    redis_ready = backend == "redis" and redis_reachable
     requires_redis_for_scale = _is_multi_worker() or _is_multi_replica()
     scale_blocked = requires_redis_for_scale and not redis_ready
     return {
         "backend": backend,
         "redis_configured": redis_configured(),
+        "redis_reachable": redis_reachable,
+        "redis_error": redis_error,
         "require_redis": _redis_required(),
         "production_like": _is_production(),
         "multi_worker": _is_multi_worker(),
@@ -726,9 +874,11 @@ def session_store_readiness() -> dict[str, Any]:
         "multi_replica": _is_multi_replica(),
         "requires_redis_for_scale": requires_redis_for_scale,
         "ready_for_horizontal_scale": redis_ready,
-        "scale_blocked": scale_blocked,
+        "scale_blocked": scale_blocked or (_redis_required() and not redis_ready),
         "scale_blocked_reason": (
-            "Redis is required when WEB_CONCURRENCY/UVICORN_WORKERS or declared replicas exceed 1"
+            "Required Redis dependency is unavailable"
+            if _redis_required() and not redis_ready
+            else "Redis is required when WEB_CONCURRENCY/UVICORN_WORKERS or declared replicas exceed 1"
             if scale_blocked
             else None
         ),
@@ -766,7 +916,7 @@ def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore
                 )
             except Exception as exc:
                 logger.warning("Redis unavailable (%s) — falling back for '%s'", exc, name)
-                if REQUIRE_REDIS:
+                if _redis_required():
                     raise RuntimeError("REQUIRE_REDIS is set but Redis is unavailable") from exc
                 if _is_production() or _is_multi_worker():
                     logger.warning(
@@ -780,7 +930,7 @@ def get_store(name: str, *, maxsize: int = 500, ttl: int = 7200) -> SessionStore
         elif _is_production():
             # Issue #262/#286 — In production, NEVER use InMemoryStore.
             # Data is lost on every deploy/restart.
-            if REQUIRE_REDIS:
+            if _redis_required():
                 raise RuntimeError("REQUIRE_REDIS is set but REDIS_HOST/REDIS_URL is not configured")
             logger.error(
                 "🚨 PRODUCTION without REDIS_URL — using FileStore for '%s'. "

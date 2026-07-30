@@ -17,6 +17,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
+from log_sanitizer import log_model_output_metadata
 from services.mappings import CROSS_CLOUD_MAPPINGS
 from source_provider import normalize_source_provider
 from openai_client import (
@@ -184,7 +185,10 @@ def _load_feedback_from_db() -> None:
         finally:
             db.close()
     except Exception as exc:
-        logger.warning("Could not load feedback from DB (non-fatal): %s", exc)
+        logger.warning(
+            "Could not load feedback from DB error_type=%s",
+            type(exc).__name__,
+        )
         _feedback_loaded = True  # Don't retry on every call
 
 
@@ -223,19 +227,22 @@ def _record_feedback(suggestion: Dict[str, Any], decision: str, reviewer: str) -
             )
             db.add(record)
             db.commit()
-            logger.info(
-                "Persisted feedback: %s → %s (%s)",
-                entry["source_service"], entry["azure_service"], decision,
-            )
+            logger.info("Persisted suggestion feedback")
         except Exception as exc:
             db.rollback()
-            logger.error("Failed to persist feedback to DB: %s", exc)
+            logger.error(
+                "Failed to persist feedback to DB error_type=%s",
+                type(exc).__name__,
+            )
         finally:
             db.close()
     except Exception as exc:
-        logger.warning("DB unavailable for feedback persistence: %s", exc)
+        logger.warning(
+            "DB unavailable for feedback persistence error_type=%s",
+            type(exc).__name__,
+        )
 
-    logger.info("Recorded feedback: %s → %s (%s)", entry["source_service"], entry["azure_service"], decision)
+    logger.info("Recorded suggestion feedback")
 
 
 def _build_confidence_factors(suggestion: Dict[str, Any], source_service: str) -> list:
@@ -634,19 +641,42 @@ def _call_gpt_suggest(
     if few_shot:
         user_content += few_shot
 
-    response = client.chat.completions.create(
-        model=AZURE_OPENAI_DEPLOYMENT,
-        messages=[
-            {"role": "system", "content": _SUGGESTION_SYSTEM_PROMPT},
-            {"role": "user", "content": user_content},
-        ],
-        temperature=0.2,
-        max_tokens=500,
-        response_format={"type": "json_object"},
-    )
+    raw = ""
+    try:
+        response = client.chat.completions.create(
+            model=AZURE_OPENAI_DEPLOYMENT,
+            messages=[
+                {"role": "system", "content": _SUGGESTION_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ],
+            temperature=0.2,
+            max_tokens=500,
+            response_format={"type": "json_object"},
+        )
+        raw = response.choices[0].message.content or ""
+        result = json.loads(raw or "{}")
+    except Exception as exc:
+        log_model_output_metadata(
+            logger,
+            component="ai_suggestion",
+            model=AZURE_OPENAI_DEPLOYMENT,
+            output=raw,
+            parse_status=(
+                "invalid_json" if isinstance(exc, json.JSONDecodeError) else "failed"
+            ),
+            exception=exc,
+            level=logging.ERROR,
+        )
+        raise
 
-    raw = response.choices[0].message.content or "{}"
-    return json.loads(raw)
+    log_model_output_metadata(
+        logger,
+        component="ai_suggestion",
+        model=AZURE_OPENAI_DEPLOYMENT,
+        output=raw,
+        parse_status="parsed",
+    )
+    return result
 
 
 def suggest_mapping(
@@ -704,7 +734,6 @@ def suggest_mapping(
         suggestion = _call_gpt_suggest(source_service, source_provider, context_services)
     except Exception as exc:
         err = handle_openai_error(exc, "AI mapping suggestion")
-        logger.error("AI suggestion failed for %s: %s", source_service, err)
         return {
             "source_service": source_service,
             "source_provider": source_provider,
@@ -866,11 +895,8 @@ def _enqueue_review(suggestion: Dict[str, Any]) -> str:
             "decision": None,
         }
     logger.info(
-        "Queued suggestion %s for review: %s → %s (%.2f)",
+        "Queued suggestion %s for review",
         suggestion_id,
-        suggestion.get("source_service"),
-        suggestion.get("azure_service"),
-        suggestion.get("confidence", 0),
     )
     return suggestion_id
 
@@ -954,10 +980,8 @@ def review_suggestion(
     _record_feedback(suggestion, decision, reviewer)
 
     logger.info(
-        "Suggestion %s %s by %s",
+        "Suggestion %s reviewed",
         suggestion_id,
-        decision,
-        reviewer,
     )
     return suggestion
 

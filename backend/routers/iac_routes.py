@@ -10,24 +10,34 @@ from pydantic import Field
 from starlette.responses import JSONResponse
 from strict_models import StrictBaseModel
 import asyncio
+import copy
 import hashlib
 import json
 import logging
 import re
 import secrets
+from functools import partial
 from typing import Any, Dict, Literal, Optional
+from starlette.concurrency import run_in_threadpool
 
 from routers.shared import (
     SESSION_STORE,
-    authorize_diagram_access,
+    authorize_diagram_access_async,
     get_api_key_service_principal,
     limiter,
+    persist_diagram_mutation_async,
+    require_api_write_or_user_session,
     require_diagram_access,
     verify_api_key,
 )
+from export_capabilities import attach_export_capability_for_persisted_job
 from job_queue import JobStoreError, job_manager
 from openai_client import AZURE_OPENAI_DEPLOYMENT
-from usage_metrics import record_event, record_funnel_step
+from usage_metrics import (
+    record_event,
+    record_event_and_funnel_step,
+    record_funnel_step,
+)
 from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
 from iac_generator import generate_iac_code
 from iac_scaffold import generate_scaffold
@@ -35,6 +45,49 @@ from iac_scaffold import generate_scaffold
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+def _persist_async_iac(
+    *,
+    job_id: str,
+    payload: Dict[str, Any],
+    job_record: Any,
+    diagram_id: str,
+    latest_session: dict,
+    updated_session: dict,
+    iac_format: str,
+    code: str,
+    code_hash: str,
+) -> None:
+    from database import SessionLocal
+    from workspace_store import persist_analysis_mutation
+
+    db = SessionLocal()
+    try:
+        expected_version = latest_session.get("_analysis_version")
+        durable_owner = job_record.owner_user_id or job_record.owner_api_key_id
+        durable_tenant = job_record.tenant_id or f"service:{job_record.owner_api_key_id.split(':', 1)[-1]}"
+        persist_analysis_mutation(
+            db,
+            owner_user_id=durable_owner,
+            tenant_id=durable_tenant,
+            diagram_id=diagram_id,
+            snapshot=updated_session,
+            session_store=SESSION_STORE,
+            cache_owner_api_key_id=job_record.owner_api_key_id,
+            artifact_type=iac_format,
+            artifact_format=iac_format,
+            artifact_content=code,
+            expected_version=int(expected_version) if expected_version is not None else None,
+            operation=f"iac-{iac_format}-generated-async",
+            request_hash=hashlib.sha256(
+                f"{job_id}:{payload.get('analysis_hash')}:{code_hash}".encode()
+            ).hexdigest(),
+            label=f"iac-{iac_format}-generated-async",
+            cache_required=True,
+        )
+    finally:
+        db.close()
 
 
 # ─────────────────────────────────────────────────────────────
@@ -53,11 +106,10 @@ def _get_stored_etag(session: dict) -> str | None:
     return session.get(_IAC_ETAG_KEY)
 
 
-def _store_iac_etag(diagram_id: str, session: dict, code: str) -> str:
-    """Compute and persist the new ETag; return it."""
+def _store_iac_etag(session: dict, code: str) -> str:
+    """Compute and stage the new ETag; the caller owns persistence."""
     etag = _compute_iac_etag(code)
     session[_IAC_ETAG_KEY] = etag
-    SESSION_STORE[diagram_id] = session
     return etag
 
 
@@ -220,7 +272,7 @@ async def generate_iac(
     ETag must match.  A mismatch returns HTTP 409 so that concurrent clients
     can detect and resolve conflicts instead of silently overwriting each other.
     """
-    session = authorize_diagram_access(request, diagram_id, purpose="generate IaC")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="generate IaC")
     iac_params = session.get("iac_parameters", {})
 
     # Optimistic concurrency guard: honour If-Match when code was previously
@@ -238,25 +290,42 @@ async def generate_iac(
             params=iac_params,
         )
     except Exception as exc:
-        logger.error("IaC generation failed for %s: %s", str(diagram_id).replace('\n', '').replace('\r', ''), str(exc).replace('\n', '').replace('\r', ''))  # codeql[py/log-injection] Handled by custom
+        logger.error(
+            "IaC generation failed error_type=%s",
+            type(exc).__name__,
+        )
         raise ArchmorphException(500, "IaC generation failed. Please try again.")
 
-    record_event(f"iac_generated_{format}", {"diagram_id": diagram_id})
-    record_funnel_step(diagram_id, "iac_generate")
+    record_event_and_funnel_step(
+        f"iac_generated_{format}",
+        {"diagram_id": diagram_id},
+        diagram_id=diagram_id,
+        step="iac_generate",
+    )
 
     # Persist the canonical IaC code server-side so chat turns can validate
     # the client is working against the same version (#842), and update the
     # short ETag used by If-Match optimistic concurrency checks (#858).
-    session["iac_code"] = code
-    session["iac_code_hash"] = _iac_code_hash(code)
-    session["iac_format"] = format
-    new_etag = _store_iac_etag(diagram_id, session, code)
+    updated_session = copy.deepcopy(session)
+    updated_session["iac_code"] = code
+    updated_session["iac_code_hash"] = _iac_code_hash(code)
+    updated_session["iac_format"] = format
+    new_etag = _store_iac_etag(updated_session, code)
+    await persist_diagram_mutation_async(
+        request,
+        diagram_id,
+        updated_session,
+        artifact_type=format,
+        artifact_format=format,
+        artifact_content=code,
+        label=f"iac-{format}-generated",
+    )
     return JSONResponse(
         content={
             "diagram_id": diagram_id,
             "format": format,
             "code": code,
-            "code_hash": session["iac_code_hash"],
+            "code_hash": updated_session["iac_code_hash"],
             "etag": new_etag,
         },
         headers={"ETag": new_etag},
@@ -279,7 +348,12 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
     """
     record_event("iac_chat_messages", {"diagram_id": diagram_id})
 
-    session = authorize_diagram_access(request, diagram_id, purpose="chat about IaC")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="chat about IaC")
+    durable_history = session.get("iac_chat_history")
+    if isinstance(durable_history, list) and not get_iac_chat_history(diagram_id):
+        from iac_chat import IAC_CHAT_SESSIONS
+
+        IAC_CHAT_SESSIONS[f"{diagram_id}:iac"] = copy.deepcopy(durable_history)
     analysis_context = session.get("analysis") if session else None
 
     # ── Server-side canonical code validation (#842) ──────────────────────
@@ -313,12 +387,26 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
     if not result.get("error"):
         new_code = result.get("code")
         if new_code:
-            session = SESSION_STORE.get(diagram_id) or session
-            session["iac_code"] = new_code
-            session["iac_code_hash"] = _iac_code_hash(new_code)
-            new_etag = _store_iac_etag(diagram_id, session, new_code)
+            latest_session = SESSION_STORE.peek(diagram_id) or session
+            updated_session = copy.deepcopy(latest_session)
+            updated_session["iac_code"] = new_code
+            updated_session["iac_code_hash"] = _iac_code_hash(new_code)
+            updated_session["iac_format"] = msg.format
+            updated_session["iac_chat_history"] = copy.deepcopy(
+                get_iac_chat_history(diagram_id)
+            )
+            new_etag = _store_iac_etag(updated_session, new_code)
+            await persist_diagram_mutation_async(
+                request,
+                diagram_id,
+                updated_session,
+                artifact_type=msg.format,
+                artifact_format=msg.format,
+                artifact_content=new_code,
+                label=f"iac-{msg.format}-chat",
+            )
             # Surface the new hash so clients can synchronise without re-fetching
-            result["code_hash"] = session["iac_code_hash"]
+            result["code_hash"] = updated_session["iac_code_hash"]
             result["etag"] = new_etag
 
     if result.get("services_added"):
@@ -336,12 +424,15 @@ async def iac_chat_history(
     request: Request,
     diagram_id: str,
     _auth=Depends(verify_api_key),
-    _session=Depends(require_diagram_access),
+    session=Depends(require_diagram_access),
 ):
     """Get IaC chat history for a diagram."""
+    history = get_iac_chat_history(diagram_id)
+    if not history and isinstance(session.get("iac_chat_history"), list):
+        history = session["iac_chat_history"]
     return {
         "diagram_id": diagram_id,
-        "messages": get_iac_chat_history(diagram_id),
+        "messages": history,
     }
 
 
@@ -354,7 +445,16 @@ async def iac_chat_clear(
     _session=Depends(require_diagram_access),
 ):
     """Clear IaC chat session for a diagram."""
-    cleared = clear_iac_chat(diagram_id)
+    updated_session = copy.deepcopy(_session)
+    had_durable_history = bool(updated_session.get("iac_chat_history"))
+    updated_session["iac_chat_history"] = []
+    await persist_diagram_mutation_async(
+        request,
+        diagram_id,
+        updated_session,
+        label="iac-chat-cleared",
+    )
+    cleared = clear_iac_chat(diagram_id) or had_durable_history
     return {"cleared": cleared}
 
 
@@ -368,7 +468,7 @@ async def generate_iac_async(
     diagram_id: str,
     format: Literal["terraform", "bicep"] = "terraform",
     force: bool = False,
-    _auth=Depends(verify_api_key),
+    _auth=Depends(require_api_write_or_user_session),
 ):
     """Start async IaC code generation. Returns 202 with job_id.
 
@@ -378,8 +478,11 @@ async def generate_iac_async(
 
     headers = dict(request.headers)
     user = get_user_from_request_headers(headers)
+    from routers.shared import get_request_durable_principal
+
+    principal = get_request_durable_principal(request)
     api_key_principal_id = get_api_key_service_principal(headers)
-    session = authorize_diagram_access(request, diagram_id, purpose="queue IaC generation")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="queue IaC generation")
     _enforce_iac_if_match(request, session)
     _check_architecture_blockers(diagram_id, session, force)
     queued_etag = _get_stored_etag(session)
@@ -398,8 +501,8 @@ async def generate_iac_async(
         job = job_manager.submit(
             "generate_iac",
             diagram_id=diagram_id,
-            owner_user_id=user.id if user else None,
-            tenant_id=user.tenant_id if user else None,
+            owner_user_id=principal["owner_user_id"] if user else None,
+            tenant_id=principal["tenant_id"] if principal else None,
             owner_api_key_id=api_key_principal_id if not user else None,
             execution_payload=execution_payload,
         )
@@ -480,8 +583,12 @@ async def _run_iac_job(
         if not job_manager.owns_current_lease(job_id):
             return
 
-        record_event(f"iac_generated_{iac_format}", {"diagram_id": diagram_id})
-        record_funnel_step(diagram_id, "iac_generate")
+        record_event_and_funnel_step(
+            f"iac_generated_{iac_format}",
+            {"diagram_id": diagram_id},
+            diagram_id=diagram_id,
+            step="iac_generate",
+        )
 
         # Keep async generation canonical state aligned with sync /generate,
         # unless the canonical code changed while this job was running.
@@ -505,11 +612,41 @@ async def _run_iac_job(
             updated["iac_format"] = iac_format
             return updated
 
-        canonical_state_persisted, latest_session = SESSION_STORE.update_if(
-            diagram_id,
-            _canonical_state_matches,
-            _write_canonical_state,
-        )
+        latest_session = SESSION_STORE.peek(diagram_id)
+        canonical_state_persisted = _canonical_state_matches(latest_session)
+        if canonical_state_persisted:
+            updated_session = _write_canonical_state(latest_session)
+            if job_record and (
+                getattr(job_record, "owner_user_id", None)
+                or getattr(job_record, "owner_api_key_id", None)
+            ):
+                from workspace_store import AnalysisVersionConflictError
+                try:
+                    await run_in_threadpool(partial(
+                        _persist_async_iac,
+                        job_id=job_id,
+                        payload=payload,
+                        job_record=job_record,
+                        diagram_id=diagram_id,
+                        latest_session=latest_session,
+                        updated_session=updated_session,
+                        iac_format=iac_format,
+                        code=code,
+                        code_hash=code_hash,
+                    ))
+                    latest_session = SESSION_STORE.peek(diagram_id)
+                except AnalysisVersionConflictError:
+                    canonical_state_persisted = False
+                    latest_session = SESSION_STORE.peek(diagram_id)
+                except Exception as exc:
+                    job_manager.fail(job_id, f"Canonical IaC persistence failed: {type(exc).__name__}")
+                    return
+            else:
+                canonical_state_persisted, latest_session = SESSION_STORE.update_if(
+                    diagram_id,
+                    _canonical_state_matches,
+                    _write_canonical_state,
+                )
         canonical_state_changed = not canonical_state_persisted
         if canonical_state_persisted:
             new_etag = _get_stored_etag(latest_session) or new_etag
@@ -517,9 +654,8 @@ async def _run_iac_job(
         elif latest_session is not None:
             current_etag = _get_stored_etag(latest_session)
 
-        job_manager.complete(
-            job_id,
-            result={
+        completion_result = await attach_export_capability_for_persisted_job(
+            {
                 "diagram_id": diagram_id,
                 "format": iac_format,
                 "code": code,
@@ -529,10 +665,18 @@ async def _run_iac_job(
                 "canonical_state_conflict": canonical_state_changed,
                 "current_etag": current_etag,
             },
+            job_manager,
+            job_id,
+            diagram_id,
+            allow_missing_durable_scope=True,
+        )
+        job_manager.complete(
+            job_id,
+            result=completion_result,
         )
 
     except Exception as exc:
-        logger.error("Async IaC generation failed: %s", str(exc).replace('\n', '').replace('\r', ''), exc_info=True)  # codeql[py/log-injection] Handled by custom
+        logger.error("Async IaC generation failed error_type=%s", type(exc).__name__)
         job_manager.fail(job_id, str(exc))
 
 
@@ -599,7 +743,7 @@ async def generate_iac_scaffold(
     if format != "terraform":
         raise ArchmorphException(400, "Scaffold generation currently supports 'terraform' only")
 
-    session = authorize_diagram_access(request, diagram_id, purpose="generate IaC scaffold")
+    session = await authorize_diagram_access_async(request, diagram_id, purpose="generate IaC scaffold")
     iac_params = session.get("iac_parameters", {})
 
     try:
@@ -610,9 +754,8 @@ async def generate_iac_scaffold(
         )
     except Exception as exc:
         logger.error(
-            "IaC scaffold generation failed for %s: %s",
-            str(diagram_id).replace('\n', '').replace('\r', ''),
-            str(exc).replace('\n', '').replace('\r', ''),
+            "IaC scaffold generation failed error_type=%s",
+            type(exc).__name__,
         )
         raise ArchmorphException(500, "IaC scaffold generation failed. Please try again.")
 

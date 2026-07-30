@@ -10,12 +10,17 @@ import json
 import logging
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import Field
 from strict_models import StrictBaseModel
 
 from error_envelope import ArchmorphException
-from routers.shared import limiter
+from routers.shared import (
+    CredentialContext,
+    get_request_durable_principal,
+    limiter,
+    verify_api_key_or_user_session,
+)
 from session_store import get_store
 from services.multi_cloud_cost import estimate_costs, get_pricing_catalog
 
@@ -51,7 +56,11 @@ class CostCompareRequest(StrictBaseModel):
 
 @router.post("/api/cost/compare")
 @limiter.limit("10/minute")
-async def compare_costs(request: Request, body: CostCompareRequest):
+async def compare_costs(
+    request: Request,
+    body: CostCompareRequest,
+    _auth: CredentialContext = Depends(verify_api_key_or_user_session),
+):
     """Estimate and compare monthly costs across AWS, Azure, and GCP.
 
     Accepts an Archmorph analysis schema (zones with services) and
@@ -63,7 +72,19 @@ async def compare_costs(request: Request, body: CostCompareRequest):
 
     # Cache key from payload hash
     payload_json = json.dumps([z.model_dump() for z in body.zones], sort_keys=True)
-    cache_key = f"cost:{hashlib.sha256(payload_json.encode()).hexdigest()[:16]}"
+    principal = get_request_durable_principal(request)
+    if principal is None or not principal.get("tenant_id"):
+        raise ArchmorphException(401, "Canonical caller scope is required")
+    scope_hash = hashlib.sha256(
+        json.dumps(
+            [principal["owner_user_id"], principal["tenant_id"]],
+            separators=(",", ":"),
+        ).encode("utf-8")
+    ).hexdigest()[:24]
+    cache_key = (
+        f"cost:{scope_hash}:"
+        f"{hashlib.sha256(payload_json.encode()).hexdigest()[:16]}"
+    )
 
     cached = _cost_cache.get(cache_key)
     if cached:
@@ -83,6 +104,9 @@ async def compare_costs(request: Request, body: CostCompareRequest):
 
 
 @router.get("/api/cost/pricing-catalog")
-async def pricing_catalog(request: Request):
+async def pricing_catalog(
+    request: Request,
+    _auth: CredentialContext = Depends(verify_api_key_or_user_session),
+):
     """Return available pricing data for all supported service tiers."""
     return get_pricing_catalog()

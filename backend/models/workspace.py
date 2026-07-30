@@ -13,24 +13,29 @@ retention:
 
 Retention boundaries
 --------------------
-  transient    — Redis/session store only (current live sessions)
-  workspace    — saved to this module's tables; survives session expiry
+    transient    — Redis/session cache and coordination only
+    workspace    — canonical PostgreSQL records; survives cache loss/expiry
   audit        — written to audit_log (separate table, longer retention)
 """
 
 import json as _json
 import uuid as _uuid
+from enum import Enum
 
 from sqlalchemy import (
+    and_,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
     ForeignKey,
+    ForeignKeyConstraint,
     Index,
     Integer,
     String,
     Text,
+    UniqueConstraint,
     false,
 )
 from sqlalchemy.sql import func
@@ -40,6 +45,33 @@ from database import Base
 
 def _new_uuid() -> str:
     return str(_uuid.uuid4())
+
+
+class WorkspaceStatus(str, Enum):
+    """Supported durable workspace lifecycle states."""
+
+    ACTIVE = "active"
+    ARCHIVED = "archived"
+    DELETING = "deleting"
+
+
+class DecisionType(str, Enum):
+    RISK = "risk"
+    DECISION = "decision"
+    NOTE = "note"
+
+
+class DecisionSeverity(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class DecisionStatus(str, Enum):
+    OPEN = "open"
+    RESOLVED = "resolved"
+    ACCEPTED = "accepted"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -53,18 +85,38 @@ class Workspace(Base):
 
     id = Column(String(36), primary_key=True, default=_new_uuid)
     owner_user_id = Column(String(100), nullable=False, index=True)
-    tenant_id = Column(String(36), nullable=True, index=True)
+    tenant_id = Column(String(100), nullable=True, index=True)
     name = Column(String(300), nullable=False)
     description = Column(Text, nullable=True)
     source_cloud = Column(String(20), nullable=False, server_default="aws")
     target_cloud = Column(String(20), nullable=False, server_default="azure")
-    status = Column(String(20), nullable=False, server_default="active")  # active | archived
+    status = Column(String(20), nullable=False, server_default=WorkspaceStatus.ACTIVE.value)
     is_public = Column(Boolean, nullable=False, server_default=false())
+    is_default = Column(Boolean, nullable=False, server_default=false())
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
+        CheckConstraint(
+            "status IN ('active', 'archived', 'deleting')",
+            name="ck_workspaces_status",
+        ),
         Index("ix_workspaces_owner_tenant", "owner_user_id", "tenant_id"),
+        Index(
+            "ux_workspaces_default_owner_tenant",
+            "owner_user_id",
+            "tenant_id",
+            unique=True,
+            postgresql_where=and_(is_default.is_(True), tenant_id.is_not(None)),
+            sqlite_where=and_(is_default.is_(True), tenant_id.is_not(None)),
+        ),
+        Index(
+            "ux_workspaces_default_owner_no_tenant",
+            "owner_user_id",
+            unique=True,
+            postgresql_where=and_(is_default.is_(True), tenant_id.is_(None)),
+            sqlite_where=and_(is_default.is_(True), tenant_id.is_(None)),
+        ),
     )
 
     def to_dict(self) -> dict:
@@ -78,9 +130,82 @@ class Workspace(Base):
             "target_cloud": self.target_cloud,
             "status": self.status,
             "is_public": self.is_public,
+            "is_default": self.is_default,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+# ─────────────────────────────────────────────────────────────
+# Project membership
+# ─────────────────────────────────────────────────────────────
+
+class ProjectMember(Base):
+    """Durable member authorization scoped to one owner/tenant project."""
+
+    __tablename__ = "project_members"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    project_id = Column(
+        String(36),
+        ForeignKey("workspaces.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    project_owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False, index=True)
+    member_user_id = Column(String(100), nullable=False, index=True)
+    role = Column(String(20), nullable=False, server_default="viewer")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "role IN ('viewer', 'editor')",
+            name="ck_project_members_role",
+        ),
+        Index(
+            "ux_project_members_project_member",
+            "project_id",
+            "member_user_id",
+            unique=True,
+        ),
+        Index(
+            "ix_project_members_scope",
+            "project_owner_user_id",
+            "tenant_id",
+        ),
+    )
+
+    def to_dict(self) -> dict:
+        return {
+            "user_id": self.member_user_id,
+            "role": self.role,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
+class APIKeyCredential(Base):
+    """Durable hashed API-key credential mapped to a stable client principal."""
+
+    __tablename__ = "api_key_credentials"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    principal_id = Column(String(100), nullable=False, index=True)
+    name = Column(String(128), nullable=False)
+    key_hash = Column(String(64), nullable=False, unique=True)
+    key_prefix = Column(String(12), nullable=False)
+    scopes = Column(Text, nullable=False)
+    rate_limit = Column(Integer, nullable=False, server_default="100")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    revoked = Column(Boolean, nullable=False, server_default=false())
+    last_used_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        Index("ix_api_key_credentials_active", "principal_id", "revoked"),
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -104,12 +229,12 @@ class SourceAsset(Base):
         index=True,
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
-    tenant_id = Column(String(36), nullable=True, index=True)
+    tenant_id = Column(String(100), nullable=True, index=True)
     filename = Column(String(500), nullable=False)
     content_type = Column(String(100), nullable=True)
     file_size_bytes = Column(Integer, nullable=True)
     content_hash = Column(String(64), nullable=True, index=True)  # SHA-256 hex
-    diagram_id = Column(String(50), nullable=True, index=True)    # session store key
+    diagram_id = Column(String(100), nullable=True, index=True)    # session store key
     source_cloud = Column(String(20), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
 
@@ -161,8 +286,8 @@ class Analysis(Base):
         index=True,
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
-    tenant_id = Column(String(36), nullable=True, index=True)
-    diagram_id = Column(String(50), nullable=True, index=True)    # session store key
+    tenant_id = Column(String(100), nullable=True, index=True)
+    diagram_id = Column(String(100), nullable=True, index=True)    # session store key
     title = Column(String(300), nullable=True)
     source_cloud = Column(String(20), nullable=False, server_default="aws")
     target_cloud = Column(String(20), nullable=False, server_default="azure")
@@ -175,6 +300,23 @@ class Analysis(Base):
 
     __table_args__ = (
         Index("ix_analyses_workspace_owner", "workspace_id", "owner_user_id"),
+        Index(
+            "ux_analyses_owner_tenant_diagram",
+            "owner_user_id",
+            "tenant_id",
+            "diagram_id",
+            unique=True,
+            postgresql_where=and_(tenant_id.is_not(None), diagram_id.is_not(None)),
+            sqlite_where=and_(tenant_id.is_not(None), diagram_id.is_not(None)),
+        ),
+        Index(
+            "ux_analyses_owner_no_tenant_diagram",
+            "owner_user_id",
+            "diagram_id",
+            unique=True,
+            postgresql_where=and_(tenant_id.is_(None), diagram_id.is_not(None)),
+            sqlite_where=and_(tenant_id.is_(None), diagram_id.is_not(None)),
+        ),
     )
 
     def to_dict(self) -> dict:
@@ -227,6 +369,11 @@ class AnalysisVersion(Base):
 
     __table_args__ = (
         Index("ix_analysis_versions_analysis_num", "analysis_id", "version_number", unique=True),
+        UniqueConstraint(
+            "analysis_id",
+            "id",
+            name="uq_analysis_versions_analysis_id_id",
+        ),
     )
 
     def to_dict(self, *, include_snapshot: bool = False) -> dict:
@@ -243,6 +390,82 @@ class AnalysisVersion(Base):
         if include_snapshot:
             result["snapshot"] = _json.loads(self.snapshot) if self.snapshot else {}
         return result
+
+
+class AnalysisMutationReceipt(Base):
+    """Durable idempotency receipt for one scoped analysis mutation."""
+
+    __tablename__ = "analysis_mutation_receipts"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    diagram_id = Column(String(100), nullable=False)
+    operation = Column(String(100), nullable=False)
+    request_hash = Column(String(64), nullable=False)
+    analysis_id = Column(
+        String(36),
+        ForeignKey("analyses.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_id = Column(
+        String(36),
+        ForeignKey("analysis_versions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    version_number = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "ux_analysis_mutation_receipts_scope",
+            "owner_user_id",
+            "tenant_id",
+            "diagram_id",
+            "operation",
+            "request_hash",
+            unique=True,
+        ),
+        Index("ix_analysis_mutation_receipts_analysis", "analysis_id"),
+    )
+
+
+class AnalysisRestoreReceipt(Base):
+    """Durable replay receipt for one version-restore caller intent."""
+
+    __tablename__ = "analysis_restore_receipts"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    analysis_id = Column(
+        String(36),
+        ForeignKey("analyses.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    idempotency_key_hash = Column(String(64), nullable=False)
+    intent_hash = Column(String(64), nullable=False)
+    source_version = Column(Integer, nullable=False)
+    expected_version = Column(Integer, nullable=False)
+    restored_version_id = Column(
+        String(36),
+        ForeignKey("analysis_versions.id", ondelete="CASCADE"),
+        nullable=False,
+    )
+    restored_version_number = Column(Integer, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "ux_analysis_restore_receipts_scope",
+            "owner_user_id",
+            "tenant_id",
+            "analysis_id",
+            "idempotency_key_hash",
+            unique=True,
+        ),
+        Index("ix_analysis_restore_receipts_analysis", "analysis_id"),
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -279,7 +502,7 @@ class Artifact(Base):
         index=True,
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
-    tenant_id = Column(String(36), nullable=True, index=True)
+    tenant_id = Column(String(100), nullable=True, index=True)
     artifact_type = Column(String(50), nullable=False, index=True)  # terraform|bicep|hld|cost_report|…
     format = Column(String(20), nullable=True)                       # terraform|bicep|json|markdown
     content = Column(Text, nullable=True)                            # inline text content
@@ -291,6 +514,15 @@ class Artifact(Base):
     __table_args__ = (
         Index("ix_artifacts_analysis_type", "analysis_id", "artifact_type"),
         Index("ix_artifacts_owner_tenant", "owner_user_id", "tenant_id"),
+        Index(
+            "ux_artifacts_version_type_hash",
+            "version_id",
+            "artifact_type",
+            "content_hash",
+            unique=True,
+            postgresql_where=and_(version_id.is_not(None), content_hash.is_not(None)),
+            sqlite_where=and_(version_id.is_not(None), content_hash.is_not(None)),
+        ),
     )
 
     def to_dict(self, *, include_content: bool = False) -> dict:
@@ -332,22 +564,43 @@ class Decision(Base):
     )
     version_id = Column(
         String(36),
-        ForeignKey("analysis_versions.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
     owner_user_id = Column(String(100), nullable=False, index=True)
-    tenant_id = Column(String(36), nullable=True, index=True)
+    tenant_id = Column(String(100), nullable=True, index=True)
     decision_type = Column(String(50), nullable=False)  # risk | decision | note
     title = Column(String(300), nullable=False)
     description = Column(Text, nullable=True)
-    severity = Column(String(20), nullable=True)        # low | medium | high | critical
-    status = Column(String(20), nullable=False, server_default="open")  # open | resolved | accepted
+    severity = Column(String(20), nullable=True)  # low | medium | high | critical
+    status = Column(
+        String(20),
+        nullable=False,
+        server_default=DecisionStatus.OPEN.value,
+    )
     extra_data = Column(Text, nullable=True)              # JSON-serialized extras
     created_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
 
     __table_args__ = (
+        ForeignKeyConstraint(
+            ["analysis_id", "version_id"],
+            ["analysis_versions.analysis_id", "analysis_versions.id"],
+            name="fk_decisions_analysis_version",
+            ondelete="RESTRICT",
+        ),
+        CheckConstraint(
+            "decision_type IN ('risk', 'decision', 'note')",
+            name="ck_decisions_type",
+        ),
+        CheckConstraint(
+            "severity IS NULL OR severity IN ('low', 'medium', 'high', 'critical')",
+            name="ck_decisions_severity",
+        ),
+        CheckConstraint(
+            "status IN ('open', 'resolved', 'accepted')",
+            name="ck_decisions_status",
+        ),
         Index("ix_decisions_analysis_type", "analysis_id", "decision_type"),
         Index("ix_decisions_owner_tenant", "owner_user_id", "tenant_id"),
     )
@@ -368,3 +621,235 @@ class Decision(Base):
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
+
+
+class TenantRehomeAudit(Base):
+    """Operator audit for guarded legacy tenant migration and quarantine."""
+
+    __tablename__ = "tenant_rehome_audit"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    owner_user_id = Column(String(100), nullable=False, index=True)
+    source_tenant_id = Column(String(100), nullable=False)
+    target_tenant_id = Column(String(100), nullable=True)
+    status = Column(String(40), nullable=False, index=True)
+    details = Column(Text, nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+
+class TenantRehomeAlias(Base):
+    """Durable source-to-target mapping for each migrated or quarantined graph."""
+
+    __tablename__ = "tenant_rehome_aliases"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    source_owner_user_id = Column(String(100), nullable=False)
+    source_tenant_id = Column(String(100), nullable=False)
+    target_owner_user_id = Column(String(100), nullable=True)
+    target_tenant_id = Column(String(100), nullable=True)
+    entity_type = Column(String(20), nullable=False)
+    source_entity_id = Column(String(100), nullable=False)
+    target_entity_id = Column(String(100), nullable=True)
+    status = Column(String(20), nullable=False)
+    reason = Column(String(100), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "entity_type IN ('workspace', 'analysis')",
+            name="ck_tenant_rehome_aliases_entity_type",
+        ),
+        CheckConstraint(
+            "status IN ('rehomed', 'quarantined', 'resolved')",
+            name="ck_tenant_rehome_aliases_status",
+        ),
+        Index(
+            "ux_tenant_rehome_aliases_source",
+            "source_owner_user_id",
+            "source_tenant_id",
+            "entity_type",
+            "source_entity_id",
+            unique=True,
+        ),
+        Index(
+            "ix_tenant_rehome_aliases_target",
+            "target_owner_user_id",
+            "target_tenant_id",
+        ),
+    )
+
+
+class MigrationReplay(Base):
+    """Canonical replay header bound to one immutable analysis version."""
+
+    __tablename__ = "migration_replays"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    analysis_id = Column(
+        String(36),
+        ForeignKey("analyses.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    version_id = Column(String(36), nullable=False)
+    diagram_id = Column(String(100), nullable=False, index=True)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    title = Column(String(256), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ["analysis_id", "version_id"],
+            ["analysis_versions.analysis_id", "analysis_versions.id"],
+            name="fk_migration_replays_analysis_version",
+            ondelete="RESTRICT",
+        ),
+        Index(
+            "ix_migration_replays_scope_created",
+            "owner_user_id",
+            "tenant_id",
+            "created_at",
+        ),
+    )
+
+
+class MigrationReplayEvent(Base):
+    """Append-only event in a canonical migration replay."""
+
+    __tablename__ = "migration_replay_events"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    replay_id = Column(
+        String(36),
+        ForeignKey("migration_replays.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    sequence = Column(Integer, nullable=False)
+    event_type = Column(String(40), nullable=False)
+    data = Column(Text, nullable=False, server_default="{}")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "ux_migration_replay_events_sequence",
+            "replay_id",
+            "sequence",
+            unique=True,
+        ),
+    )
+
+
+class DiagramLifecycle(Base):
+    """Durable generation, deletion tombstone, and current workspace binding."""
+
+    __tablename__ = "diagram_lifecycle"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    diagram_id = Column(String(100), nullable=False)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    workspace_id = Column(
+        String(36),
+        ForeignKey("workspaces.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    generation = Column(Integer, nullable=False, server_default="1")
+    state = Column(String(20), nullable=False, server_default="active")
+    purged_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "state IN ('active', 'purging', 'purged')",
+            name="ck_diagram_lifecycle_state",
+        ),
+        Index(
+            "ux_diagram_lifecycle_scope",
+            "owner_user_id",
+            "tenant_id",
+            "diagram_id",
+            unique=True,
+        ),
+        Index("ix_diagram_lifecycle_diagram", "diagram_id"),
+    )
+
+
+class RestoreGrant(Base):
+    """Server-held one-time restore capability bound to immutable claims."""
+
+    __tablename__ = "restore_grants"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    nonce_digest = Column(String(64), nullable=False, unique=True)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    diagram_id = Column(String(100), nullable=False)
+    generation = Column(Integer, nullable=False)
+    expected_version = Column(Integer, nullable=False, server_default="0")
+    payload_hash = Column(String(64), nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=False)
+    cleanup_at = Column(DateTime(timezone=True), nullable=False)
+    consumed_at = Column(DateTime(timezone=True), nullable=True)
+    revoked_at = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    __table_args__ = (
+        Index(
+            "ix_restore_grants_scope",
+            "owner_user_id",
+            "tenant_id",
+            "diagram_id",
+            "generation",
+        ),
+        Index("ix_restore_grants_cleanup", "cleanup_at", "id"),
+    )
+
+
+class PurgeOperation(Base):
+    """Restart-safe deletion operation and completion receipt."""
+
+    __tablename__ = "purge_operations"
+
+    id = Column(String(36), primary_key=True, default=_new_uuid)
+    scope_type = Column(String(20), nullable=False)
+    scope_id = Column(String(100), nullable=False)
+    workspace_id = Column(String(36), nullable=True, index=True)
+    owner_user_id = Column(String(100), nullable=False)
+    tenant_id = Column(String(100), nullable=False)
+    status = Column(String(20), nullable=False, server_default="pending")
+    generation = Column(Integer, nullable=True)
+    manifest = Column(Text, nullable=False, server_default="{}")
+    stages = Column(Text, nullable=False, server_default="{}")
+    last_error_stage = Column(String(100), nullable=True)
+    attempts = Column(Integer, nullable=False, server_default="0")
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now())
+    completed_at = Column(DateTime(timezone=True), nullable=True)
+
+    __table_args__ = (
+        CheckConstraint(
+            "scope_type IN ('diagram', 'workspace')",
+            name="ck_purge_operations_scope",
+        ),
+        CheckConstraint(
+            "status IN ('pending', 'in_progress', 'failed', 'completed')",
+            name="ck_purge_operations_status",
+        ),
+        Index(
+            "ux_purge_operations_scope",
+            "owner_user_id",
+            "tenant_id",
+            "scope_type",
+            "scope_id",
+            unique=True,
+        ),
+        Index("ix_purge_operations_status", "status"),
+        Index("ix_purge_operations_scope_lookup", "scope_type", "scope_id"),
+        Index("ix_purge_operations_status_id", "status", "id"),
+    )
