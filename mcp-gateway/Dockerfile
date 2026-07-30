@@ -4,8 +4,9 @@ COPY requirements.txt .
 RUN apt-get update && \
     apt-get upgrade -y && \
     rm -rf /var/lib/apt/lists/*
-RUN pip install --no-cache-dir --upgrade "pip>=26.0" setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade "pip>=26.0" "setuptools>=78.1.1" wheel && \
+    pip install --no-cache-dir -r requirements.txt && \
+    python -m pip uninstall --yes pip setuptools wheel
 RUN addgroup --system --gid 1000 appgroup && \
     adduser --system --uid 1000 --ingroup appgroup appuser
 COPY . .
