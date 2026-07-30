@@ -6,15 +6,15 @@ replicaCount: 1
 image:
   repository: example.azurecr.io/archmorph-api
   pullPolicy: IfNotPresent
-
-releaseEvidence:
-  sourceSha: ""
-  schemaContractDigest: ""
   # Default tag uses Chart.AppVersion via the deployment template.
   # Override with --set image.tag=<sha> in CI/CD.  Never use "latest" (#162).
   tag: ""
   # Production/staging must set an immutable sha256 digest. Tags are dev-only.
   digest: ""
+
+releaseEvidence:
+  sourceSha: ""
+  schemaContractDigest: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -66,15 +66,15 @@ resources:
   limits:
     cpu: "1"
     memory: 2Gi
+  requests:
+    cpu: 500m
+    memory: 1Gi
+
 autoscaling:
   enabled: true
   minReplicas: 1
   maxReplicas: 10
   targetCPUUtilizationPercentage: 70
-
-  releaseEvidence:
-    sourceSha: ""
-    schemaContractDigest: ""
   targetMemoryUtilizationPercentage: 75
   # Custom metrics (requires KEDA or Prometheus Adapter)
   # behavior:
@@ -154,7 +154,7 @@ migrations:
   # run/attempt identity so reruns never delete or replace an active execution.
   executionId: ""
   # First-provisioning only. When true, the runner requires no alembic_version
-  # table and no application tables before upgrading to expectedAlembicHead.
+  # table and no application objects before upgrading to expectedAlembicHead.
   # Keep false for every existing environment and normal upgrade.
   bootstrapEmptyDatabase: false
   # Must already exist. It needs no Kubernetes API RBAC and token automount is off.

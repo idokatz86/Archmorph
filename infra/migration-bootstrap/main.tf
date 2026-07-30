@@ -137,7 +137,13 @@ resource "azurerm_container_app_job" "database_migration" {
       cpu     = 0.5
       memory  = "1Gi"
       command = ["python", "run_migrations.py"]
-      args    = ["--expect-head", var.expected_alembic_head]
+      args = [jsonencode({
+        bootstrap        = false
+        execution_marker = "terraform-definition"
+        expected_head    = var.expected_alembic_head
+        image_digest     = split("@", var.migration_image)[1]
+        mode             = "migrate"
+      })]
 
       env {
         name        = "DATABASE_URL"

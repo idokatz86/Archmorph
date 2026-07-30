@@ -33,11 +33,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           command: ["python", "run_migrations.py"]
           args:
-            - "--expect-head"
-            - {{ required "migrations.expectedAlembicHead is required" .Values.migrations.expectedAlembicHead | quote }}
-            {{- if .Values.migrations.bootstrapEmptyDatabase }}
-            - "--bootstrap-empty-database"
-            {{- end }}
+            - {{ include "archmorph.migrationRuntimeEnvelope" (dict "root" . "mode" "migrate") | quote }}
           workingDir: /app
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
@@ -49,4 +45,8 @@ spec:
                   key: DATABASE_URL
             - name: ENVIRONMENT
               value: {{ .Values.env.ENVIRONMENT | quote }}
+            - name: EXPECTED_ALEMBIC_HEAD
+              value: {{ .Values.migrations.expectedAlembicHead | quote }}
+            - name: MIGRATION_IMAGE_REFERENCE
+              value: {{ include "archmorph.image" . | quote }}
 {{- end }}

@@ -50,6 +50,15 @@ def _schema_contract(*accepted: str) -> dict:
     }
 
 
+def _migration_envelope(*, marker: str, digest: str) -> str:
+    return rollout._migration_runtime_module().build_runtime_envelope(
+        mode="migrate",
+        expected_head="014",
+        execution_marker=marker,
+        image_digest=digest,
+    )
+
+
 def _write_release_manifest(path: Path, *, role: str = "final") -> None:
     contract = (
         _schema_contract("014")
@@ -944,10 +953,10 @@ def test_interrupted_start_resolves_only_exact_marker_head_and_digest(tmp_path, 
                 stdout=json.dumps(
                     {
                         "args": [
-                            "--expect-head",
-                            "014",
-                            "--execution-marker",
-                            "migration-123-1",
+                            _migration_envelope(
+                                marker="migration-123-1",
+                                digest="sha256:" + "a" * 64,
+                            )
                         ],
                         "image": "registry.example/api@sha256:" + "a" * 64,
                     }
@@ -989,12 +998,12 @@ def test_interrupted_start_never_binds_an_unrelated_new_execution(tmp_path, monk
                     0,
                     stdout=json.dumps(
                         {
-                            "args": [
-                                "--expect-head",
-                                "014",
-                                "--execution-marker",
-                                "other-run",
-                            ],
+                                "args": [
+                                    _migration_envelope(
+                                        marker="other-run",
+                                        digest="sha256:" + "a" * 64,
+                                    )
+                                ],
                             "image": "registry.example/api@sha256:" + "a" * 64,
                         }
                     ),
@@ -1010,6 +1019,69 @@ def test_interrupted_start_never_binds_an_unrelated_new_execution(tmp_path, monk
     persisted = rollout._read_release_state(state_path)
     assert "migration_execution" not in persisted
     assert persisted["migration_starting"]["execution_marker"] == "migration-123-1"
+
+
+def test_interrupted_start_refuses_legacy_flag_pair_provenance(tmp_path, monkeypatch):
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
+    state = mark_release_stage(_release_state(schema="013"), "migration_attempted")
+    state = mark_migration_starting(
+        state,
+        job_name="migration-job",
+        resource_group="example-rg",
+        image_digest="sha256:" + "a" * 64,
+        execution_marker="migration-123-1",
+        known_executions=[],
+    )
+    state_path = tmp_path / "rollout-state.json"
+    evidence_path = tmp_path / "start.json"
+    rollout._write_release_state(state_path, state)
+    with (
+        patch.object(
+            rollout,
+            "_control_plane_run",
+            side_effect=[
+                CompletedProcess([], 0, stdout=json.dumps(["migration-job-legacy"])),
+                CompletedProcess(
+                    [],
+                    0,
+                    stdout=json.dumps(
+                        {
+                            "args": [
+                                "--expect-head",
+                                "014",
+                                "--execution-marker",
+                                "migration-123-1",
+                            ],
+                            "image": "registry.example/api@sha256:" + "a" * 64,
+                        }
+                    ),
+                ),
+            ],
+        ),
+        pytest.raises(RuntimeError, match="one exact reviewed execution"),
+    ):
+        rollout.resolve_migration_start_boundary(
+            state_path,
+            evidence_output=evidence_path,
+        )
+
+    assert json.loads(evidence_path.read_text())["reason_class"] == (
+        "execution_details_malformed"
+    )
+
+
+def test_signed_release_state_atomic_write_fsyncs_file_and_directory(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
+    state_path = tmp_path / "rollout-state.json"
+    original_fsync = rollout.os.fsync
+    with patch.object(rollout.os, "fsync", wraps=original_fsync) as fsync:
+        rollout._write_release_state(state_path, _release_state(schema="014"))
+
+    assert fsync.call_count >= 2
+    assert rollout._read_release_state(state_path)["target_schema"] == "014"
+    assert not list(tmp_path.glob(".rollout-state.json.*.tmp"))
 
 
 def test_exact_execution_query_uses_exact_name_list_fallback_only():

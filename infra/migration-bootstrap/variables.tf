@@ -65,7 +65,10 @@ variable "expected_alembic_head" {
   type        = string
 
   validation {
-    condition     = can(regex("^[A-Za-z0-9_-]+$", var.expected_alembic_head))
+    condition = (
+      can(regex("^[A-Za-z0-9_-]{1,128}$", var.expected_alembic_head)) &&
+      !contains(["base", "head", "heads"], lower(var.expected_alembic_head))
+    )
     error_message = "expected_alembic_head must be one exact Alembic revision."
   }
 }

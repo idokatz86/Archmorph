@@ -211,6 +211,14 @@ jobs:
         with:
           version: v3.17.3
 
+      - name: Verify pinned Azure CLI migration-args parser contract
+        uses: azure/CLI@v2
+        with:
+          azcliversion: 2.86.0
+          inlineScript: >-
+            python3 scripts/azure_cli_parser_contract.py
+            --require-az --expected-version 2.86.0
+
       - name: Run deterministic rollout contracts
         run: |
           python -m pytest -q -n 0 \
@@ -220,6 +228,8 @@ jobs:
             backend/tests/test_release_provenance.py \
             backend/tests/test_bridge_overlay.py \
             backend/tests/test_rollout_telemetry.py \
+            backend/tests/test_migration_runtime_contract.py \
+            backend/tests/test_azure_cli_parser_contract.py \
             backend/tests/test_run_migrations.py \
             backend/tests/test_migration_bootstrap_verifier.py \
             backend/tests/test_migration_alert_attestation.py \
@@ -1202,7 +1212,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p interrupted-release-evidence
-          ARTIFACT_NAME=$(gh api \
+          ARTIFACT_NAME=$(gh api --paginate \
             "/repos/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}/artifacts?per_page=100" \
             --jq '.artifacts[].name' \
             | grep -E "^(migration-terminal-state|migration-execution-state|migration-start-boundary)-${GITHUB_RUN_ID}-[0-9]+$" \
@@ -1565,13 +1575,22 @@ jobs:
         id: current_schema
         run: |
           set -euo pipefail
-          PREFLIGHT_EXECUTION=$(az containerapp job start \
+          IMAGE_DIGEST="${IMAGE_REF##*@}"
+          PREFLIGHT_EXECUTION_MARKER="preflight-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          PREFLIGHT_RUNTIME_ENVELOPE=$(python backend/migration_runtime_contract.py build \
+            --mode preflight \
+            --accept-current 013 \
+            --accept-current "$EXPECTED_ALEMBIC_HEAD" \
+            --execution-marker "$PREFLIGHT_EXECUTION_MARKER" \
+            --image-digest "$IMAGE_DIGEST")
+          PREFLIGHT_START=(az containerapp job start \
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --container-name migrate \
             --command python run_migrations.py \
-            --args --preflight-only --accept-current 013 --accept-current "$EXPECTED_ALEMBIC_HEAD" \
+            --args "$PREFLIGHT_RUNTIME_ENVELOPE" \
             --query name --output tsv)
+          PREFLIGHT_EXECUTION=$("${PREFLIGHT_START[@]}")
           if [ -z "$PREFLIGHT_EXECUTION" ]; then
             echo "::error::Database preflight Job did not return an execution name"
             exit 1
@@ -1595,13 +1614,20 @@ jobs:
             fi
             sleep 10
           done
-          PREFLIGHT_ARGS=$(az containerapp job execution show \
+          az containerapp job execution show \
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --job-execution-name "$PREFLIGHT_EXECUTION" \
-            --query 'properties.template.containers[0].args' --output json)
-          echo "$PREFLIGHT_ARGS" | jq -e --arg expected "$EXPECTED_ALEMBIC_HEAD" \
-            'index("--preflight-only") != null and index("013") != null and index($expected) != null' >/dev/null
+            --query 'properties.template.containers[0].args' --output json \
+            > preflight-execution-runtime-args.json
+          python backend/migration_runtime_contract.py validate-container-args \
+            --args-json preflight-execution-runtime-args.json \
+            --mode preflight \
+            --accept-current 013 \
+            --accept-current "$EXPECTED_ALEMBIC_HEAD" \
+            --expected-bootstrap false \
+            --execution-marker "$PREFLIGHT_EXECUTION_MARKER" \
+            --image-digest "$IMAGE_DIGEST" >/dev/null
           curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
             -o current-schema-compatibility.json
           CURRENT_SCHEMA=$(jq -er '.current_revision' current-schema-compatibility.json)
@@ -1761,17 +1787,25 @@ jobs:
             '.properties.template.containers[0].env[] | select(.name=="MIGRATION_IMAGE_REFERENCE") | .value // ""')
           JOB_HEAD_EVIDENCE=$(echo "$JOB_JSON" | jq -r \
             '.properties.template.containers[0].env[] | select(.name=="EXPECTED_ALEMBIC_HEAD") | .value // ""')
-          JOB_EXPECTED_HEAD=$(echo "$JOB_JSON" | jq -r '.properties.template.containers[0].args[1] // ""')
+          IMAGE_DIGEST="${IMAGE_REF##*@}"
+          echo "$JOB_JSON" | jq -e '.properties.template.containers[0].args' \
+            > migration-job-runtime-args.json
+          python backend/migration_runtime_contract.py validate-container-args \
+            --args-json migration-job-runtime-args.json \
+            --mode migrate \
+            --expected-head "$EXPECTED_ALEMBIC_HEAD" \
+            --expected-bootstrap false \
+            --execution-marker terraform-definition \
+            --image-digest "$IMAGE_DIGEST" >/dev/null
           if [ "$JOB_IMAGE" != "$IMAGE_REF" ] || [ "$JOB_IMAGE_EVIDENCE" != "$IMAGE_REF" ]; then
             echo "::error::Migration Job does not use the exact newly built immutable image"
             exit 1
           fi
-          if [ "$JOB_EXPECTED_HEAD" != "$EXPECTED_ALEMBIC_HEAD" ] || [ "$JOB_HEAD_EVIDENCE" != "$EXPECTED_ALEMBIC_HEAD" ]; then
+          if [ "$JOB_HEAD_EVIDENCE" != "$EXPECTED_ALEMBIC_HEAD" ]; then
             echo "::error::Migration Job expected Alembic head does not match the reviewed image contract"
             exit 1
           fi
 
-          IMAGE_DIGEST="${IMAGE_REF##*@}"
           MIGRATION_EXECUTION_MARKER="migration-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           python scripts/containerapp_rollout.py mark-migration-starting \
             --state rollout-state.json \
@@ -1799,11 +1833,17 @@ jobs:
         run: |
           set -euo pipefail
           IMAGE_DIGEST="${IMAGE_REF##*@}"
-          EXECUTION_NAME=$(az containerapp job start \
+          MIGRATION_RUNTIME_ENVELOPE=$(python backend/migration_runtime_contract.py build \
+            --mode migrate \
+            --expected-head "$EXPECTED_ALEMBIC_HEAD" \
+            --execution-marker "$MIGRATION_EXECUTION_MARKER" \
+            --image-digest "$IMAGE_DIGEST")
+          MIGRATION_START=(az containerapp job start \
             --name "$MIGRATION_JOB_NAME" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --args --expect-head "$EXPECTED_ALEMBIC_HEAD" --execution-marker "$MIGRATION_EXECUTION_MARKER" \
+            --args "$MIGRATION_RUNTIME_ENVELOPE" \
             --query name --output tsv)
+          EXECUTION_NAME=$("${MIGRATION_START[@]}")
           if [ -z "$EXECUTION_NAME" ]; then
             echo "::error::Migration Job did not return an execution name"
             exit 1
@@ -1875,6 +1915,12 @@ jobs:
                 --job-execution-name "$EXECUTION_NAME" \
                 --query "properties.template.containers[0].env[?name=='EXPECTED_ALEMBIC_HEAD'].value | [0]" \
                 --output tsv)
+              az containerapp job execution show \
+                --name "$MIGRATION_JOB_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
+                --job-execution-name "$EXECUTION_NAME" \
+                --query 'properties.template.containers[0].args' --output json \
+                > completed-migration-runtime-args.json
               if [ "$EXECUTION_IMAGE" != "$IMAGE_REF" ]; then
                 echo "::error::Completed migration execution did not use the exact built digest"
                 exit 1
@@ -1883,6 +1929,13 @@ jobs:
                 echo "::error::Completed migration execution did not preserve exact-head evidence"
                 exit 1
               fi
+              python backend/migration_runtime_contract.py validate-container-args \
+                --args-json completed-migration-runtime-args.json \
+                --mode migrate \
+                --expected-head "$EXPECTED_ALEMBIC_HEAD" \
+                --expected-bootstrap false \
+                --execution-marker "$MIGRATION_EXECUTION_MARKER" \
+                --image-digest "$IMAGE_DIGEST" >/dev/null
               python scripts/emit_rollout_telemetry.py \
                 --event migration_succeeded \
                 --run-id "$GITHUB_RUN_ID" \
@@ -3259,12 +3312,21 @@ jobs:
             exit 1
           fi
           mkdir -p frontend/rollback-dist
-          if gh run download "$PREVIOUS_RUN_ID" \
-            --name frontend-recovery-bundle \
+          RECOVERY_ARTIFACT_NAME=$(gh api --paginate \
+            "/repos/${GITHUB_REPOSITORY}/actions/runs/${PREVIOUS_RUN_ID}/artifacts?per_page=100" \
+            --jq '.artifacts[].name' \
+            | grep -E "^frontend-recovery-bundle-${PREVIOUS_RUN_ID}-[0-9]+$" \
+            | awk -F- '{printf "%08d %s\n", $NF, $0}' \
+            | sort -r \
+            | head -1 \
+            | cut -d' ' -f2- || true)
+          if [ -n "$RECOVERY_ARTIFACT_NAME" ] && gh run download "$PREVIOUS_RUN_ID" \
+            --name "$RECOVERY_ARTIFACT_NAME" \
             --dir frontend/rollback-dist; then
             python scripts/frontend_release.py verify \
               --root frontend/rollback-dist \
               --manifest frontend/rollback-dist/frontend-rollback-manifest.json \
+              --restore-image "$SWA_RESTORE_IMAGE" \
               > frontend/rollback-dist/verified-manifest.json
           else
             rm -rf frontend/rollback-dist
@@ -3311,6 +3373,7 @@ jobs:
           python scripts/frontend_release.py verify \
             --root frontend/rollback-dist \
             --manifest frontend/rollback-dist/frontend-rollback-manifest.json \
+            --restore-image "$SWA_RESTORE_IMAGE" \
             > frontend/rollback-dist/verified-manifest.json
 
       - name: Require verified frontend recovery before mutation
@@ -3373,7 +3436,11 @@ jobs:
           SWA_DEPLOYMENT_TOKEN: ${{ secrets.SWA_DEPLOYMENT_TOKEN }}
         run: |
           set -euo pipefail
-          RESTORE_IMAGE=$(jq -er '.restore_image' frontend/rollback-dist/verified-manifest.json)
+          RESTORE_IMAGE="${SWA_RESTORE_IMAGE:?SWA_RESTORE_IMAGE is required}"
+          if ! [[ "$RESTORE_IMAGE" =~ ^[^[:space:]@]+@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Trusted SWA_RESTORE_IMAGE is not an immutable image reference"
+            exit 1
+          fi
           SWA_SETTINGS_URI="https://management.azure.com/subscriptions/${AZURE_SUBSCRIPTION_ID}/resourceGroups/${AZURE_RESOURCE_GROUP}/providers/Microsoft.Web/staticSites/${STATIC_WEB_APP_NAME}/config/appsettings?api-version=2023-12-01"
           jq -e '.properties | type == "object"' frontend/live-settings-before-mutation.json >/dev/null
           az rest \
@@ -3414,12 +3481,13 @@ jobs:
           python scripts/frontend_release.py verify \
             --root frontend/recovery-bundle \
             --manifest frontend/recovery-bundle/frontend-rollback-manifest.json \
+            --restore-image "$SWA_RESTORE_IMAGE" \
             > frontend/recovery-bundle/verified-manifest.json
 
       - name: Upload verified frontend recovery bundle
         uses: actions/upload-artifact@v7
         with:
-          name: frontend-recovery-bundle
+          name: frontend-recovery-bundle-${{ github.run_id }}-${{ github.run_attempt }}
           path: frontend/recovery-bundle
           if-no-files-found: error
           retention-days: 90

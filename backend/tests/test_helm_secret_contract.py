@@ -45,6 +45,14 @@ def _documents(output: str) -> list[dict]:
     return [document for document in yaml.safe_load_all(output) if document]
 
 
+def _runtime_envelope(container: dict) -> dict:
+    assert len(container["args"]) == 1
+    raw = container["args"][0]
+    assert raw.startswith("{")
+    assert raw == json.dumps(json.loads(raw), separators=(",", ":"), sort_keys=True)
+    return json.loads(raw)
+
+
 def _render_environment(values_file: str, *args: str) -> subprocess.CompletedProcess[str]:
     outputs: list[str] = []
     errors: list[str] = []
@@ -74,6 +82,34 @@ def _render_environment(values_file: str, *args: str) -> subprocess.CompletedPro
     )
 
 
+def test_base_values_schema_keeps_image_resources_and_release_evidence_scoped():
+    values = yaml.safe_load((CHART / "values.yaml").read_text(encoding="utf-8"))
+
+    assert set(values["image"]) == {"repository", "pullPolicy", "tag", "digest"}
+    assert set(values["releaseEvidence"]) == {
+        "sourceSha",
+        "schemaContractDigest",
+    }
+    assert values["resources"]["requests"] == {"cpu": "500m", "memory": "1Gi"}
+    assert "releaseEvidence" not in values["autoscaling"]
+
+
+def test_default_render_preserves_nonempty_resource_requests_and_no_phase_jobs():
+    rendered = _render(
+        "--set",
+        "externalSecrets.enabled=false",
+        "--set-string",
+        "existingSecret.name=runtime-secrets",
+    )
+    documents = _documents(rendered.stdout)
+    deployment = next(document for document in documents if document["kind"] == "Deployment")
+    container = deployment["spec"]["template"]["spec"]["containers"][0]
+
+    assert container["image"] == "example.azurecr.io/archmorph-api:3.0.0"
+    assert container["resources"]["requests"] == {"cpu": "500m", "memory": "1Gi"}
+    assert all(document["kind"] != "Job" for document in documents)
+
+
 @pytest.mark.parametrize("values_file", ["values-production.yaml", "values-staging.yaml"])
 def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     rendered = _render_environment(values_file)
@@ -81,6 +117,11 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     external_secret = next(document for document in documents if document["kind"] == "ExternalSecret")
     deployment = next(document for document in documents if document["kind"] == "Deployment")
     config_map = next(document for document in documents if document["kind"] == "ConfigMap")
+    application_container = deployment["spec"]["template"]["spec"]["containers"][0]
+    assert application_container["image"] == (
+        f"example.azurecr.io/archmorph-api@{IMMUTABLE_DIGEST}"
+    )
+    assert application_container["resources"]["requests"]
 
     remote_keys = {
         item["secretKey"]: item["remoteRef"]["key"]
@@ -92,7 +133,7 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     assert remote_keys["ARCHMORPH_API_KEY_ROTATED"] == "api-key-rotated"
     assert remote_keys["ARCHMORPH_API_KEY_PRINCIPAL_ID"] == "api-key-principal-id"
     assert remote_keys["JWT_SECRET"] == "jwt-secret"
-    env = deployment["spec"]["template"]["spec"]["containers"][0]["env"]
+    env = application_container["env"]
     plain_env = {
         item["name"]: item["value"]
         for item in env
@@ -144,7 +185,13 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     )
     container = migration["spec"]["template"]["spec"]["containers"][0]
     assert container["command"] == ["python", "run_migrations.py"]
-    assert container["args"] == ["--expect-head", "014"]
+    assert _runtime_envelope(container) == {
+        "mode": "migrate",
+        "expected_head": "014",
+        "bootstrap": False,
+        "execution_marker": "contract-run",
+        "image_digest": IMMUTABLE_DIGEST,
+    }
     assert container["image"] == f"example.azurecr.io/archmorph-api@{IMMUTABLE_DIGEST}"
     assert container["env"][0]["valueFrom"]["secretKeyRef"] == {
         "name": "contract-archmorph-secrets",
@@ -165,13 +212,13 @@ def test_environment_renders_all_fail_closed_auth_secret_refs(values_file):
     )
     preflight_container = preflight["spec"]["template"]["spec"]["containers"][0]
     assert preflight_container["command"] == ["python", "run_migrations.py"]
-    assert preflight_container["args"] == [
-        "--preflight-only",
-        "--accept-current",
-        "013",
-        "--accept-current",
-        "014",
-    ]
+    assert _runtime_envelope(preflight_container) == {
+        "mode": "preflight",
+        "accept_current": ["013", "014"],
+        "bootstrap": False,
+        "execution_marker": "contract-run",
+        "image_digest": IMMUTABLE_DIGEST,
+    }
     assert preflight_container["env"][0]["valueFrom"]["secretKeyRef"] == {
         "name": "contract-archmorph-secrets",
         "key": "DATABASE_URL",
@@ -345,6 +392,23 @@ def test_production_rejects_default_migration_service_account():
     assert "dedicated pre-provisioned ServiceAccount" in rendered.stderr
 
 
+def test_migration_phase_rejects_missing_digest_in_every_environment():
+    rendered = _render(
+        "--set",
+        "externalSecrets.enabled=false",
+        "--set-string",
+        "existingSecret.name=runtime-secrets",
+        "--set-string",
+        "migrations.phase=preflight",
+        "--set-string",
+        "migrations.executionId=contract-run",
+        expect_success=False,
+    )
+
+    assert rendered.returncode != 0
+    assert "image.digest is required for migration phases" in rendered.stderr
+
+
 def test_first_install_external_secret_requires_pre_materialized_runtime_secret():
     documents = _documents(_render_environment("values-production.yaml").stdout)
     external_secret = next(document for document in documents if document["kind"] == "ExternalSecret")
@@ -362,16 +426,12 @@ def test_first_install_external_secret_requires_pre_materialized_runtime_secret(
     assert "helm.sh/hook" not in external_secret["metadata"].get("annotations", {})
     assert preflight["metadata"]["annotations"]["archmorph.io/release-phase"] == "preflight"
     assert migration["metadata"]["annotations"]["archmorph.io/release-phase"] == "migrate"
-    assert preflight["spec"]["template"]["spec"]["containers"][0]["args"] == [
-        "--preflight-only",
-        "--accept-current",
-        "013",
-        "--accept-current",
-        "014",
-    ]
-    assert "--bootstrap-empty-database" not in migration["spec"]["template"]["spec"][
-        "containers"
-    ][0]["args"]
+    assert _runtime_envelope(
+        preflight["spec"]["template"]["spec"]["containers"][0]
+    )["bootstrap"] is False
+    assert _runtime_envelope(
+        migration["spec"]["template"]["spec"]["containers"][0]
+    )["bootstrap"] is False
 
 
 def test_empty_database_bootstrap_requires_explicit_first_provisioning_value():
@@ -392,14 +452,18 @@ def test_empty_database_bootstrap_requires_explicit_first_provisioning_value():
         for document in documents
         if document["kind"] == "Job" and "-migrate-" in document["metadata"]["name"]
     )
-    assert preflight["spec"]["template"]["spec"]["containers"][0]["args"][-1] == (
-        "--bootstrap-empty-database"
-    )
-    assert migration["spec"]["template"]["spec"]["containers"][0]["args"] == [
-        "--expect-head",
-        "014",
-        "--bootstrap-empty-database",
-    ]
+    assert _runtime_envelope(
+        preflight["spec"]["template"]["spec"]["containers"][0]
+    )["bootstrap"] is True
+    assert _runtime_envelope(
+        migration["spec"]["template"]["spec"]["containers"][0]
+    ) == {
+        "mode": "migrate",
+        "expected_head": "014",
+        "bootstrap": True,
+        "execution_marker": "contract-run",
+        "image_digest": IMMUTABLE_DIGEST,
+    }
 
 
 def test_phase_jobs_use_unique_names_and_gc_only_after_completion():
@@ -449,6 +513,41 @@ def test_render_rejects_schema_contract_that_omits_head_or_has_duplicates():
         expect_success=False,
     )
     assert "must be unique" in duplicate.stderr
+
+
+def test_render_rejects_symbolic_or_oversized_revision_contracts():
+    symbolic = _render(
+        "-f",
+        str(CHART / "values-production.yaml"),
+        "--set-string",
+        f"image.digest={IMMUTABLE_DIGEST}",
+        "--set-string",
+        "migrations.phase=preflight",
+        "--set-string",
+        "migrations.executionId=invalid-contract",
+        "--set-string",
+        "migrations.expectedAlembicHead=head",
+        "--set-json",
+        'migrations.acceptedCurrentAlembicRevisions=["013","head"]',
+        expect_success=False,
+    )
+    assert "must be one exact revision" in symbolic.stderr
+
+    oversized = _render(
+        "-f",
+        str(CHART / "values-production.yaml"),
+        "--set-string",
+        f"image.digest={IMMUTABLE_DIGEST}",
+        "--set-string",
+        "migrations.phase=preflight",
+        "--set-string",
+        "migrations.executionId=invalid-contract",
+        "--set-json",
+        "migrations.acceptedCurrentAlembicRevisions="
+        + json.dumps([f"r{index:02d}" for index in range(16)] + ["014"]),
+        expect_success=False,
+    )
+    assert "at most 16 revisions" in oversized.stderr
 
 
 def test_chart_documents_external_secret_controller_bootstrap_limitation():

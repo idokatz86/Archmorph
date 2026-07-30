@@ -227,8 +227,16 @@ def validate_bundle(root: Path) -> dict[str, str]:
     return digests
 
 
-def verify_snapshot(root: Path, manifest_path: Path) -> dict:
-    """Require the prior frontend/API artifact and pinned restore image."""
+def verify_snapshot(
+    root: Path,
+    manifest_path: Path,
+    trusted_restore_image: str,
+) -> dict:
+    """Require the prior artifact and bind its image to trusted workflow config."""
+    if not _RESTORE_IMAGE_RE.fullmatch(trusted_restore_image):
+        raise ValueError(
+            "trusted frontend restore image must be pinned by immutable digest"
+        )
     manifest = json.loads(
         manifest_path.read_text(encoding="utf-8"), object_pairs_hook=_strict_object
     )
@@ -237,6 +245,10 @@ def verify_snapshot(root: Path, manifest_path: Path) -> dict:
     image = str(manifest.get("restore_image") or "")
     if not _RESTORE_IMAGE_RE.fullmatch(image):
         raise ValueError("frontend restore image must be pinned by immutable digest")
+    if image != trusted_restore_image:
+        raise ValueError(
+            "frontend restore image does not match trusted workflow configuration"
+        )
     files = manifest.get("files")
     if not isinstance(files, dict) or not files:
         raise ValueError("frontend rollback manifest has no artifact files")
@@ -282,7 +294,15 @@ def _write_json_atomic(output: Path, payload: object) -> None:
             temporary.flush()
             os.fsync(temporary.fileno())
             temporary_path = Path(temporary.name)
-        temporary_path.replace(output)
+        os.replace(temporary_path, output)
+        directory_fd = os.open(
+            output.parent,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
     finally:
         if temporary_path is not None and temporary_path.exists():
             temporary_path.unlink()
@@ -345,6 +365,7 @@ def main() -> int:
     verify = subparsers.add_parser("verify")
     verify.add_argument("--root", required=True, type=Path)
     verify.add_argument("--manifest", required=True, type=Path)
+    verify.add_argument("--restore-image", required=True)
     validate = subparsers.add_parser("validate")
     validate.add_argument("--root", required=True, type=Path)
     write = subparsers.add_parser("write")
@@ -356,7 +377,12 @@ def main() -> int:
     chart.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
     if args.command == "verify":
-        print(json.dumps(verify_snapshot(args.root, args.manifest), sort_keys=True))
+        print(
+            json.dumps(
+                verify_snapshot(args.root, args.manifest, args.restore_image),
+                sort_keys=True,
+            )
+        )
     elif args.command == "validate":
         print(json.dumps(validate_bundle(args.root), sort_keys=True))
     elif args.command == "write":

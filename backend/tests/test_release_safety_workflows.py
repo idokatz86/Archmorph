@@ -70,6 +70,8 @@ def test_ci_includes_pgvector_empty_schema_structural_migration_cycle():
         "Run deterministic rollout contracts",
     )["run"]
     assert "backend/tests/test_rollout_telemetry.py" in rollout_contracts
+    assert "backend/tests/test_migration_runtime_contract.py" in rollout_contracts
+    assert "backend/tests/test_azure_cli_parser_contract.py" in rollout_contracts
     assert "backend/tests/test_run_migrations.py" in rollout_contracts
     assert "backend/tests/test_helm_release_contract.py" in rollout_contracts
     assert "backend/tests/test_kubernetes_lease.py" in rollout_contracts
@@ -77,6 +79,16 @@ def test_ci_includes_pgvector_empty_schema_structural_migration_cycle():
     assert "backend/tests/test_release_provenance.py" in rollout_contracts
     assert "backend/tests/test_containerapp_revision_builder.py" in rollout_contracts
     assert "backend/tests/test_bridge_overlay.py" in rollout_contracts
+    parser_contract = _step_by_name(
+        rollout_job["steps"],
+        "Verify pinned Azure CLI migration-args parser contract",
+    )
+    assert parser_contract["uses"] == "azure/CLI@v2"
+    assert parser_contract["with"]["azcliversion"] == "2.86.0"
+    assert parser_contract["with"]["inlineScript"] == (
+        "python3 scripts/azure_cli_parser_contract.py "
+        "--require-az --expected-version 2.86.0"
+    )
 
     run_script = _step_by_name(
         job["steps"],
@@ -208,13 +220,19 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert "known-migration-executions.json" in prepare_migration
     assert "--execution-marker" in prepare_migration
     assert "record-migration-execution" in start_migration
+    assert "migration_runtime_contract.py build" in start_migration
     assert '--execution-marker "$MIGRATION_EXECUTION_MARKER"' in start_migration
+    assert '--args "$MIGRATION_RUNTIME_ENVELOPE"' in start_migration
+    assert "--args --expect-head" not in start_migration
     assert start_migration.index("record-migration-execution") < start_migration.index(
         "--event migration_started"
     )
     assert "supervise-migration" in supervision
     assert "az containerapp job start" in preflight
-    assert '--preflight-only --accept-current 013 --accept-current "$EXPECTED_ALEMBIC_HEAD"' in preflight
+    assert "migration_runtime_contract.py build" in preflight
+    assert '--args "$PREFLIGHT_RUNTIME_ENVELOPE"' in preflight
+    assert "--args --preflight-only" not in preflight
+    assert "validate-container-args" in preflight
     assert "Same-identity database preflight failed" in preflight
     assert "Same-identity database preflight timed out" in preflight
     assert "/api/schema-compatibility" in preflight
@@ -289,7 +307,10 @@ def test_phase_a_bootstrap_is_separate_state_and_cannot_mutate_live_app():
     assert ".value" not in terraform
     assert 'identity_ids = [azurerm_user_assigned_identity.database_migration.id]' in terraform
     assert 'command = ["python", "run_migrations.py"]' in terraform
-    assert 'args    = ["--expect-head", var.expected_alembic_head]' in terraform
+    assert "args = [jsonencode({" in terraform
+    assert 'execution_marker = "terraform-definition"' in terraform
+    assert "expected_head" in terraform
+    assert 'image_digest' in terraform
     assert 'name        = "DATABASE_URL"\n        secret_name = "db-connection"' in terraform
     assert 'name  = "AZURE_CLIENT_ID"' in terraform
     assert 'value = azurerm_user_assigned_identity.database_migration.client_id' in terraform
@@ -458,7 +479,7 @@ def test_migration_execution_is_persisted_and_quiesced_before_recovery_decisions
         "Recover exact schema-safe traffic after rollout failure",
     )["run"]
 
-    assert "gh api" in load
+    assert "gh api --paginate" in load
     assert 'gh run download "$GITHUB_RUN_ID"' in load
     assert "migration-terminal-state|migration-execution-state|migration-start-boundary" in load
     assert "verify-release-state" in load
@@ -848,10 +869,14 @@ def test_frontend_waits_for_backend_and_has_previous_artifact_rollback():
         steps,
         "Restore frontend settings and artifact after any mutation failure",
     )
+    upload = _step_by_name(steps, "Upload verified frontend recovery bundle")
     assert "gh run download" in download
     assert "frontend-recovery-bundle" in download
+    assert "gh api --paginate" in download
+    assert "${PREVIOUS_RUN_ID}-[0-9]+" in download
     assert "frontend-dist" in download
     assert "frontend_release.py verify" in download
+    assert '--restore-image "$SWA_RESTORE_IMAGE"' in download
     assert "No successful prior frontend artifact exists" in download
     assert "verified-manifest.json" in require
     assert deploy["id"] == "deploy_frontend_locked"
@@ -864,10 +889,14 @@ def test_frontend_waits_for_backend_and_has_previous_artifact_rollback():
     assert "@frontend/live-settings-before-mutation.json" in restore["run"]
     assert "restored-settings.json" in restore["run"]
     assert "cmp frontend/expected-settings.json frontend/actual-settings.json" in restore["run"]
-    assert "RESTORE_IMAGE" in restore["run"]
+    assert 'RESTORE_IMAGE="${SWA_RESTORE_IMAGE:' in restore["run"]
+    assert "jq -er '.restore_image'" not in restore["run"]
     assert "INPUT_API_LOCATION=/api" in restore["run"]
     assert "rollback-dist/dist:/app:ro" in restore["run"]
     assert "rollback-dist/api:/api:ro" in restore["run"]
+    assert upload["with"]["name"] == (
+        "frontend-recovery-bundle-${{ github.run_id }}-${{ github.run_attempt }}"
+    )
     assert backend["concurrency"]["group"] == "production-backend-rollout"
 
 

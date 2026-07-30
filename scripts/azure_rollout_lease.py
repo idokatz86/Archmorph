@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import re
 import subprocess
+import sys
 import tempfile
 import time
 from typing import Callable, Protocol
@@ -622,16 +623,42 @@ class RolloutCoordinator:
 
 def _secure_write(path: Path, value: str) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(value + "\n", encoding="utf-8")
-    os.chmod(temporary, 0o600)
-    temporary.replace(path)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            os.fchmod(temporary.fileno(), 0o600)
+            temporary.write(value + "\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+            temporary_path = Path(temporary.name)
+        os.replace(temporary_path, path)
+        directory_fd = os.open(
+            path.parent,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
 
 
 def _secure_read(path: Path) -> str:
-    value = path.read_text(encoding="utf-8").strip()
+    try:
+        value = path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError) as error:
+        raise LostLease("lease ID file cannot be read") from error
     if not re.fullmatch(r"[A-Za-z0-9-]{16,128}", value):
-        raise ValueError("lease ID file is missing or malformed")
+        raise LostLease("lease ID file is missing or malformed")
     return value
 
 
@@ -672,8 +699,12 @@ def _heartbeat(args: argparse.Namespace, coordinator: RolloutCoordinator) -> int
                     lease_id=_secure_read(args.intent_lease_id_file),
                 )
             failures = 0
-        except CoordinationError:
+        except CoordinationError as error:
             failures += 1
+            print(
+                f"Rollout lease heartbeat failure {failures}: {type(error).__name__}",
+                file=sys.stderr,
+            )
             if failures >= args.max_failures:
                 return 4
 
@@ -753,7 +784,7 @@ def main() -> int:
             run_id=args.run_id,
             run_attempt=args.run_attempt,
         )
-        args.intent_output.write_text(intent + "\n", encoding="utf-8")
+        _secure_write(args.intent_output, intent)
         _secure_write(args.lease_id_output, lease_id)
         print(json.dumps({"status": "priority_published"}, sort_keys=True))
     elif args.command == "maintain-priority":
@@ -771,7 +802,7 @@ def main() -> int:
             wait_seconds=args.wait_seconds,
             retry_seconds=args.retry_seconds,
         )
-        args.intent_output.write_text(intent + "\n", encoding="utf-8")
+        _secure_write(args.intent_output, intent)
         _secure_write(args.lease_id_output, lease_id)
         print(json.dumps({"status": "priority_claimed"}, sort_keys=True))
     elif args.command == "wait-turn":

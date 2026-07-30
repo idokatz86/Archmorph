@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
+import migration_runtime_contract as runtime_contract
 import run_migrations
 
 
@@ -306,7 +307,7 @@ def test_empty_database_bootstrap_is_explicit_and_targets_expected_head(monkeypa
     assert evidence["status"] == "bootstrapped"
 
 
-def test_bootstrap_rejects_existing_non_alembic_tables(monkeypatch):
+def test_bootstrap_rejects_existing_non_alembic_objects(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
     engine, connection = _engine_and_connection()
     connection.execute.side_effect = [
@@ -323,7 +324,7 @@ def test_bootstrap_rejects_existing_non_alembic_tables(monkeypatch):
         patch.object(run_migrations, "create_engine", return_value=engine),
         patch.object(run_migrations, "inspect", return_value=inspector),
         patch.object(run_migrations.command, "upgrade") as upgrade,
-        pytest.raises(RuntimeError, match="application tables but no alembic_version"),
+        pytest.raises(RuntimeError, match="application objects but no alembic_version"),
     ):
         run_migrations.run(expected_head="014", bootstrap=True)
     upgrade.assert_not_called()
@@ -377,3 +378,164 @@ def test_preflight_allows_only_explicit_verified_empty_bootstrap(monkeypatch):
             bootstrap=True,
         )
     assert evidence["current_revision"] == "empty"
+
+
+def test_bootstrap_catalog_query_covers_relations_and_non_relation_objects():
+    connection = MagicMock()
+    connection.execute.return_value.all.return_value = [("customer", "view_only")]
+    inspector = MagicMock()
+    inspector.has_table.return_value = False
+    inspector.get_table_names.return_value = []
+
+    with (
+        patch.object(run_migrations, "inspect", return_value=inspector),
+        pytest.raises(RuntimeError, match="application objects"),
+    ):
+        run_migrations._read_current_revisions(connection, bootstrap=True)
+
+    query = str(connection.execute.call_args.args[0])
+    for catalog in (
+        "pg_class",
+        "pg_namespace",
+        "pg_proc",
+        "pg_type",
+        "pg_collation",
+        "pg_conversion",
+        "pg_ts_config",
+        "pg_ts_dict",
+        "pg_extension",
+        "pg_foreign_data_wrapper",
+        "pg_foreign_server",
+        "pg_event_trigger",
+        "pg_publication",
+    ):
+        assert catalog in query
+    assert "extname <> 'plpgsql'" in query
+    assert "pg_temp_%" in query
+
+
+def test_runtime_envelope_dispatches_preflight_as_one_typed_request(monkeypatch):
+    digest = "sha256:" + "a" * 64
+    envelope = runtime_contract.build_runtime_envelope(
+        mode="preflight",
+        accepted_current=("013", "014"),
+        execution_marker="preflight-123-1",
+        image_digest=digest,
+    )
+    monkeypatch.setenv("EXPECTED_ALEMBIC_HEAD", "014")
+    monkeypatch.setenv(
+        "MIGRATION_IMAGE_REFERENCE",
+        "example.invalid/archmorph-api@" + digest,
+    )
+
+    with patch.object(
+        run_migrations,
+        "preflight",
+        return_value={"status": "preflight_succeeded"},
+    ) as preflight:
+        result = run_migrations._execute(run_migrations._parse_args([envelope]))
+
+    assert result == {"status": "preflight_succeeded"}
+    preflight.assert_called_once_with(
+        expected_current="",
+        accepted_current=("013", "014"),
+        bootstrap=False,
+    )
+
+
+def test_runtime_envelope_dispatches_migration_and_binds_trusted_evidence(monkeypatch):
+    digest = "sha256:" + "b" * 64
+    envelope = runtime_contract.build_runtime_envelope(
+        mode="migrate",
+        expected_head="014",
+        execution_marker="migration-123-1",
+        image_digest=digest,
+    )
+    monkeypatch.setenv("EXPECTED_ALEMBIC_HEAD", "014")
+    monkeypatch.setenv(
+        "MIGRATION_IMAGE_REFERENCE",
+        "example.invalid/archmorph-api@" + digest,
+    )
+
+    with patch.object(
+        run_migrations,
+        "run",
+        return_value={"status": "migrated"},
+    ) as migrate:
+        result = run_migrations._execute(run_migrations._parse_args([envelope]))
+
+    assert result == {"status": "migrated"}
+    migrate.assert_called_once_with(expected_head="014", bootstrap=False)
+
+
+@pytest.mark.parametrize(
+    "legacy_flags",
+    [
+        ["--expect-head", "014"],
+        ["--preflight-only"],
+        ["--accept-current", "013"],
+        ["--expect-current", "013"],
+        ["--bootstrap-empty-database"],
+        ["--execution-marker", "migration-other"],
+    ],
+)
+def test_runtime_envelope_rejects_every_legacy_flag_mix(legacy_flags):
+    envelope = runtime_contract.build_runtime_envelope(
+        mode="migrate",
+        expected_head="014",
+        execution_marker="migration-123-1",
+        image_digest="sha256:" + "a" * 64,
+    )
+    arguments = run_migrations._parse_args([envelope, *legacy_flags])
+    with pytest.raises(RuntimeError, match="cannot be combined"):
+        run_migrations._runtime_request(arguments)
+
+
+@pytest.mark.parametrize(
+    ("environment", "value", "message"),
+    [
+        ("EXPECTED_ALEMBIC_HEAD", "015", "expected-head evidence"),
+        (
+            "MIGRATION_IMAGE_REFERENCE",
+            "example.invalid/archmorph-api@sha256:" + "b" * 64,
+            "immutable image evidence",
+        ),
+    ],
+)
+def test_runtime_envelope_rejects_trusted_environment_conflicts(
+    monkeypatch, environment, value, message
+):
+    envelope = runtime_contract.build_runtime_envelope(
+        mode="migrate",
+        expected_head="014",
+        execution_marker="migration-123-1",
+        image_digest="sha256:" + "a" * 64,
+    )
+    monkeypatch.delenv("EXPECTED_ALEMBIC_HEAD", raising=False)
+    monkeypatch.delenv("MIGRATION_IMAGE_REFERENCE", raising=False)
+    monkeypatch.setenv(environment, value)
+
+    with pytest.raises(RuntimeError, match=message):
+        run_migrations._runtime_request(run_migrations._parse_args([envelope]))
+
+
+def test_legacy_operator_flags_remain_available_without_an_envelope(monkeypatch):
+    monkeypatch.setenv("EXPECTED_ALEMBIC_HEAD", "014")
+    migration = run_migrations._runtime_request(run_migrations._parse_args([]))
+    preflight = run_migrations._runtime_request(
+        run_migrations._parse_args(
+            ["--preflight-only", "--accept-current", "013", "--accept-current", "014"]
+        )
+    )
+
+    assert migration == {
+        "mode": "migrate",
+        "expected_head": "014",
+        "bootstrap": False,
+    }
+    assert preflight == {
+        "mode": "preflight",
+        "accept_current": ["013", "014"],
+        "expected_current": "",
+        "bootstrap": False,
+    }

@@ -1241,12 +1241,135 @@ def test_controlled_runner_refuses_non_alembic_postgres_tables_in_bootstrap(monk
         with engine.begin() as connection:
             connection.execute(text("CREATE TABLE legacy_customer_data (id integer)"))
         monkeypatch.setenv("DATABASE_URL", POSTGRES_URL)
-        with pytest.raises(RuntimeError, match="application tables but no alembic_version"):
+        with pytest.raises(RuntimeError, match="application objects but no alembic_version"):
             run_migrations.run(expected_head="014", bootstrap=True)
         with engine.connect() as connection:
             assert "legacy_customer_data" in inspect(connection).get_table_names()
             assert "alembic_version" not in inspect(connection).get_table_names()
     finally:
+        _reset_database(engine)
+        engine.dispose()
+
+
+@pytest.mark.parametrize(
+    ("object_kind", "statements"),
+    [
+        (
+            "view",
+            ["CREATE VIEW public.legacy_view AS SELECT 1::integer AS id"],
+        ),
+        (
+            "materialized-view",
+            [
+                "CREATE MATERIALIZED VIEW public.legacy_materialized_view "
+                "AS SELECT 1::integer AS id"
+            ],
+        ),
+        (
+            "sequence",
+            ["CREATE SEQUENCE public.legacy_sequence"],
+        ),
+        (
+            "composite-type",
+            ["CREATE TYPE public.legacy_composite AS (id integer)"],
+        ),
+        (
+            "enum-type",
+            ["CREATE TYPE public.legacy_enum AS ENUM ('one', 'two')"],
+        ),
+        (
+            "routine",
+            [
+                "CREATE FUNCTION public.legacy_function() RETURNS integer "
+                "LANGUAGE sql IMMUTABLE AS 'SELECT 1'"
+            ],
+        ),
+        (
+            "text-search-config",
+            [
+                "CREATE TEXT SEARCH CONFIGURATION public.legacy_search "
+                "(COPY = pg_catalog.simple)"
+            ],
+        ),
+        (
+            "foreign-wrapper-only",
+            ["CREATE FOREIGN DATA WRAPPER archmorph_bootstrap_fdw NO HANDLER"],
+        ),
+        (
+            "foreign-table",
+            [
+                "CREATE FOREIGN DATA WRAPPER archmorph_bootstrap_fdw NO HANDLER",
+                "CREATE SERVER archmorph_bootstrap_server "
+                "FOREIGN DATA WRAPPER archmorph_bootstrap_fdw",
+                "CREATE FOREIGN TABLE public.legacy_foreign (id integer) "
+                "SERVER archmorph_bootstrap_server",
+            ],
+        ),
+        (
+            "index",
+            [
+                "CREATE TABLE public.legacy_indexed (id integer)",
+                "CREATE INDEX legacy_index ON public.legacy_indexed (id)",
+            ],
+        ),
+        (
+            "partitioned-index",
+            [
+                "CREATE TABLE public.legacy_partitioned (id integer) "
+                "PARTITION BY RANGE (id)",
+                "CREATE INDEX legacy_partitioned_index "
+                "ON public.legacy_partitioned (id)",
+            ],
+        ),
+        (
+            "empty-non-public-schema",
+            ["CREATE SCHEMA legacy_objects"],
+        ),
+        (
+            "non-public-view",
+            [
+                "CREATE SCHEMA legacy_objects",
+                "CREATE VIEW legacy_objects.legacy_view "
+                "AS SELECT 1::integer AS id",
+            ],
+        ),
+        (
+            "publication",
+            ["CREATE PUBLICATION archmorph_bootstrap_publication"],
+        ),
+    ],
+    ids=lambda value: value if isinstance(value, str) else None,
+)
+def test_controlled_runner_refuses_every_non_alembic_postgres_object_kind(
+    monkeypatch, object_kind, statements
+):
+    import run_migrations
+
+    engine = create_engine(POSTGRES_URL, pool_pre_ping=True)
+    try:
+        _reset_database(engine)
+        with engine.begin() as connection:
+            for statement in statements:
+                connection.execute(text(statement))
+        monkeypatch.setenv("DATABASE_URL", POSTGRES_URL)
+
+        with pytest.raises(RuntimeError, match="application objects"):
+            run_migrations.run(expected_head="014", bootstrap=True)
+
+        with engine.connect() as connection:
+            assert not inspect(connection).has_table("alembic_version")
+    finally:
+        with engine.begin() as connection:
+            connection.execute(text("DROP SCHEMA IF EXISTS legacy_objects CASCADE"))
+            connection.execute(
+                text("DROP SERVER IF EXISTS archmorph_bootstrap_server CASCADE")
+            )
+            connection.execute(
+                text("DROP FOREIGN DATA WRAPPER IF EXISTS archmorph_bootstrap_fdw CASCADE")
+            )
+            connection.execute(
+                text("DROP PUBLICATION IF EXISTS archmorph_bootstrap_publication")
+            )
         _reset_database(engine)
         engine.dispose()
 

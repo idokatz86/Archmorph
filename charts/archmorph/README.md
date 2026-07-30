@@ -58,7 +58,10 @@ race or a partial migration.
 
 The subsequent separately applied migration Job uses the same
 immutable application image and `DATABASE_URL` secret as the Deployment. The Job
-runs `run_migrations.py --expect-head <revision>`, which takes a PostgreSQL
+runs `run_migrations.py` with one canonical JSON runtime-envelope argument. The
+envelope binds the phase, reviewed revision contract, bootstrap decision, unique
+execution marker, and immutable image digest without passing leading-option
+tokens through the container runtime. The runner takes a PostgreSQL
 advisory lock, validates that the reviewed target exists and is reachable from
 the current revision, upgrades only to that target, verifies the exact declared head, and exits
 non-zero on any failure. If the database is already at that exact head, the
@@ -70,8 +73,8 @@ and successful history without ever deleting an active execution.
 For a brand-new database only, set `migrations.bootstrapEmptyDatabase=true` in
 an explicitly reviewed first-provisioning values file. Both preflight and
 migration then require that `alembic_version` is absent and that no application
-tables exist before applying the reviewed `expectedAlembicHead`. Leave the flag
-false for all existing environments. A database with non-Alembic tables, or a
+objects exist before applying the reviewed `expectedAlembicHead`. Leave the flag
+false for all existing environments. A database with non-Alembic objects, or a
 credential/SQL failure, is never treated as empty and fails closed.
 
 Production and staging require `image.digest=sha256:<digest>`. Tags, including

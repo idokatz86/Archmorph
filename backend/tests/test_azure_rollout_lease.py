@@ -4,6 +4,7 @@ import importlib.util
 from pathlib import Path
 from subprocess import CompletedProcess
 import sys
+from types import SimpleNamespace
 from unittest.mock import patch
 
 import pytest
@@ -329,6 +330,46 @@ def test_intent_heartbeat_prevents_runner_loss_expiry_until_renewal_stops():
     assert [item.blob_name for item in owner.active_intents()] == [intent]
     clock.advance(6)
     assert owner.active_intents() == []
+
+
+@pytest.mark.parametrize("file_state", ["malformed", "invalid-utf8", "missing"])
+def test_heartbeat_counts_malformed_or_missing_lease_id_as_bounded_loss(
+    tmp_path, capsys, file_state
+):
+    owner, storage, _clock = _coordinator()
+    lease_file = tmp_path / "rollout-lease-id"
+    if file_state == "malformed":
+        lease_file.write_text("bad!\n", encoding="utf-8")
+    elif file_state == "invalid-utf8":
+        lease_file.write_bytes(b"\xff\xfe")
+    args = SimpleNamespace(
+        interval_seconds=1,
+        max_failures=2,
+        mode="deploy",
+        intent="",
+        intent_lease_id_file=None,
+        rollout_lease_id_file=lease_file,
+    )
+
+    with patch.object(coordination.time, "sleep"):
+        assert coordination._heartbeat(args, owner) == 4
+
+    assert storage.leases == {}
+    assert capsys.readouterr().err.count("LostLease") == 2
+
+
+def test_secure_coordination_write_fsyncs_file_and_directory(tmp_path):
+    lease_file = tmp_path / "rollout-lease-id"
+    lease_id = "placeholder-lease-id-0001"
+    original_fsync = coordination.os.fsync
+
+    with patch.object(coordination.os, "fsync", wraps=original_fsync) as fsync:
+        coordination._secure_write(lease_file, lease_id)
+
+    assert fsync.call_count >= 2
+    assert coordination._secure_read(lease_file) == lease_id
+    assert lease_file.stat().st_mode & 0o777 == 0o600
+    assert not list(tmp_path.glob(".rollout-lease-id.*.tmp"))
 
 
 def test_unknown_or_malformed_priority_state_fails_closed():

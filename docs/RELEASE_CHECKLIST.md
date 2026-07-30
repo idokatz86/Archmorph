@@ -118,8 +118,9 @@ After deployment, verify:
   private DNS/network reachability to rollout-coordination and application
   storage private endpoints. Missing runner/network configuration blocks release;
   public Blob access is never enabled as a deployment fallback.
-- Confirm the same-identity migration preflight succeeded with
-	`--preflight-only --expect-current 013` before Alembic ran.
+- Confirm the same-identity migration preflight succeeded with one validated
+	canonical JSON runtime envelope accepting revision `013` and the reviewed
+	target before Alembic ran.
 - Confirm final green stayed at exactly zero traffic until direct smoke passed
 	and the exact pre-shift manifest is retained for restoration.
 - `${API_ROOT}/openapi.json` loads and reports `Archmorph API`.

@@ -13,6 +13,7 @@ import re
 import shlex
 import subprocess
 import sys
+import tempfile
 import time
 from pathlib import Path
 from typing import Any
@@ -79,6 +80,21 @@ def _release_provenance_module():
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise RuntimeError("release provenance verifier is unavailable")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def _migration_runtime_module():
+    """Load the backend's stdlib-only runtime contract for workflow recovery."""
+    name = "archmorph_migration_runtime_contract"
+    if name in sys.modules:
+        return sys.modules[name]
+    path = Path(__file__).resolve().parents[1] / "backend" / "migration_runtime_contract.py"
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError("migration runtime contract verifier is unavailable")
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
     spec.loader.exec_module(module)
@@ -567,10 +583,17 @@ def resolve_migration_start_boundary(
             if not isinstance(arguments, list) or not isinstance(image, str):
                 failure = "execution_details_malformed"
                 break
-            pairs = list(zip(arguments, arguments[1:]))
+            try:
+                envelope = _migration_runtime_module().parse_container_args(arguments)
+            except ValueError:
+                failure = "execution_details_malformed"
+                break
             if (
-                ("--execution-marker", marker) in pairs
-                and ("--expect-head", str(state["target_schema"])) in pairs
+                envelope["mode"] == "migrate"
+                and envelope["execution_marker"] == marker
+                and envelope["expected_head"] == str(state["target_schema"])
+                and envelope["image_digest"] == image_digest
+                and envelope["bootstrap"] is False
                 and image.endswith("@" + image_digest)
             ):
                 matches.append(execution_name)
@@ -1171,9 +1194,34 @@ def quiesce_migration_execution(
 
 
 def _write_json_atomic(path: Path, payload: object) -> None:
-    temporary = path.with_suffix(path.suffix + ".tmp")
-    temporary.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
-    temporary.replace(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            json.dump(payload, temporary, indent=2)
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+            temporary_path = Path(temporary.name)
+        os.replace(temporary_path, path)
+        directory_fd = os.open(
+            path.parent,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
 
 
 def _read_release_state(path: Path) -> dict[str, Any]:

@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -49,7 +50,7 @@ def _snapshot(tmp_path: Path) -> Path:
 
 def test_verified_previous_frontend_snapshot_is_accepted(tmp_path):
     manifest = _snapshot(tmp_path)
-    payload = frontend_release.verify_snapshot(tmp_path, manifest)
+    payload = frontend_release.verify_snapshot(tmp_path, manifest, IMAGE)
     assert payload["restore_image"] == IMAGE
     assert {
         "dist/index.html",
@@ -63,7 +64,7 @@ def test_missing_previous_frontend_artifact_fails_before_mutation(tmp_path):
     manifest = _snapshot(tmp_path)
     (tmp_path / "dist" / "index.html").unlink()
     with pytest.raises(ValueError, match="dist/index.html"):
-        frontend_release.verify_snapshot(tmp_path, manifest)
+        frontend_release.verify_snapshot(tmp_path, manifest, IMAGE)
 
 
 def test_unpinned_restore_tool_is_rejected(tmp_path):
@@ -72,7 +73,19 @@ def test_unpinned_restore_tool_is_rejected(tmp_path):
     payload["restore_image"] = "mcr.microsoft.com/example/staticappsclient:stable"
     manifest.write_text(json.dumps(payload))
     with pytest.raises(ValueError, match="immutable digest"):
-        frontend_release.verify_snapshot(tmp_path, manifest)
+        frontend_release.verify_snapshot(tmp_path, manifest, IMAGE)
+
+
+def test_manifest_restore_image_must_match_trusted_workflow_configuration(tmp_path):
+    manifest = _snapshot(tmp_path)
+    payload = json.loads(manifest.read_text())
+    payload["restore_image"] = (
+        "mcr.microsoft.com/example/staticappsclient@sha256:" + "b" * 64
+    )
+    manifest.write_text(json.dumps(payload))
+
+    with pytest.raises(ValueError, match="trusted workflow configuration"):
+        frontend_release.verify_snapshot(tmp_path, manifest, IMAGE)
 
 
 def test_write_fails_atomically_before_replacing_manifest_on_missing_asset(tmp_path):
@@ -86,6 +99,20 @@ def test_write_fails_atomically_before_replacing_manifest_on_missing_asset(tmp_p
 
     assert output.read_text() == "preserve-existing-evidence"
     assert not list(tmp_path.glob(".next-manifest.json.*.tmp"))
+
+
+def test_frontend_manifest_atomic_write_fsyncs_file_and_directory(tmp_path):
+    _snapshot(tmp_path)
+    output = tmp_path / "next-manifest.json"
+    original_fsync = frontend_release.os.fsync
+
+    with patch.object(frontend_release.os, "fsync", wraps=original_fsync) as fsync:
+        frontend_release.write_manifest(tmp_path, IMAGE, output)
+
+    assert fsync.call_count >= 2
+    assert frontend_release.verify_snapshot(tmp_path, output, IMAGE)[
+        "restore_image"
+    ] == IMAGE
 
 
 @pytest.mark.parametrize(
@@ -122,7 +149,7 @@ def test_verify_rejects_case_colliding_artifact_paths(tmp_path):
     manifest.write_text(json.dumps(payload))
 
     with pytest.raises(ValueError, match="case-collision"):
-        frontend_release.verify_snapshot(tmp_path, manifest)
+        frontend_release.verify_snapshot(tmp_path, manifest, IMAGE)
 
 
 def test_verify_rejects_normalized_manifest_traversal(tmp_path):
@@ -132,7 +159,7 @@ def test_verify_rejects_normalized_manifest_traversal(tmp_path):
     manifest.write_text(json.dumps(payload))
 
     with pytest.raises(ValueError, match="unsafe path"):
-        frontend_release.verify_snapshot(tmp_path, manifest)
+        frontend_release.verify_snapshot(tmp_path, manifest, IMAGE)
 
 
 def test_verify_rejects_encoded_manifest_traversal(tmp_path):
@@ -142,7 +169,7 @@ def test_verify_rejects_encoded_manifest_traversal(tmp_path):
     manifest.write_text(json.dumps(payload))
 
     with pytest.raises(ValueError, match="encoded path"):
-        frontend_release.verify_snapshot(tmp_path, manifest)
+        frontend_release.verify_snapshot(tmp_path, manifest, IMAGE)
 
 
 def test_write_rejects_normalized_static_graph_traversal(tmp_path):
@@ -159,12 +186,12 @@ def test_verify_rejects_tampering_and_unmanifested_files(tmp_path):
     manifest = _snapshot(tmp_path)
     (tmp_path / "dist" / "assets" / "main.js").write_text("tampered")
     with pytest.raises(ValueError, match="failed integrity"):
-        frontend_release.verify_snapshot(tmp_path, manifest)
+        frontend_release.verify_snapshot(tmp_path, manifest, IMAGE)
 
     manifest = _snapshot(tmp_path)
     (tmp_path / "dist" / "assets" / "unexpected.js").write_text("extra")
     with pytest.raises(ValueError, match="failed integrity"):
-        frontend_release.verify_snapshot(tmp_path, manifest)
+        frontend_release.verify_snapshot(tmp_path, manifest, IMAGE)
 
 
 def test_verify_rejects_duplicate_json_keys(tmp_path):
@@ -174,7 +201,7 @@ def test_verify_rejects_duplicate_json_keys(tmp_path):
         '{"schema_version":1,"restore_image":"x","files":{},"files":{}}'
     )
     with pytest.raises(ValueError, match="duplicate key"):
-        frontend_release.verify_snapshot(tmp_path, manifest)
+        frontend_release.verify_snapshot(tmp_path, manifest, IMAGE)
 
 
 def test_chart_schema_contract_is_read_from_single_values_source(tmp_path):

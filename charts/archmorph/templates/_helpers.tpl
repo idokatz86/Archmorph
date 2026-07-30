@@ -5,16 +5,27 @@ Expand the name of the chart.
 {{- default .Chart.Name .Values.nameOverride | trunc 63 | trimSuffix "-" }}
 {{- end }}
 
-{{/* Reviewed schema transition contract shared by preflight and migration hooks. */}}
-{{- define "archmorph.migrationAcceptedRevisions" -}}
-{{- $accepted := .Values.migrations.acceptedCurrentAlembicRevisions -}}
-{{- $head := required "migrations.expectedAlembicHead is required" .Values.migrations.expectedAlembicHead -}}
+{{/* Sole canonical runtime argument shared by preflight and migration Jobs. */}}
+{{- define "archmorph.migrationRuntimeEnvelope" -}}
+{{- $root := .root -}}
+{{- $mode := .mode -}}
+{{- if not (has $mode (list "preflight" "migrate")) -}}
+{{- fail "migration runtime envelope mode is invalid" -}}
+{{- end -}}
+{{- $accepted := $root.Values.migrations.acceptedCurrentAlembicRevisions -}}
+{{- $head := required "migrations.expectedAlembicHead is required" $root.Values.migrations.expectedAlembicHead -}}
+{{- if or (not (regexMatch "^[A-Za-z0-9_-]{1,128}$" $head)) (has (lower $head) (list "base" "head" "heads")) -}}
+{{- fail "migrations.expectedAlembicHead must be one exact revision" -}}
+{{- end -}}
 {{- if not $accepted -}}
 {{- fail "migrations.acceptedCurrentAlembicRevisions must contain reviewed revisions" -}}
 {{- end -}}
+{{- if gt (len $accepted) 16 -}}
+{{- fail "migrations.acceptedCurrentAlembicRevisions must contain at most 16 revisions" -}}
+{{- end -}}
 {{- $seen := dict -}}
 {{- range $revision := $accepted -}}
-{{- if not (regexMatch "^[A-Za-z0-9_-]+$" $revision) -}}
+{{- if or (not (regexMatch "^[A-Za-z0-9_-]{1,128}$" $revision)) (has (lower $revision) (list "base" "head" "heads")) -}}
 {{- fail "migrations.acceptedCurrentAlembicRevisions contains an invalid revision" -}}
 {{- end -}}
 {{- if hasKey $seen $revision -}}
@@ -25,10 +36,22 @@ Expand the name of the chart.
 {{- if not (hasKey $seen $head) -}}
 {{- fail "migrations.acceptedCurrentAlembicRevisions must include expectedAlembicHead" -}}
 {{- end -}}
-{{- range $revision := $accepted }}
-- "--accept-current"
-- {{ $revision | quote }}
+{{- $executionMarker := include "archmorph.migrationExecutionId" $root -}}
+{{- $imageDigest := required "image.digest is required for migration phases" $root.Values.image.digest -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" $imageDigest) -}}
+{{- fail "migration phases require image.digest to be an immutable sha256 digest" -}}
 {{- end -}}
+{{- $envelope := dict
+	"mode" $mode
+	"bootstrap" $root.Values.migrations.bootstrapEmptyDatabase
+	"execution_marker" $executionMarker
+	"image_digest" $imageDigest -}}
+{{- if eq $mode "preflight" -}}
+{{- $_ := set $envelope "accept_current" $accepted -}}
+{{- else -}}
+{{- $_ := set $envelope "expected_head" $head -}}
+{{- end -}}
+{{- toJson $envelope -}}
 {{- end }}
 
 {{/* Unique CI/GitOps identity for separately applied preflight and migration Jobs. */}}

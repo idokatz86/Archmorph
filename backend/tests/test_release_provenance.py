@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import json
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 
@@ -123,6 +124,19 @@ def test_build_provenance_binds_digest_source_workflow_contract_and_platform(
     assert verified["schema_contract_digest"].startswith("sha256:")
     assert verified["oci_labels"]["org.opencontainers.image.revision"] == "b" * 40
     assert provenance.provenance_digest(build).startswith("sha256:")
+
+
+def test_signed_build_provenance_fsyncs_file_and_directory(tmp_path, monkeypatch):
+    path = tmp_path / "build.json"
+    original_fsync = provenance.os.fsync
+
+    with patch.object(provenance.os, "fsync", wraps=original_fsync) as fsync:
+        build = _write(path, monkeypatch)
+
+    assert fsync.call_count >= 2
+    assert json.loads(path.read_text())["signature"] == build["signature"]
+    assert provenance.verify_build_provenance(path)["image"] == build["image"]
+    assert not list(tmp_path.glob(".build.json.*.tmp"))
 
 
 @pytest.mark.parametrize(

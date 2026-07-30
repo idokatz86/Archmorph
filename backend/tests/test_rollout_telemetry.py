@@ -76,6 +76,40 @@ def test_migration_telemetry_rejects_unknown_or_mutable_evidence(monkeypatch):
         )
 
 
+def test_unknown_cli_event_is_non_gating_and_rejected_before_side_effects(
+    tmp_path, capsys
+):
+    evidence = tmp_path / "events.ndjson"
+    with (
+        patch.object(telemetry, "_append_local_evidence") as append,
+        patch.object(telemetry, "emit") as emit,
+    ):
+        result = telemetry.main(
+            [
+                "--event",
+                "unknown_event",
+                "--run-id",
+                "123",
+                "--execution",
+                "migration-run",
+                "--image-digest",
+                "sha256:" + "a" * 64,
+                "--evidence-output",
+                str(evidence),
+            ]
+        )
+
+    assert result == 0
+    assert json.loads(capsys.readouterr().out) == {
+        "delivery_status": "local_evidence_failed",
+        "error_class": "ValueError",
+        "event": "unknown_event",
+    }
+    append.assert_not_called()
+    emit.assert_not_called()
+    assert not evidence.exists()
+
+
 def test_migration_telemetry_rejects_non_azure_ingestion_endpoint(monkeypatch):
     monkeypatch.setenv(
         "APPLICATIONINSIGHTS_CONNECTION_STRING",

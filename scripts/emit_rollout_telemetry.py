@@ -13,6 +13,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import Sequence
 from urllib.parse import urlsplit
 from urllib.request import Request, urlopen
 
@@ -202,9 +203,9 @@ def emit_best_effort(
     return result
 
 
-def main() -> int:
+def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--event", required=True, choices=sorted(_ALLOWED_EVENTS))
+    parser.add_argument("--event", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--execution", required=True)
     parser.add_argument("--image-digest", required=True)
@@ -213,7 +214,7 @@ def main() -> int:
         type=Path,
         default=Path("rollout-telemetry.ndjson"),
     )
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
     try:
         result = emit_best_effort(
             event=args.event,
