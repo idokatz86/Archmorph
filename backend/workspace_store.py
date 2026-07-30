@@ -47,9 +47,9 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import func, or_, text
+from sqlalchemy import delete, exists, func, or_, text
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 from log_sanitizer import safe
 from models.workspace import (
@@ -781,7 +781,7 @@ def _trim_old_versions(db: Session, analysis_id: str) -> None:
     if analysis_identity is None:
         return
     try:
-        _analysis, workspace = _lock_active_analysis(
+        analysis, workspace = _lock_active_analysis(
             db,
             analysis_id,
             owner_user_id=analysis_identity.owner_user_id,
@@ -790,20 +790,21 @@ def _trim_old_versions(db: Session, analysis_id: str) -> None:
     except CanonicalWriteDeniedError:
         db.rollback()
         return
-    query = db.query(AnalysisVersion).filter(AnalysisVersion.analysis_id == analysis_id)
+    query = db.query(AnalysisVersion).filter(
+        AnalysisVersion.analysis_id == analysis_id
+    )
     if db.get_bind().dialect.name == "postgresql":
         query = query.with_for_update()
-    versions = (
-        query
-        .order_by(AnalysisVersion.version_number.asc())
-        .all()
-    )
+    versions = query.order_by(AnalysisVersion.version_number.asc()).all()
     excess = len(versions) - MAX_VERSIONS_PER_ANALYSIS
     if excess <= 0:
         return
 
     by_number = {int(version.version_number): version for version in versions}
-    protected_numbers: set[int] = set()
+    protected_numbers = {
+        int(analysis.current_version or 0),
+        int(versions[-1].version_number),
+    }
     for version in versions:
         ancestor = version.restored_from
         seen = {int(version.version_number)}
@@ -829,21 +830,79 @@ def _trim_old_versions(db: Session, analysis_id: str) -> None:
                 break
             ancestor = parent.restored_from
 
-    deleted = 0
-    for version in versions:
-        if deleted >= excess or version.version_number in protected_numbers:
-            continue
-        referenced = (
-            db.query(Artifact.id).filter(Artifact.version_id == version.id).first()
-            or db.query(Decision.id).filter(Decision.version_id == version.id).first()
-            or db.query(AnalysisRestoreReceipt.id).filter(
-                AnalysisRestoreReceipt.restored_version_id == version.id
-            ).first()
+    protected_numbers.update(
+        int(source_version)
+        for (source_version,) in db.query(AnalysisRestoreReceipt.source_version)
+        .filter(AnalysisRestoreReceipt.analysis_id == analysis_id)
+        .all()
+    )
+    referenced_version_ids: set[str] = set()
+    for version_id_column, analysis_id_column in (
+        (Artifact.version_id, Artifact.analysis_id),
+        (Decision.version_id, Decision.analysis_id),
+        (
+            AnalysisRestoreReceipt.restored_version_id,
+            AnalysisRestoreReceipt.analysis_id,
+        ),
+        (MigrationReplay.version_id, MigrationReplay.analysis_id),
+    ):
+        referenced_version_ids.update(
+            str(version_id)
+            for (version_id,) in db.query(version_id_column)
+            .filter(
+                analysis_id_column == analysis_id,
+                version_id_column.is_not(None),
+            )
+            .all()
         )
-        if referenced:
+
+    candidate_ids: list[str] = []
+    for version in versions:
+        if len(candidate_ids) >= excess:
+            break
+        if (
+            int(version.version_number) in protected_numbers
+            or str(version.id) in referenced_version_ids
+        ):
             continue
-        db.delete(version)
-        deleted += 1
+        candidate_ids.append(str(version.id))
+
+    if candidate_ids:
+        restored_child = aliased(AnalysisVersion)
+        protected_tuple = tuple(sorted(protected_numbers))
+        statement = delete(AnalysisVersion).where(
+            AnalysisVersion.analysis_id == analysis_id,
+            AnalysisVersion.id.in_(candidate_ids),
+            AnalysisVersion.version_number.notin_(protected_tuple),
+            ~exists().where(
+                restored_child.analysis_id == analysis_id,
+                restored_child.restored_from == AnalysisVersion.version_number,
+            ),
+            ~exists().where(
+                Artifact.analysis_id == analysis_id,
+                Artifact.version_id == AnalysisVersion.id,
+            ),
+            ~exists().where(
+                Decision.analysis_id == analysis_id,
+                Decision.version_id == AnalysisVersion.id,
+            ),
+            ~exists().where(
+                AnalysisRestoreReceipt.analysis_id == analysis_id,
+                or_(
+                    AnalysisRestoreReceipt.restored_version_id == AnalysisVersion.id,
+                    AnalysisRestoreReceipt.source_version
+                    == AnalysisVersion.version_number,
+                ),
+            ),
+            ~exists().where(
+                MigrationReplay.analysis_id == analysis_id,
+                MigrationReplay.version_id == AnalysisVersion.id,
+            ),
+        )
+        # Concurrent retention transactions can select the same candidates.
+        # A Core set delete is intentionally tolerant when another transaction
+        # already removed some or all rows; canonical ORM updates remain strict.
+        db.execute(statement.execution_options(synchronize_session="fetch"))
     _assert_active_workspace(workspace)
     db.commit()
 

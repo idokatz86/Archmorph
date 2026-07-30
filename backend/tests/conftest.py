@@ -27,10 +27,23 @@ os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 os.environ.setdefault("ARCHMORPH_EXPORT_CAPABILITY_REQUIRED", "false")
 os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("ALLOWED_ORIGINS", "https://frontend.example.com")
-if "DATABASE_URL" not in os.environ:
-    worker_id = os.environ.get("PYTEST_XDIST_WORKER", "serial")
-    run_id = os.environ.get("PYTEST_XDIST_TESTRUNUID", str(os.getpid()))
-    test_db = Path("/tmp") / f"archmorph-pytest-{run_id}-{worker_id}.db"
+configured_database_url = os.environ.get("DATABASE_URL")
+worker_id = os.environ.get("PYTEST_XDIST_WORKER")
+auto_test_database = os.environ.get("ARCHMORPH_PYTEST_AUTO_DATABASE") == "1"
+worker_database_missing = bool(
+    auto_test_database
+    and worker_id
+    and configured_database_url
+    and not configured_database_url.endswith(f"-{worker_id}.db")
+)
+if configured_database_url is None or worker_database_missing:
+    os.environ["ARCHMORPH_PYTEST_AUTO_DATABASE"] = "1"
+    database_scope = worker_id or "serial"
+    run_id = os.environ.setdefault(
+        "ARCHMORPH_PYTEST_DATABASE_RUN_ID",
+        os.environ.get("PYTEST_XDIST_TESTRUNUID", str(os.getpid())),
+    )
+    test_db = Path("/tmp") / f"archmorph-pytest-{run_id}-{database_scope}.db"
     test_db.unlink(missing_ok=True)
     os.environ["DATABASE_URL"] = f"sqlite:///{test_db}"
 

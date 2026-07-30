@@ -10,6 +10,7 @@ import json
 import os
 import threading
 import uuid
+import warnings
 from contextlib import contextmanager
 from concurrent.futures import ThreadPoolExecutor
 
@@ -20,7 +21,7 @@ from limits import parse as parse_rate_limit
 from limits.storage import RedisStorage
 from limits.strategies import FixedWindowRateLimiter
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import IntegrityError, OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError, SAWarning
 from sqlalchemy.orm import sessionmaker
 
 from error_envelope import ArchmorphException
@@ -66,7 +67,6 @@ from workspace_store import (
     persist_analysis_state,
     rehome_legacy_analysis_scope,
     restore_analysis_version,
-    save_analysis_version,
     snapshot_payload_hash,
     update_workspace,
 )
@@ -383,7 +383,7 @@ def test_postgres_api_key_rotation_preserves_canonical_owner(postgres_factory, m
         db.close()
 
 
-def test_postgres_concurrent_trim_preserves_transitive_lineage(postgres_factory):
+def test_postgres_concurrent_trim_preserves_locks_cas_and_lineage(postgres_factory):
     db = postgres_factory()
     try:
         result = persist_analysis_state(
@@ -393,40 +393,111 @@ def test_postgres_concurrent_trim_preserves_transitive_lineage(postgres_factory)
             diagram_id="pg-lineage-diagram",
             snapshot={"value": 1, "mappings": []},
         )
-        for value in range(2, MAX_VERSIONS_PER_ANALYSIS + 4):
-            save_analysis_version(
-                db,
-                analysis_id=result.analysis.id,
-                owner_user_id="pg-lineage-owner",
-                tenant_id="pg-lineage-tenant",
-                snapshot={"value": value, "mappings": []},
-                restored_from=1 if value == MAX_VERSIONS_PER_ANALYSIS - 1 else (
-                    MAX_VERSIONS_PER_ANALYSIS - 1
-                    if value == MAX_VERSIONS_PER_ANALYSIS
-                    else None
-                ),
+        for value in range(2, MAX_VERSIONS_PER_ANALYSIS + 7):
+            db.add(
+                AnalysisVersion(
+                    analysis_id=result.analysis.id,
+                    version_number=value,
+                    label=f"seed-v{value}",
+                    snapshot=json.dumps({"value": value, "mappings": []}),
+                    created_by="pg-lineage-owner",
+                    restored_from=(
+                        1 if value == MAX_VERSIONS_PER_ANALYSIS + 6 else None
+                    ),
+                )
             )
+        result.analysis.current_version = MAX_VERSIONS_PER_ANALYSIS + 6
+        db.commit()
+        analysis_id = result.analysis.id
     finally:
         db.close()
-    barrier = threading.Barrier(2)
+    barrier = threading.Barrier(6)
 
-    def trim():
+    def trim(_index):
         session = postgres_factory()
         try:
             barrier.wait(timeout=10)
-            _trim_old_versions(session, result.analysis.id)
+            _trim_old_versions(session, analysis_id)
         finally:
             session.close()
 
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        list(pool.map(lambda _index: trim(), range(2)))
+    with warnings.catch_warnings(record=True) as caught:
+        warnings.simplefilter("always", SAWarning)
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            list(pool.map(trim, range(6)))
+    assert [
+        warning for warning in caught if issubclass(warning.category, SAWarning)
+    ] == []
+
     db = postgres_factory()
     try:
-        numbers = {
-            row.version_number
-            for row in db.query(AnalysisVersion).filter_by(analysis_id=result.analysis.id)
-        }
-        assert {1, MAX_VERSIONS_PER_ANALYSIS - 1, MAX_VERSIONS_PER_ANALYSIS} <= numbers
+        numbers = [
+            int(row.version_number)
+            for row in db.query(AnalysisVersion)
+            .filter_by(analysis_id=result.analysis.id)
+            .order_by(AnalysisVersion.version_number.asc())
+        ]
+        assert numbers == [1, *range(8, MAX_VERSIONS_PER_ANALYSIS + 7)]
+        assert (
+            db.get(Analysis, analysis_id).current_version
+            == MAX_VERSIONS_PER_ANALYSIS + 6
+        )
+
+        first = persist_analysis_mutation(
+            db,
+            owner_user_id="pg-lineage-owner",
+            tenant_id="pg-lineage-tenant",
+            diagram_id="pg-lineage-diagram",
+            snapshot={
+                "value": MAX_VERSIONS_PER_ANALYSIS + 7,
+                "mappings": [],
+                "_analysis_version": MAX_VERSIONS_PER_ANALYSIS + 6,
+            },
+            expected_version=MAX_VERSIONS_PER_ANALYSIS + 6,
+            operation="pg-retention-idempotency",
+            request_hash="d" * 64,
+        )
+        replay = persist_analysis_mutation(
+            db,
+            owner_user_id="pg-lineage-owner",
+            tenant_id="pg-lineage-tenant",
+            diagram_id="pg-lineage-diagram",
+            snapshot={
+                "value": MAX_VERSIONS_PER_ANALYSIS + 7,
+                "mappings": [],
+                "_analysis_version": MAX_VERSIONS_PER_ANALYSIS + 6,
+            },
+            expected_version=MAX_VERSIONS_PER_ANALYSIS + 6,
+            operation="pg-retention-idempotency",
+            request_hash="d" * 64,
+        )
+        assert first.version.version_number == MAX_VERSIONS_PER_ANALYSIS + 7
+        assert replay.version.id == first.version.id
+        assert replay.idempotent_replay is True
+
+        with pytest.raises(AnalysisVersionConflictError, match="Expected version"):
+            persist_analysis_mutation(
+                db,
+                owner_user_id="pg-lineage-owner",
+                tenant_id="pg-lineage-tenant",
+                diagram_id="pg-lineage-diagram",
+                snapshot={
+                    "value": "stale",
+                    "mappings": [],
+                    "_analysis_version": MAX_VERSIONS_PER_ANALYSIS + 6,
+                },
+                expected_version=MAX_VERSIONS_PER_ANALYSIS + 6,
+                operation="pg-retention-stale-cas",
+                request_hash="e" * 64,
+            )
+
+        retained = [
+            int(row.version_number)
+            for row in db.query(AnalysisVersion)
+            .filter_by(analysis_id=analysis_id)
+            .order_by(AnalysisVersion.version_number.asc())
+        ]
+        assert retained == [1, *range(9, MAX_VERSIONS_PER_ANALYSIS + 8)]
     finally:
         db.close()
 
