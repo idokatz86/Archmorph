@@ -764,6 +764,11 @@ def test_backend_image_and_schema_contract_are_hosted_immutable_and_fail_closed(
     )
 
     assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["jobs"]["upload-sarif"]["permissions"] == {
+        "actions": "read",
+        "contents": "read",
+        "security-events": "write",
+    }
     assert build["runs-on"] == "ubuntu-latest"
     assert "environment" not in build
     assert build["permissions"]["packages"] == "write"

@@ -659,6 +659,10 @@ jobs:
     timeout-minutes: 10
     if: always() && (needs.backend-tests.result == 'success' || needs.frontend-build.result == 'success')
     continue-on-error: true
+    permissions:
+      actions: read
+      contents: read
+      security-events: write
     steps:
       - name: Download backend SARIF
         uses: actions/download-artifact@v8

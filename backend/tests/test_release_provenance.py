@@ -158,6 +158,18 @@ def test_signed_build_provenance_fsyncs_file_and_directory(tmp_path, monkeypatch
     assert not list(tmp_path.glob(".build.json.*.tmp"))
 
 
+def test_atomic_provenance_write_cleans_temp_file_when_serialization_fails(tmp_path):
+    path = tmp_path / "build.json"
+    with (
+        patch.object(provenance.json, "dump", side_effect=OSError("write failed")),
+        pytest.raises(OSError, match="write failed"),
+    ):
+        provenance._write_json_atomic(path, {"value": "test"})
+
+    assert not path.exists()
+    assert not list(tmp_path.glob(".build.json.*.tmp"))
+
+
 def test_hosted_unsigned_provenance_needs_no_hmac_and_matches_private_signed_claims(
     tmp_path, monkeypatch
 ):

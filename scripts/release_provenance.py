@@ -88,11 +88,11 @@ def _write_json_atomic(path: Path, payload: object) -> None:
             suffix=".tmp",
             delete=False,
         ) as temporary:
+            temporary_path = Path(temporary.name)
             json.dump(payload, temporary, indent=2)
             temporary.write("\n")
             temporary.flush()
             os.fsync(temporary.fileno())
-            temporary_path = Path(temporary.name)
         os.replace(temporary_path, path)
         directory_fd = os.open(
             path.parent,
