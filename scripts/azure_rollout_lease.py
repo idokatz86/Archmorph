@@ -16,6 +16,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import subprocess
 import sys
 import tempfile
@@ -29,6 +30,7 @@ _SCOPE_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,31}$")
 _POSITIVE_INTEGER_RE = re.compile(r"^[1-9][0-9]*$")
 _INTENT_BASENAME_RE = re.compile(r"^(?P<run>[0-9]{20})-(?P<attempt>[0-9]{6})\.json$")
 _DEFAULT_DURATION_SECONDS = 60
+_LOCK_SENTINEL = b"archmorph rollout coordination\n"
 
 
 class CoordinationError(RuntimeError):
@@ -354,6 +356,56 @@ class AzureCliBlobLeaseStorage:
             raise
         return True
 
+    def upload_owned(self, name: str, source: Path, lease_id: str) -> None:
+        if not source.is_file() or source.stat().st_size <= 0:
+            raise ValueError("owned rollout state source is missing or empty")
+        try:
+            self._run(
+                [
+                    "upload",
+                    "--name",
+                    name,
+                    "--file",
+                    str(source),
+                    "--overwrite",
+                    "true",
+                    "--lease-id",
+                    lease_id,
+                    "--output",
+                    "none",
+                ]
+            )
+        except AzureCliError:
+            readback = source.with_name(f".{source.name}.readback")
+            try:
+                if self.download(name, readback) and readback.read_bytes() == source.read_bytes():
+                    return
+            finally:
+                readback.unlink(missing_ok=True)
+            raise
+
+    def download(self, name: str, destination: Path) -> bool:
+        destination.parent.mkdir(parents=True, exist_ok=True)
+        try:
+            self._run(
+                [
+                    "download",
+                    "--name",
+                    name,
+                    "--file",
+                    str(destination),
+                    "--overwrite",
+                    "true",
+                    "--output",
+                    "none",
+                ]
+            )
+        except AzureCliError as error:
+            if "blobnotfound" in error.stderr.lower() or "not found" in error.stderr.lower():
+                return False
+            raise
+        return True
+
 
 class RolloutCoordinator:
     def __init__(
@@ -381,6 +433,7 @@ class RolloutCoordinator:
         self.root = f".archmorph-rollout/{scope}"
         self.lock_blob = f"{self.root}/exclusive.lock"
         self.intent_prefix = f"{self.root}/rollback-intents/"
+        self.transaction_blob = self.lock_blob
 
     @staticmethod
     def _intent_numbers(run_id: str, run_attempt: int) -> tuple[int, int]:
@@ -546,7 +599,7 @@ class RolloutCoordinator:
             raise ValueError("rollout lease wait bounds are invalid")
         if mode == "rollback" and not own_intent:
             raise ValueError("rollback ownership requires a live priority intent")
-        self.storage.ensure_blob(self.lock_blob, b"archmorph rollout coordination\n")
+        self.storage.ensure_blob(self.lock_blob, _LOCK_SENTINEL)
         deadline = self._monotonic() + wait_seconds
         while True:
             if mode == "deploy":
@@ -710,7 +763,73 @@ def _heartbeat(args: argparse.Namespace, coordinator: RolloutCoordinator) -> int
                 file=sys.stderr,
             )
             if failures >= args.max_failures:
+                if args.status_file is not None:
+                    _secure_write(args.status_file, "lost")
                 return 4
+
+
+def _assert_heartbeat(status_file: Path, heartbeat_pid: int) -> None:
+    if heartbeat_pid < 1:
+        raise LostLease("rollout lease heartbeat PID is invalid")
+    if status_file.exists():
+        try:
+            status = status_file.read_text(encoding="utf-8").strip()
+        except (OSError, UnicodeError) as error:
+            raise LostLease("rollout lease heartbeat status cannot be read") from error
+        if status != "lost":
+            raise LostLease("rollout lease heartbeat status is malformed")
+        raise LostLease("rollout lease heartbeat reported lost ownership")
+    try:
+        os.kill(heartbeat_pid, 0)
+    except (OSError, ValueError) as error:
+        raise LostLease("rollout lease heartbeat is not running") from error
+
+
+def _transaction_present(path: Path) -> bool:
+    if path.read_bytes() == _LOCK_SENTINEL:
+        path.unlink(missing_ok=True)
+        return False
+    return True
+
+
+def _supervise_command(
+    args: argparse.Namespace,
+    coordinator: RolloutCoordinator,
+) -> int:
+    command = list(args.mutation_command)
+    if command and command[0] == "--":
+        command = command[1:]
+    if not command:
+        raise ValueError("supervised mutation command is required")
+    lease_id = _secure_read(args.rollout_lease_id_file)
+    _assert_heartbeat(args.status_file, args.heartbeat_pid)
+    coordinator.storage.renew(coordinator.lock_blob, lease_id)
+    process = subprocess.Popen(command, start_new_session=True)
+    try:
+        while process.poll() is None:
+            time.sleep(args.poll_seconds)
+            _assert_heartbeat(args.status_file, args.heartbeat_pid)
+    except BaseException:
+        try:
+            os.killpg(process.pid, signal.SIGTERM)
+            process.wait(timeout=5)
+        except (OSError, subprocess.TimeoutExpired):
+            pass
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+        finally:
+            try:
+                process.wait()
+            except ChildProcessError:
+                pass
+        raise
+    if process.returncode != 0:
+        return int(process.returncode or 1)
+    _assert_heartbeat(args.status_file, args.heartbeat_pid)
+    coordinator.storage.renew(coordinator.lock_blob, lease_id)
+    return 0
 
 
 def main() -> int:
@@ -772,6 +891,27 @@ def main() -> int:
     heartbeat.add_argument("--intent-lease-id-file", type=Path)
     heartbeat.add_argument("--interval-seconds", type=float, default=15)
     heartbeat.add_argument("--max-failures", type=int, default=3)
+    heartbeat.add_argument("--status-file", type=Path)
+
+    assert_heartbeat = commands.add_parser("assert-heartbeat")
+    assert_heartbeat.add_argument("--status-file", required=True, type=Path)
+    assert_heartbeat.add_argument("--heartbeat-pid", required=True, type=int)
+
+    persist_transaction = commands.add_parser("persist-transaction")
+    persist_transaction.add_argument("--input", required=True, type=Path)
+    persist_transaction.add_argument(
+        "--rollout-lease-id-file", required=True, type=Path
+    )
+
+    load_transaction = commands.add_parser("load-transaction")
+    load_transaction.add_argument("--output", required=True, type=Path)
+
+    supervise = commands.add_parser("supervise-command")
+    supervise.add_argument("--status-file", required=True, type=Path)
+    supervise.add_argument("--heartbeat-pid", required=True, type=int)
+    supervise.add_argument("--rollout-lease-id-file", required=True, type=Path)
+    supervise.add_argument("--poll-seconds", type=float, default=1)
+    supervise.add_argument("mutation_command", nargs=argparse.REMAINDER)
 
     finish = commands.add_parser("finish")
     finish.add_argument("--rollout-lease-id-file", type=Path)
@@ -781,6 +921,10 @@ def main() -> int:
 
     commands.add_parser("assert-no-priority")
     args = parser.parse_args()
+    if args.command == "assert-heartbeat":
+        _assert_heartbeat(args.status_file, args.heartbeat_pid)
+        print(json.dumps({"status": "heartbeat_live"}, sort_keys=True))
+        return 0
     coordinator = _coordinator(args)
 
     if args.command == "publish-intent":
@@ -855,6 +999,27 @@ def main() -> int:
         print(json.dumps({"status": "exclusive_owner_renewed"}, sort_keys=True))
     elif args.command == "heartbeat":
         return _heartbeat(args, coordinator)
+    elif args.command == "persist-transaction":
+        lease_id = _secure_read(args.rollout_lease_id_file)
+        coordinator.storage.renew(coordinator.lock_blob, lease_id)
+        coordinator.storage.upload_owned(
+            coordinator.transaction_blob,
+            args.input,
+            lease_id,
+        )
+        print(json.dumps({"status": "transaction_persisted"}, sort_keys=True))
+    elif args.command == "load-transaction":
+        if not coordinator.storage.download(coordinator.transaction_blob, args.output):
+            print(json.dumps({"status": "transaction_absent"}, sort_keys=True))
+            return 5
+        if not _transaction_present(args.output):
+            print(json.dumps({"status": "transaction_absent"}, sort_keys=True))
+            return 5
+        print(json.dumps({"status": "transaction_loaded"}, sort_keys=True))
+    elif args.command == "supervise-command":
+        if args.poll_seconds <= 0 or args.poll_seconds > 5:
+            raise ValueError("supervised mutation poll interval is invalid")
+        return _supervise_command(args, coordinator)
     elif args.command == "finish":
         coordinator.finish(
             rollout_lease_id=(

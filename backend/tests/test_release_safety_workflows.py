@@ -248,9 +248,15 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
         assert f"--event {event}" in migration
 
     step_names = [step.get("name") for step in deploy["steps"]]
-    assert step_names.index("Trivy container security gate") < step_names.index(
-        "Plan migration bootstrap (Phase A)"
+    assert step_names.index(
+        "Verify hosted immutable build evidence before Azure mutation"
+    ) < step_names.index("Acquire durable production rollout ownership")
+    assert step_names.index("Acquire durable production rollout ownership") < step_names.index(
+        "Import verified immutable build digests into production ACR"
     )
+    assert step_names.index(
+        "Acquire durable production rollout ownership"
+    ) < step_names.index("Plan migration bootstrap (Phase A)")
     assert step_names.index("Plan migration bootstrap (Phase A)") < step_names.index(
         "Apply migration bootstrap (Phase A)"
     )
@@ -366,6 +372,24 @@ def test_rollout_coordination_storage_is_private_and_managed_identity_only():
     assert "sas" not in coordination.lower()
 
 
+def test_release_identity_has_least_privilege_acr_import_role():
+    terraform = MAIN_TERRAFORM.read_text(encoding="utf-8")
+    release_import = terraform.split(
+        'resource "azurerm_role_assignment" "release_acr_import"',
+        1,
+    )[1].split("# Grant Container App identity access to ACR", 1)[0]
+
+    assert "azurerm_container_registry.main.id" in release_import
+    assert (
+        'role_definition_name = "Container Registry Data Importer and Data Reader"'
+        in release_import
+    )
+    assert "var.release_automation_principal_id" in release_import
+    assert 'principal_type       = "ServicePrincipal"' in release_import
+    assert 'role_definition_name = "Contributor"' not in release_import
+    assert 'role_definition_name = "AcrPush"' not in release_import
+
+
 def test_phase_a_workflow_rejects_concurrency_and_uses_only_job_control_plane():
     workflow = _load(CI_WORKFLOW)
     steps = workflow["jobs"]["deploy-backend"]["steps"]
@@ -433,6 +457,10 @@ def test_cleanup_is_manifest_and_stage_gated_without_obscuring_original_failure(
     steps = workflow["jobs"]["deploy-backend"]["steps"]
     recovery = _step_by_name(steps, "Recover exact schema-safe traffic after rollout failure")
     assert "steps.rollout_state.outcome == 'success'" in recovery["if"]
+    assert "steps.final_release_evidence.outcome != 'success'" in recovery["if"]
+    assert "steps.final_evidence_bundle.outcome != 'success'" in recovery["if"]
+    assert "steps.final_evidence_upload.outcome != 'success'" in recovery["if"]
+    assert "steps.accept_release.outcome != 'success'" in recovery["if"]
     assert "recover-release" in recovery["run"]
     assert "|| RESTORE_STATUS=$?" in recovery["run"]
     assert "rollout-recovery-evidence.json" in recovery["run"]
@@ -440,23 +468,40 @@ def test_cleanup_is_manifest_and_stage_gated_without_obscuring_original_failure(
     deactivate = _step_by_name(
         steps, "Deactivate superseded revisions after final evidence"
     )
-    assert deactivate["if"] == "steps.final_release_evidence.outcome == 'success'"
+    assert deactivate["if"] == "steps.accept_release.outcome == 'success'"
     assert "properties.active" in deactivate["run"]
     assert "remained active after cleanup" in deactivate["run"]
     assemble = _step_by_name(steps, "Assemble complete backend final release evidence")
     assert assemble["id"] == "final_evidence_bundle"
-    assert assemble["if"] == (
-        "always() && steps.final_release_evidence.outcome == 'success'"
-    )
+    assert assemble["if"] == "steps.final_release_evidence.outcome == 'success'"
     assert "REQUIRED_EVIDENCE" in assemble["run"]
     assert "Required backend release evidence is missing or empty" in assemble["run"]
     upload = _step_by_name(steps, "Upload complete backend final release evidence")
-    assert upload["if"] == (
-        "always() && steps.final_evidence_bundle.outcome == 'success'"
-    )
+    assert upload["id"] == "final_evidence_upload"
+    assert upload["if"] == "steps.final_evidence_bundle.outcome == 'success'"
     assert "github.run_id" in upload["with"]["name"]
+    accept = _step_by_name(steps, "Accept production release after durable evidence upload")
+    assert accept["id"] == "accept_release"
+    assert accept["if"] == "steps.final_evidence_upload.outcome == 'success'"
+    assert "--stage complete" in accept["run"]
+    verify = _step_by_name(steps, "Verify production deployment")["run"]
+    assert "--stage complete" not in verify
+    names = [step.get("name") for step in steps]
+    assert names.index("Create signed immutable final release evidence") < names.index(
+        "Assemble complete backend final release evidence"
+    ) < names.index("Upload complete backend final release evidence")
+    assert names.index("Upload complete backend final release evidence") < names.index(
+        "Accept production release after durable evidence upload"
+    ) < names.index(
+        "Recover exact schema-safe traffic after rollout failure"
+    )
+    assert names.index("Accept production release after durable evidence upload") < names.index(
+        "Deactivate superseded revisions after final evidence"
+    )
     diagnostics = _step_by_name(steps, "Assemble explicit failed-rollout diagnostics")
     assert "partial:true" in diagnostics["run"]
+    assert "steps.final_evidence_upload.outcome != 'success'" in diagnostics["if"]
+    assert "steps.accept_release.outcome != 'success'" in diagnostics["if"]
 
 
 def test_migration_execution_is_persisted_and_quiesced_before_recovery_decisions():
@@ -618,9 +663,21 @@ def test_all_production_mutations_use_durable_external_ownership_and_rollback_is
         "Reconfirm migration quiescence under exclusive ownership"
     ) < rollback_names.index("Shift traffic to rollback revision")
     backend_names = [step.get("name") for step in ci["jobs"]["deploy-backend"]["steps"]]
-    assert backend_names.index("Validate rollout coordination inputs") < backend_names.index(
-        "Azure Login (OIDC)"
-    ) < backend_names.index("Acquire durable production rollout ownership")
+    assert (
+        backend_names.index("Validate rollout coordination inputs")
+        < backend_names.index("Azure Login (OIDC)")
+        < backend_names.index("Download hosted immutable backend build evidence")
+    )
+    assert (
+        backend_names.index("Download hosted immutable backend build evidence")
+        < backend_names.index(
+            "Verify hosted immutable build evidence before Azure mutation"
+        )
+        < backend_names.index("Acquire durable production rollout ownership")
+    )
+    assert backend_names.index("Acquire durable production rollout ownership") < backend_names.index(
+        "Import verified immutable build digests into production ACR"
+    )
     for checkpoint in (
         "Yield to emergency rollback after safe build checkpoint",
         "Yield to emergency rollback before bootstrap mutation",
@@ -659,16 +716,100 @@ def test_all_production_mutations_use_durable_external_ownership_and_rollback_is
     )
 
 
-def test_backend_image_and_schema_contract_are_immutable_and_fail_closed():
+def test_backend_image_and_schema_contract_are_hosted_immutable_and_fail_closed():
     workflow = _load(CI_WORKFLOW)
+    build = workflow["jobs"]["build-backend-release"]
+    scan = workflow["jobs"]["scan-backend-release"]
+    attest = workflow["jobs"]["attest-backend-release"]
     deploy = workflow["jobs"]["deploy-backend"]
-    capture = _step_by_name(deploy["steps"], "Capture immutable image and schema contract")["run"]
+    capture = _step_by_name(
+        build["steps"], "Capture immutable image and schema contract"
+    )["run"]
     green = _step_by_name(deploy["steps"], "Deploy green revision")["run"]
     provenance = _step_by_name(
-        deploy["steps"],
-        "Verify built image provenance labels and embedded schema contracts",
+        build["steps"],
+        "Verify hosted image provenance labels and embedded schema contracts",
     )["run"]
+    consume = _step_by_name(
+        deploy["steps"],
+        "Verify hosted immutable build evidence before Azure mutation",
+    )["run"]
+    import_verified = _step_by_name(
+        deploy["steps"],
+        "Import verified immutable build digests into production ACR",
+    )["run"]
+    download_artifact = _step_by_name(
+        deploy["steps"],
+        "Download hosted immutable backend build evidence",
+    )
+    upload_normalized = _step_by_name(
+        deploy["steps"],
+        "Upload privately normalized immutable backend build evidence",
+    )
+    package_gate = _step_by_name(
+        build["steps"],
+        "Verify private GHCR staging package ownership",
+    )["run"]
+    scan_resolve = _step_by_name(
+        scan["steps"],
+        "Resolve immutable staging images for scanning",
+    )["run"]
+    attest_resolve = _step_by_name(
+        attest["steps"],
+        "Resolve hosted final attestation subjects",
+    )["run"]
+    hosted_upload = _step_by_name(
+        build["steps"],
+        "Upload immutable backend build evidence",
+    )
 
+    assert workflow["permissions"] == {"contents": "read"}
+    assert workflow["jobs"]["upload-sarif"]["permissions"] == {
+        "actions": "read",
+        "contents": "read",
+        "security-events": "write",
+    }
+    assert build["runs-on"] == "ubuntu-latest"
+    assert "environment" not in build
+    assert build["permissions"]["packages"] == "write"
+    assert "attestations" not in build["permissions"]
+    assert "id-token" not in build["permissions"]
+    assert scan["permissions"] == {
+        "actions": "read",
+        "contents": "read",
+        "packages": "read",
+    }
+    assert attest["permissions"] == {
+        "actions": "read",
+        "attestations": "write",
+        "contents": "read",
+        "id-token": "write",
+    }
+    assert "packages" not in attest["permissions"]
+    assert attest["needs"] == ["build-backend-release", "scan-backend-release"]
+    for resolver in (scan_resolve, attest_resolve):
+        assert "BUILD_RUN_ATTEMPT" in resolver
+        assert '[ "$BUILD_RUN_ATTEMPT" -gt "$GITHUB_RUN_ATTEMPT" ]' in resolver
+        assert '--expected-run-attempt "$BUILD_RUN_ATTEMPT"' in resolver
+        assert '--expected-run-attempt "$GITHUB_RUN_ATTEMPT"' not in resolver
+    assert "AZURE_CLIENT_ID" not in build["env"]
+    assert "AZURE_BUILD_CLIENT_ID" not in build["env"]
+    assert "AZURE_SUBSCRIPTION_ID" not in build["env"]
+    assert "AZURE_TENANT_ID" not in build["env"]
+    assert "ACR_NAME" not in build["env"]
+    assert "RELEASE_MANIFEST_HMAC_KEY" not in build["env"]
+    assert '.visibility == "private"' in package_gate
+    assert ".repository.full_name == $repository" in package_gate
+    assert hosted_upload["with"]["name"] == (
+        "hosted-backend-build-evidence-${{ github.run_id }}"
+    )
+    assert hosted_upload["with"]["overwrite"] is True
+    assert deploy["permissions"]["packages"] == "read"
+    assert deploy["permissions"]["attestations"] == "read"
+    assert "attest-backend-release" in deploy["needs"]
+    assert not any(
+        step.get("uses") == "docker/build-push-action@v7" for step in deploy["steps"]
+    )
     assert "@${{ steps.build_backend.outputs.digest }}" in capture
     assert "^.+@sha256:[0-9a-f]{64}$" in capture
     assert "backend/schema-contract.json" in capture
@@ -684,19 +825,157 @@ def test_backend_image_and_schema_contract_are_immutable_and_fail_closed():
     assert "az containerapp update" in green
     assert "--yaml green-revision.json" in green
     assert ":latest" not in capture
-    assert "gh attestation verify" in provenance
-    assert "--signer-workflow" in provenance
-    assert "--source-digest" in provenance
-    assert "--deny-self-hosted-runners" in provenance
-    assert "verify-attestation" in provenance
     assert "docker image inspect" in provenance
     assert "/app/release/schema-contract.json" in provenance
     assert "verify-image" in provenance
+    assert "write-unsigned-build-provenance" in provenance
+    assert "write-build-provenance" not in provenance
+    assert "--unsigned-provenance" in provenance
+    assert "--image-repository-alias" in provenance
+    assert "gh attestation verify" not in provenance
+    assert "release-build-claims.json" not in provenance
+    assert download_artifact["with"]["name"] == (
+        "hosted-backend-build-evidence-${{ github.run_id }}"
+    )
+    assert "FINAL_BUILD_RUN_ATTEMPT" in consume
+    assert "BRIDGE_BUILD_RUN_ATTEMPT" in consume
+    assert '[ "$FINAL_BUILD_RUN_ATTEMPT" -gt "$GITHUB_RUN_ATTEMPT" ]' in consume
+    assert '--expected-run-attempt "$BUILD_RUN_ATTEMPT"' in consume
+    assert "--deny-self-hosted-runners" in consume
+    assert "verify-unsigned-build-provenance" in consume
+    assert "verify-attestation" in consume
+    assert "--unsigned-provenance" in consume
+    assert "docker image inspect" in consume
+    assert 'cmp "${role}-source-contract-current.json" "$CONTRACT"' in consume
+    assert 'gh attestation verify "oci://${SOURCE_IMAGE}"' in consume
+    assert 'az rest --method post --uri "$IMPORT_URI"' not in consume
+    assert '--provenance "hosted-build-evidence/${role}-build-provenance-unsigned.json"' in consume
+    assert "--unsigned-provenance" in consume
+    assert '"${GHCR_BUILD_REGISTRY}/archmorph-api-release-build"' in consume
+    assert '"${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-build"' in consume
+    assert "GHCR_BUILD_REGISTRY=\"ghcr.io/${GITHUB_REPOSITORY_OWNER,,}\"" in consume
+    assert 'IMAGE_REF="${ACR_LOGIN_SERVER}/archmorph-api@${FINAL_SOURCE_IMAGE_REF#*@}"' in consume
+    assert 'BRIDGE_IMAGE_REF="${ACR_LOGIN_SERVER}/archmorph-api-bridge@${BRIDGE_SOURCE_IMAGE_REF#*@}"' in consume
+    assert '"password": os.environ["GH_TOKEN"]' in import_verified
+    assert "--password \"$GH_TOKEN\"" not in import_verified
+    assert 'az rest --method post --uri "$IMPORT_URI"' in import_verified
+    assert "ACR import did not preserve hosted immutable image digests" in import_verified
+    assert "sign-unsigned-build-provenance" in import_verified
+    assert "write-build-provenance" not in import_verified
+    assert "provenance-digest" in import_verified
+    assert "Private signed provenance differs from hosted attested claims" in import_verified
+    assert "schema-contract-digest --input backend/schema-contract.json" in import_verified
+    assert '--image-repository-alias "${IMAGE%@*}"' in import_verified
+    assert "release-build-claims.json" not in consume
+    build_uses = [step["uses"] for step in build["steps"] if "uses" in step]
+    scan_uses = [step["uses"] for step in scan["steps"] if "uses" in step]
+    attest_uses = [step["uses"] for step in attest["steps"] if "uses" in step]
+    for uses in build_uses + scan_uses + attest_uses:
+        assert re.fullmatch(r"[^@]+@[0-9a-f]{40}(?: #.*)?", uses)
+    assert any("trivy-action@" in uses for uses in scan_uses)
+    assert not any("trivy-action@" in uses for uses in build_uses + attest_uses)
+    assert any("attest-build-provenance@" in uses for uses in attest_uses)
+    assert not any("attest-build-provenance@" in uses for uses in build_uses + scan_uses)
+    assert upload_normalized["with"]["name"] == (
+        "backend-build-evidence-${{ github.run_id }}-${{ github.run_attempt }}"
+    )
+    deploy_names = [step.get("name") for step in deploy["steps"]]
+    assert deploy_names.index(
+        "Verify hosted immutable build evidence before Azure mutation"
+    ) < deploy_names.index("Acquire durable production rollout ownership")
+    assert deploy_names.index("Acquire durable production rollout ownership") < deploy_names.index(
+        "Import verified immutable build digests into production ACR"
+    )
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "actions/attest-build-provenance@v3" in workflow_text
-    assert "attestations: write" in workflow_text
+    assert "actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a" in workflow_text
+    assert "push-to-registry: true" not in workflow_text
+    assert "docker/login-action@dbcb813823bdd20940b903addbd779551569679f" in workflow_text
+    assert "ghcr.io/${{ github.repository_owner }}" in workflow_text
+    assert "ACR_LOGIN_SERVER" not in build["env"]
+    assert "ACR_LOGIN_SERVER" not in scan["env"]
+    assert "ACR_LOGIN_SERVER" not in attest["env"]
     assert "--build-provenance final-build-provenance.json" in workflow_text
     assert "--build-provenance bridge-build-provenance.json" in workflow_text
+
+
+def test_secret_bearing_deploy_actions_are_immutable_and_mutations_check_lease_liveness():
+    workflow = _load(CI_WORKFLOW)
+    deploy = workflow["jobs"]["deploy-backend"]
+    steps = deploy["steps"]
+    immutable_action = re.compile(r"^[^@]+@[0-9a-f]{40}$")
+
+    for step in steps:
+        uses = step.get("uses")
+        if uses:
+            assert immutable_action.fullmatch(uses), uses
+
+    acquire = _step_by_name(steps, "Acquire durable production rollout ownership")[
+        "run"
+    ]
+    assert '--status-file "$RUNNER_TEMP/rollout-lease-heartbeat-status"' in acquire
+    assert "--max-failures 1" in acquire
+    guarded_mutations = (
+        "Apply migration bootstrap (Phase A)",
+        "Route production to verified bridge before migration",
+        "Start exact-head production migration",
+        "Enable multiple revisions",
+        "Deploy green revision",
+        "Shift traffic to green (100%)",
+        "Deactivate superseded revisions after final evidence",
+        "Configure Static Web Apps API bridge settings",
+        "Deploy frontend under production mutation lock",
+        "Restore frontend settings and artifact after any mutation failure",
+    )
+    for name in guarded_mutations:
+        script = _step_by_name(steps, name)["run"]
+        assert "assert-heartbeat" in script, name
+        assert "rollout-lease-heartbeat-status" in script, name
+
+    names = [step.get("name") for step in steps]
+    reconcile = "Reject unresolved durable rollout transaction before re-baselining"
+    assert names.index(reconcile) < names.index("Capture exact original production traffic")
+    reconcile_script = _step_by_name(steps, reconcile)["run"]
+    assert "load-transaction" in reconcile_script
+    assert "verify-release-state" in reconcile_script
+    assert 'DURABLE_STAGE" != "complete"' in reconcile_script
+    persisted_boundaries = (
+        "Make dynamic latest traffic explicit",
+        "Route production to verified bridge before migration",
+        "Prepare exact-head production migration",
+        "Start exact-head production migration",
+        "Supervise exact-head production migration",
+        "Shift traffic to green (100%)",
+        "Accept production release after durable evidence upload",
+    )
+    for name in persisted_boundaries:
+        script = _step_by_name(steps, name)["run"]
+        assert script.index("persist-transaction") < (
+            script.index("apply-traffic")
+            if "apply-traffic" in script
+            else len(script)
+        ), name
+    acceptance = _step_by_name(
+        steps,
+        "Accept production release after durable evidence upload",
+    )["run"]
+    assert "accepted-rollout-state.json" in acceptance
+    assert acceptance.index("persist-transaction") < acceptance.index(
+        "mv accepted-rollout-state.json rollout-state.json"
+    )
+    for name in (
+        "Apply migration bootstrap (Phase A)",
+        "Deploy frontend under production mutation lock",
+    ):
+        assert "supervise-command" in _step_by_name(steps, name)["run"]
+    recovery = _step_by_name(
+        steps,
+        "Recover exact schema-safe traffic after rollout failure",
+    )["run"]
+    assert recovery.rindex("assert-heartbeat") < recovery.rindex("recover-release")
+    assert recovery.rindex("renew --rollout-lease-id-file") < recovery.rindex(
+        "recover-release"
+    )
+    assert recovery.rindex("supervise-command") < recovery.rindex("recover-release")
 
 
 def test_migration_and_bootstrap_failures_stop_before_live_revision_or_traffic_changes():
@@ -816,10 +1095,12 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert "ROLLBACK_REVISIONS" in retain
     assert "Migration bridge is recovery-only" in retain
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BRIDGE_BASE_IMAGE=${{ env.ACR_LOGIN_SERVER }}/archmorph-api@${{ steps.build_backend.outputs.digest }}" in workflow_text
+    assert "BRIDGE_BASE_IMAGE=${{ env.GHCR_BUILD_REGISTRY }}/archmorph-api-release-build@${{ steps.build_backend.outputs.digest }}" in workflow_text
     assert "backend/bridge_overlay/Dockerfile" in workflow_text
     assert "context: ./backend" in workflow_text
-    assert "archmorph-api-bridge@${{ steps.build_bridge.outputs.digest }}" in workflow_text
+    assert "archmorph-api-bridge-release-build@${{ steps.build_bridge.outputs.digest }}" in workflow_text
+    assert 'az rest --method post --uri "$IMPORT_URI"' in workflow_text
+    assert 'IMPORTED_BRIDGE_DIGEST' in workflow_text
     detect = _step_by_name(steps, "Discover schema with same-identity database preflight")["run"]
     resolve = _step_by_name(steps, "Resolve verified bridge for discovered schema")["run"]
     route_bridge = _step_by_name(

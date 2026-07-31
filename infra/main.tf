@@ -1027,6 +1027,15 @@ resource "azurerm_role_assignment" "rollout_coordination_priority" {
   principal_type       = "ServicePrincipal"
 }
 
+# Permit the release identity to import immutable hosted build digests into ACR
+# without granting repository writes, credential access, or registry administration.
+resource "azurerm_role_assignment" "release_acr_import" {
+  scope                = azurerm_container_registry.main.id
+  role_definition_name = "Container Registry Data Importer and Data Reader"
+  principal_id         = var.release_automation_principal_id
+  principal_type       = "ServicePrincipal"
+}
+
 # Grant Container App identity access to ACR (AcrPull)
 resource "azurerm_role_assignment" "container_app_acr" {
   scope                = azurerm_container_registry.main.id

@@ -76,6 +76,37 @@ def _canonical_bytes(payload: object) -> bytes:
     return json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
 
 
+def _write_json_atomic(path: Path, payload: object) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary_path: Path | None = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w",
+            encoding="utf-8",
+            dir=path.parent,
+            prefix=f".{path.name}.",
+            suffix=".tmp",
+            delete=False,
+        ) as temporary:
+            temporary_path = Path(temporary.name)
+            json.dump(payload, temporary, indent=2)
+            temporary.write("\n")
+            temporary.flush()
+            os.fsync(temporary.fileno())
+        os.replace(temporary_path, path)
+        directory_fd = os.open(
+            path.parent,
+            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
+        )
+        try:
+            os.fsync(directory_fd)
+        finally:
+            os.close(directory_fd)
+    finally:
+        if temporary_path is not None and temporary_path.exists():
+            temporary_path.unlink()
+
+
 def normalize_schema_contract(payload: object) -> dict[str, object]:
     if not isinstance(payload, dict) or set(payload) != _CONTRACT_FIELDS:
         raise ValueError("schema contract fields are incomplete or unexpected")
@@ -235,35 +266,31 @@ def write_build_provenance(path: Path, **kwargs: object) -> dict[str, object]:
             hashlib.sha256,
         ).hexdigest()
     )
-    path.parent.mkdir(parents=True, exist_ok=True)
-    temporary_path: Path | None = None
-    try:
-        with tempfile.NamedTemporaryFile(
-            mode="w",
-            encoding="utf-8",
-            dir=path.parent,
-            prefix=f".{path.name}.",
-            suffix=".tmp",
-            delete=False,
-        ) as temporary:
-            json.dump(payload, temporary, indent=2)
-            temporary.write("\n")
-            temporary.flush()
-            os.fsync(temporary.fileno())
-            temporary_path = Path(temporary.name)
-        os.replace(temporary_path, path)
-        directory_fd = os.open(
-            path.parent,
-            os.O_RDONLY | getattr(os, "O_DIRECTORY", 0),
-        )
-        try:
-            os.fsync(directory_fd)
-        finally:
-            os.close(directory_fd)
-    finally:
-        if temporary_path is not None and temporary_path.exists():
-            temporary_path.unlink()
+    _write_json_atomic(path, payload)
     return payload
+
+
+def write_unsigned_build_provenance(path: Path, **kwargs: object) -> dict[str, object]:
+    """Write canonical claims whose authenticity must come from hosted attestation."""
+    payload = build_provenance_payload(**kwargs)
+    _write_json_atomic(path, payload)
+    return payload
+
+
+def sign_unsigned_build_provenance(source: Path, output: Path) -> dict[str, object]:
+    """HMAC-sign canonical hosted claims without changing their attested identity."""
+    payload = verify_unsigned_build_provenance(source)
+    signed = dict(payload)
+    signed["signature"] = (
+        "sha256="
+        + hmac.new(
+            _signing_key(),
+            _canonical_bytes(payload),
+            hashlib.sha256,
+        ).hexdigest()
+    )
+    _write_json_atomic(output, signed)
+    return signed
 
 
 def validate_unsigned_build_provenance(payload: object) -> dict[str, object]:
@@ -308,8 +335,8 @@ def validate_build_provenance_payload(payload: object) -> dict[str, object]:
     return validate_unsigned_build_provenance(signed)
 
 
-def verify_build_provenance(
-    path: Path,
+def _verify_build_provenance_expectations(
+    payload: dict[str, object],
     *,
     expected_role: str | None = None,
     expected_image: str | None = None,
@@ -322,7 +349,6 @@ def verify_build_provenance(
     expected_platform: str | None = None,
     expected_contract: object | None = None,
 ) -> dict[str, object]:
-    payload = validate_build_provenance_payload(_strict_json(path))
     expectations = {
         "role": expected_role,
         "image": expected_image,
@@ -348,6 +374,16 @@ def verify_build_provenance(
     return payload
 
 
+def verify_build_provenance(path: Path, **kwargs: object) -> dict[str, object]:
+    payload = validate_build_provenance_payload(_strict_json(path))
+    return _verify_build_provenance_expectations(payload, **kwargs)
+
+
+def verify_unsigned_build_provenance(path: Path, **kwargs: object) -> dict[str, object]:
+    payload = validate_unsigned_build_provenance(_strict_json(path))
+    return _verify_build_provenance_expectations(payload, **kwargs)
+
+
 def provenance_digest(payload: object) -> str:
     if isinstance(payload, dict) and "signature" in payload:
         canonical = validate_build_provenance_payload(payload)
@@ -357,19 +393,57 @@ def provenance_digest(payload: object) -> str:
 
 
 def verify_attestation(payload: object, provenance: dict[str, object]) -> None:
-    if not isinstance(payload, list) or len(payload) != 1:
-        raise ValueError(
-            "exactly one verified build provenance attestation is required"
+    if not isinstance(payload, list) or not payload:
+        raise ValueError("at least one verified build provenance attestation is required")
+    statements: list[dict[str, object]] = []
+    for result in payload:
+        if not isinstance(result, dict):
+            raise ValueError("verified attestation result is malformed")
+        verification = result.get("verificationResult")
+        statement = (
+            verification.get("statement")
+            if isinstance(verification, dict)
+            else None
         )
-    result = payload[0]
-    if not isinstance(result, dict):
-        raise ValueError("verified attestation result is malformed")
-    verification = result.get("verificationResult")
-    statement = (
-        verification.get("statement") if isinstance(verification, dict) else None
+        if not isinstance(statement, dict):
+            raise ValueError("verified attestation statement is missing")
+        statements.append(statement)
+    expected_digest = str(provenance["image_digest"]).split(":", 1)[1]
+    expected_invocation = (
+        f"https://github.com/{provenance['source_repository']}/actions/runs/"
+        f"{provenance['run_id']}/attempts/{provenance['run_attempt']}"
     )
-    if not isinstance(statement, dict):
-        raise ValueError("verified attestation statement is missing")
+    if len(statements) == 1:
+        statement = statements[0]
+    else:
+        matching = []
+        for candidate in statements:
+            subjects = candidate.get("subject")
+            predicate = candidate.get("predicate")
+            run_details = (
+                predicate.get("runDetails") if isinstance(predicate, dict) else None
+            )
+            metadata = (
+                run_details.get("metadata") if isinstance(run_details, dict) else None
+            )
+            subject = (
+                subjects[0]
+                if isinstance(subjects, list) and len(subjects) == 1
+                else None
+            )
+            if (
+                isinstance(subject, dict)
+                and subject.get("name") == provenance["image_repository"]
+                and subject.get("digest") == {"sha256": expected_digest}
+                and isinstance(metadata, dict)
+                and metadata.get("invocationId") == expected_invocation
+            ):
+                matching.append(candidate)
+        if len(matching) != 1:
+            raise ValueError(
+                "exactly one verified attestation must match the build invocation and subject"
+            )
+        statement = matching[0]
     if statement.get("predicateType") != _SLSA_PROVENANCE_V1:
         raise ValueError(
             "verified attestation predicate type is not SLSA provenance v1"
@@ -378,7 +452,6 @@ def verify_attestation(payload: object, provenance: dict[str, object]) -> None:
     if not isinstance(subjects, list) or len(subjects) != 1:
         raise ValueError("verified attestation must bind exactly one image subject")
     subject = subjects[0]
-    expected_digest = str(provenance["image_digest"]).split(":", 1)[1]
     if (
         not isinstance(subject, dict)
         or subject.get("name") != provenance["image_repository"]
@@ -394,10 +467,6 @@ def verify_attestation(payload: object, provenance: dict[str, object]) -> None:
     run_details = predicate.get("runDetails")
     metadata = run_details.get("metadata") if isinstance(run_details, dict) else None
     invocation = metadata.get("invocationId") if isinstance(metadata, dict) else None
-    expected_invocation = (
-        f"https://github.com/{provenance['source_repository']}/actions/runs/"
-        f"{provenance['run_id']}/attempts/{provenance['run_attempt']}"
-    )
     if invocation != expected_invocation:
         raise ValueError("verified attestation run identity does not match provenance")
     definition = predicate.get("buildDefinition")
@@ -421,6 +490,7 @@ def verify_image_inspection(
     *,
     embedded_contract: object,
     provenance: dict[str, object],
+    image_repository_alias: str | None = None,
 ) -> None:
     if not isinstance(inspection, list) or len(inspection) != 1:
         raise ValueError("image inspection must contain exactly one local image")
@@ -436,7 +506,13 @@ def verify_image_inspection(
     ):
         raise ValueError("image platform does not match build provenance")
     digests = image.get("RepoDigests")
-    if not isinstance(digests, list) or digests.count(provenance["image"]) != 1:
+    expected_image = str(provenance["image"])
+    if image_repository_alias is not None:
+        alias_image = f"{image_repository_alias}@{provenance['image_digest']}"
+        if _IMAGE_RE.fullmatch(alias_image) is None:
+            raise ValueError("image repository alias is invalid")
+        expected_image = alias_image
+    if not isinstance(digests, list) or digests.count(expected_image) != 1:
         raise ValueError("image inspection does not contain the exact immutable digest")
     config = image.get("Config")
     labels = config.get("Labels") if isinstance(config, dict) else None
@@ -460,65 +536,82 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
 
-    write = commands.add_parser("write-build-provenance")
-    write.add_argument("--output", required=True, type=Path)
-    write.add_argument("--role", required=True, choices=sorted(_ROLE_VALUES))
-    write.add_argument("--image", required=True)
-    write.add_argument("--source-sha", required=True)
-    write.add_argument("--source-repository", required=True)
-    write.add_argument("--source-ref", required=True)
-    write.add_argument("--workflow", required=True)
-    write.add_argument("--workflow-path", required=True)
-    write.add_argument("--run-id", required=True)
-    write.add_argument("--run-attempt", required=True, type=int)
-    write.add_argument("--platform", required=True)
-    write.add_argument("--schema-contract", required=True, type=Path)
+    write_commands = {}
+    for name in ("write-build-provenance", "write-unsigned-build-provenance"):
+        write = commands.add_parser(name)
+        write.add_argument("--output", required=True, type=Path)
+        write.add_argument("--role", required=True, choices=sorted(_ROLE_VALUES))
+        write.add_argument("--image", required=True)
+        write.add_argument("--source-sha", required=True)
+        write.add_argument("--source-repository", required=True)
+        write.add_argument("--source-ref", required=True)
+        write.add_argument("--workflow", required=True)
+        write.add_argument("--workflow-path", required=True)
+        write.add_argument("--run-id", required=True)
+        write.add_argument("--run-attempt", required=True, type=int)
+        write.add_argument("--platform", required=True)
+        write.add_argument("--schema-contract", required=True, type=Path)
+        write_commands[name] = write
 
-    verify = commands.add_parser("verify-build-provenance")
-    verify.add_argument("--input", required=True, type=Path)
-    verify.add_argument("--expected-role", choices=sorted(_ROLE_VALUES))
-    verify.add_argument("--expected-image")
-    verify.add_argument("--expected-source-sha")
-    verify.add_argument("--expected-repository")
-    verify.add_argument("--expected-workflow")
-    verify.add_argument("--expected-workflow-path")
-    verify.add_argument("--expected-run-id")
-    verify.add_argument("--expected-run-attempt", type=int)
-    verify.add_argument("--expected-platform")
-    verify.add_argument("--expected-contract", type=Path)
-    verify.add_argument(
-        "--field",
-        choices=(
-            "image",
-            "image_repository",
-            "image_digest",
-            "source_sha",
-            "source_repository",
-            "source_ref",
-            "workflow",
-            "workflow_path",
-            "run_id",
-            "run_attempt",
-            "platform",
-            "schema_contract_digest",
-        ),
-    )
+    verify_commands = {}
+    for name in ("verify-build-provenance", "verify-unsigned-build-provenance"):
+        verify = commands.add_parser(name)
+        verify.add_argument("--input", required=True, type=Path)
+        verify.add_argument("--expected-role", choices=sorted(_ROLE_VALUES))
+        verify.add_argument("--expected-image")
+        verify.add_argument("--expected-source-sha")
+        verify.add_argument("--expected-repository")
+        verify.add_argument("--expected-workflow")
+        verify.add_argument("--expected-workflow-path")
+        verify.add_argument("--expected-run-id")
+        verify.add_argument("--expected-run-attempt", type=int)
+        verify.add_argument("--expected-platform")
+        verify.add_argument("--expected-contract", type=Path)
+        verify.add_argument(
+            "--field",
+            choices=(
+                "image",
+                "image_repository",
+                "image_digest",
+                "source_sha",
+                "source_repository",
+                "source_ref",
+                "workflow",
+                "workflow_path",
+                "run_id",
+                "run_attempt",
+                "platform",
+                "schema_contract_digest",
+            ),
+        )
+        verify_commands[name] = verify
 
     attestation = commands.add_parser("verify-attestation")
     attestation.add_argument("--input", required=True, type=Path)
     attestation.add_argument("--provenance", required=True, type=Path)
+    attestation.add_argument("--unsigned-provenance", action="store_true")
 
     image = commands.add_parser("verify-image")
     image.add_argument("--inspection", required=True, type=Path)
     image.add_argument("--embedded-contract", required=True, type=Path)
     image.add_argument("--provenance", required=True, type=Path)
+    image.add_argument("--unsigned-provenance", action="store_true")
+    image.add_argument("--image-repository-alias")
 
     digest = commands.add_parser("provenance-digest")
     digest.add_argument("--input", required=True, type=Path)
+    sign = commands.add_parser("sign-unsigned-build-provenance")
+    sign.add_argument("--input", required=True, type=Path)
+    sign.add_argument("--output", required=True, type=Path)
     args = parser.parse_args()
 
-    if args.command == "write-build-provenance":
-        payload = write_build_provenance(
+    if args.command in write_commands:
+        writer = (
+            write_build_provenance
+            if args.command == "write-build-provenance"
+            else write_unsigned_build_provenance
+        )
+        payload = writer(
             args.output,
             role=args.role,
             image=args.image,
@@ -533,8 +626,13 @@ def main() -> int:
             schema_contract=_strict_json(args.schema_contract),
         )
         print(json.dumps({"status": "written", "digest": provenance_digest(payload)}))
-    elif args.command == "verify-build-provenance":
-        payload = verify_build_provenance(
+    elif args.command in verify_commands:
+        verifier = (
+            verify_build_provenance
+            if args.command == "verify-build-provenance"
+            else verify_unsigned_build_provenance
+        )
+        payload = verifier(
             args.input,
             expected_role=args.expected_role,
             expected_image=args.expected_image,
@@ -552,16 +650,28 @@ def main() -> int:
         print(
             payload[args.field] if args.field else json.dumps(payload, sort_keys=True)
         )
+    elif args.command == "sign-unsigned-build-provenance":
+        payload = sign_unsigned_build_provenance(args.input, args.output)
+        print(json.dumps({"status": "signed", "digest": provenance_digest(payload)}))
     elif args.command == "verify-attestation":
-        provenance = verify_build_provenance(args.provenance)
+        provenance = (
+            verify_unsigned_build_provenance(args.provenance)
+            if args.unsigned_provenance
+            else verify_build_provenance(args.provenance)
+        )
         verify_attestation(_strict_json(args.input), provenance)
         print(json.dumps({"status": "verified"}))
     elif args.command == "verify-image":
-        provenance = verify_build_provenance(args.provenance)
+        provenance = (
+            verify_unsigned_build_provenance(args.provenance)
+            if args.unsigned_provenance
+            else verify_build_provenance(args.provenance)
+        )
         verify_image_inspection(
             _strict_json(args.inspection),
             embedded_contract=_strict_json(args.embedded_contract),
             provenance=provenance,
+            image_repository_alias=args.image_repository_alias,
         )
         print(json.dumps({"status": "verified"}))
     else:
