@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import json
 from pathlib import Path
 from subprocess import CompletedProcess
 import sys
@@ -16,6 +17,7 @@ assert SPEC and SPEC.loader
 coordination = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = coordination
 SPEC.loader.exec_module(coordination)
+LEASE_ID_PLACEHOLDER = "00000000-0000-0000-0000-000000000000"
 
 
 class FakeClock:
@@ -428,6 +430,50 @@ def test_fake_azure_cli_uses_login_auth_and_never_account_keys_or_sas():
     ]
     assert "--account-key" not in command
     assert "--sas-token" not in command
+    assert "--query" not in command
+    assert command[command.index("--output") + 1] == "json"
+
+
+@pytest.mark.parametrize(
+    "stdout",
+    [
+        f'"{LEASE_ID_PLACEHOLDER}"\n',
+        f'{{"leaseId":"{LEASE_ID_PLACEHOLDER}"}}\n',
+        f"{LEASE_ID_PLACEHOLDER}\n",
+    ],
+)
+def test_lease_id_accepts_current_and_legacy_azure_cli_response_shapes(stdout):
+    assert (
+        coordination.AzureCliBlobLeaseStorage._lease_id(stdout) == LEASE_ID_PLACEHOLDER
+    )
+
+
+def test_azure_cli_blob_listing_uses_supported_compact_metadata_selector():
+    storage = coordination.AzureCliBlobLeaseStorage(
+        account="exampleaccount",
+        container="state",
+    )
+    payload = [
+        {
+            "name": ".archmorph-rollout/production/exclusive.lock",
+            "properties": {
+                "lastModified": "2026-07-31T00:00:00Z",
+                "leaseState": "available",
+                "leaseStatus": "unlocked",
+            },
+        }
+    ]
+    with patch.object(
+        coordination.subprocess,
+        "run",
+        return_value=CompletedProcess([], 0, stdout=json.dumps(payload)),
+    ) as run:
+        records = storage.list_blobs(".archmorph-rollout/production/")
+
+    assert len(records) == 1
+    command = run.call_args.args[0]
+    assert command[command.index("--include") + 1] == "m"
+    assert "metadata" not in command
 
 
 @pytest.mark.parametrize(

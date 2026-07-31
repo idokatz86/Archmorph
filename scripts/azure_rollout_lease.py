@@ -149,12 +149,16 @@ class AzureCliBlobLeaseStorage:
     @staticmethod
     def _lease_id(stdout: str) -> str:
         value = stdout.strip()
-        if value.startswith("{"):
-            try:
-                payload = json.loads(value)
-            except json.JSONDecodeError as error:
-                raise AzureCliError("Azure lease response is malformed") from error
+        try:
+            payload = json.loads(value)
+        except json.JSONDecodeError:
+            payload = value
+        if isinstance(payload, dict):
             value = str(payload.get("leaseId") or payload.get("lease_id") or "")
+        elif isinstance(payload, str):
+            value = payload
+        else:
+            value = ""
         if not re.fullmatch(r"[A-Za-z0-9-]{16,128}", value):
             raise AzureCliError("Azure lease response omitted a valid lease ID")
         return value
@@ -229,7 +233,8 @@ class AzureCliBlobLeaseStorage:
                 "--prefix",
                 prefix,
                 "--include",
-                "metadata",
+                # Azure CLI requires compact dataset codes; "metadata" is rejected.
+                "m",
                 "--output",
                 "json",
             ]
@@ -285,10 +290,9 @@ class AzureCliBlobLeaseStorage:
                     name,
                     "--lease-duration",
                     str(duration_seconds),
-                    "--query",
-                    "leaseId",
                     "--output",
-                    "tsv",
+                    # Azure CLI 2.86 returns the lease ID as a top-level JSON string.
+                    "json",
                 ]
             )
         except AzureCliError as error:
