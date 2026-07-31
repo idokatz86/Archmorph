@@ -59,7 +59,13 @@ def _migration_envelope(*, marker: str, digest: str) -> str:
     )
 
 
-def _write_release_manifest(path: Path, *, role: str = "final") -> None:
+def _write_release_manifest(
+    path: Path,
+    *,
+    role: str = "final",
+    build_repository: str = "registry.example/archmorph-api",
+    release_repository: str = "registry.example/archmorph-api",
+) -> None:
     contract = (
         _schema_contract("014")
         if role == "final"
@@ -69,7 +75,7 @@ def _write_release_manifest(path: Path, *, role: str = "final") -> None:
     rollout._release_provenance_module().write_build_provenance(
         build_provenance,
         role=role,
-        image="registry.example/archmorph-api@sha256:" + "a" * 64,
+        image=f"{build_repository}@sha256:" + "a" * 64,
         source_sha="b" * 40,
         source_repository="example/archmorph",
         source_ref="refs/heads/main",
@@ -84,7 +90,7 @@ def _write_release_manifest(path: Path, *, role: str = "final") -> None:
         path,
         role=role,
         revision=f"api-{role}",
-        image="registry.example/archmorph-api@sha256:" + "a" * 64,
+        image=f"{release_repository}@sha256:" + "a" * 64,
         source_sha="b" * 40,
         schema_contract=contract,
         observed_schema="014" if role == "final" else "013",
@@ -847,6 +853,17 @@ def test_inert_zeros_cannot_turn_healthy_green_into_recovery_rollback():
     assert recovery_decision(state, observed_schema="014") == ("none", [])
 
 
+def test_green_shift_remains_recoverable_until_post_upload_acceptance():
+    shifted = mark_release_stage(_release_state(schema="014"), "green_shift_attempted")
+    action, target = recovery_decision(shifted, observed_schema="014")
+
+    assert action == "restore_original"
+    assert target == shifted["baseline_traffic"]
+
+    accepted = mark_release_stage(shifted, "complete")
+    assert recovery_decision(accepted, observed_schema="014") == ("none", [])
+
+
 def _persisted_execution_state(tmp_path, monkeypatch, *, terminal_status=""):
     monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
     state = mark_release_stage(_release_state(schema="013"), "migration_attempted")
@@ -1343,6 +1360,40 @@ def test_signed_bridge_manifest_is_immutable_and_role_bound(tmp_path, monkeypatc
     path.write_text(json.dumps(payload))
     with pytest.raises(ValueError, match="signature"):
         verify_manifest(path, required_role="bridge")
+
+
+def test_release_manifest_accepts_only_same_digest_registry_alias(
+    tmp_path, monkeypatch
+):
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "x" * 32)
+    path = tmp_path / "final.json"
+    _write_release_manifest(
+        path,
+        build_repository="ghcr.io/example/archmorph-api-release-build",
+        release_repository="registry.example/archmorph-api",
+    )
+
+    manifest = verify_manifest(path, required_role="final")
+    assert manifest["image"] == "registry.example/archmorph-api@sha256:" + "a" * 64
+    assert manifest["build_provenance"]["image"] == (
+        "ghcr.io/example/archmorph-api-release-build@sha256:" + "a" * 64
+    )
+
+    with pytest.raises(ValueError, match="digest does not match"):
+        write_manifest(
+            tmp_path / "substituted.json",
+            role="final",
+            revision="api-final",
+            image="registry.example/archmorph-api@sha256:" + "c" * 64,
+            source_sha="b" * 40,
+            schema_contract=_schema_contract("014"),
+            observed_schema="014",
+            repository="example/archmorph",
+            workflow="CI/CD",
+            run_id="12345",
+            run_attempt=2,
+            build_provenance=tmp_path / "final-build-provenance.json",
+        )
 
 
 @pytest.mark.parametrize(

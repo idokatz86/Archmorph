@@ -17,6 +17,31 @@ def test_post_deploy_smoke_passes_health_api_key_from_service_api_secret():
     assert smoke_step["env"]["HEALTH_API_KEY"] == "${{ secrets.ARCHMORPH_API_KEY || secrets.API_KEY }}"
 
 
+def test_production_urls_are_scoped_only_to_consuming_jobs_and_steps():
+    workflow = yaml.safe_load(CI_WORKFLOW.read_text(encoding="utf-8"))
+
+    assert "env" not in workflow
+    hosted = workflow["jobs"]["build-backend-release"]
+    assert "API_URL" not in hosted["env"]
+    assert "FRONTEND_URL" not in hosted["env"]
+    frontend = next(
+        step
+        for step in workflow["jobs"]["frontend-build"]["steps"]
+        if step.get("name") == "Build"
+    )
+    assert frontend["env"]["VITE_API_BASE"] == "${{ secrets.API_URL }}"
+    deploy = workflow["jobs"]["deploy-backend"]
+    assert deploy["env"]["API_URL"] == "${{ secrets.API_URL }}"
+    assert deploy["env"]["FRONTEND_URL"] == "${{ secrets.FRONTEND_URL }}"
+    smoke = next(
+        step
+        for step in workflow["jobs"]["post-deploy-smoke"]["steps"]
+        if step.get("name") == "Run deployed app smoke checks"
+    )
+    assert smoke["env"]["API_URL"] == "${{ secrets.API_URL }}"
+    assert smoke["env"]["FRONTEND_URL"] == "${{ secrets.FRONTEND_URL }}"
+
+
 def test_deployment_smoke_checks_frontend_security_headers():
     smoke_script = DEPLOYMENT_SMOKE.read_text(encoding="utf-8")
 
@@ -105,7 +130,8 @@ def test_backend_deploy_can_read_terraform_front_door_outputs():
     assert deploy_job["env"]["ARM_SUBSCRIPTION_ID"] == "${{ secrets.AZURE_SUBSCRIPTION_ID }}"
     assert any(
         step.get("name") == "Set up Terraform"
-        and step.get("uses") == "hashicorp/setup-terraform@v4"
+        and step.get("uses")
+        == "hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e"
         and step.get("with", {}).get("terraform_wrapper") is False
         for step in deploy_job["steps"]
     )

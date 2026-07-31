@@ -49,6 +49,25 @@ def _write(
     )
 
 
+def _write_unsigned(path: Path, *, role: str = "final", contract: dict | None = None):
+    contract = contract or _contract("014")
+    return provenance.write_unsigned_build_provenance(
+        path,
+        role=role,
+        image=f"registry.example/archmorph-api{'-bridge' if role == 'bridge' else ''}@sha256:"
+        + "a" * 64,
+        source_sha="b" * 40,
+        source_repository="example/archmorph",
+        source_ref="refs/heads/main",
+        workflow="CI/CD",
+        workflow_path=".github/workflows/ci.yml",
+        run_id="12345",
+        run_attempt=2,
+        platform="linux/amd64",
+        schema_contract=contract,
+    )
+
+
 def _attestation(build: dict) -> list[dict]:
     return [
         {
@@ -139,6 +158,73 @@ def test_signed_build_provenance_fsyncs_file_and_directory(tmp_path, monkeypatch
     assert not list(tmp_path.glob(".build.json.*.tmp"))
 
 
+def test_hosted_unsigned_provenance_needs_no_hmac_and_matches_private_signed_claims(
+    tmp_path, monkeypatch
+):
+    monkeypatch.delenv("RELEASE_MANIFEST_HMAC_KEY", raising=False)
+    unsigned_path = tmp_path / "hosted.json"
+    unsigned = _write_unsigned(unsigned_path)
+
+    assert "signature" not in unsigned
+    assert (
+        provenance.verify_unsigned_build_provenance(
+            unsigned_path,
+            expected_role="final",
+            expected_source_sha="b" * 40,
+            expected_repository="example/archmorph",
+            expected_workflow="CI/CD",
+            expected_workflow_path=".github/workflows/ci.yml",
+            expected_run_id="12345",
+            expected_run_attempt=2,
+            expected_platform="linux/amd64",
+            expected_contract=_contract("014"),
+        )
+        == unsigned
+    )
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "p" * 32)
+    with pytest.raises(ValueError, match="signature"):
+        provenance.verify_build_provenance(unsigned_path)
+
+    signed_path = tmp_path / "private.json"
+    signed = _write(signed_path, monkeypatch)
+    assert provenance.provenance_digest(unsigned) == provenance.provenance_digest(
+        signed
+    )
+    assert {
+        key: value for key, value in signed.items() if key != "signature"
+    } == unsigned
+
+
+def test_private_signing_preserves_verified_hosted_identity_exactly(
+    tmp_path, monkeypatch
+):
+    hosted_path = tmp_path / "hosted.json"
+    hosted = _write_unsigned(hosted_path)
+    signed_path = tmp_path / "signed.json"
+    monkeypatch.setenv("RELEASE_MANIFEST_HMAC_KEY", "p" * 32)
+
+    signed = provenance.sign_unsigned_build_provenance(hosted_path, signed_path)
+
+    assert {key: value for key, value in signed.items() if key != "signature"} == hosted
+    assert provenance.verify_build_provenance(signed_path) == hosted
+    assert provenance.provenance_digest(signed) == provenance.provenance_digest(hosted)
+
+
+def test_unsigned_provenance_rejects_signed_or_tampered_payload(tmp_path, monkeypatch):
+    unsigned_path = tmp_path / "hosted.json"
+    _write_unsigned(unsigned_path)
+    payload = json.loads(unsigned_path.read_text())
+    payload["source_sha"] = "c" * 40
+    unsigned_path.write_text(json.dumps(payload))
+    with pytest.raises(ValueError, match="canonical claims"):
+        provenance.verify_unsigned_build_provenance(unsigned_path)
+
+    signed_path = tmp_path / "private.json"
+    _write(signed_path, monkeypatch)
+    with pytest.raises(ValueError, match="incomplete or unexpected"):
+        provenance.verify_unsigned_build_provenance(signed_path)
+
+
 @pytest.mark.parametrize(
     ("field", "expected", "message"),
     [
@@ -194,13 +280,30 @@ def test_build_provenance_rejects_contract_substitution_and_resigned_extra_field
         provenance.verify_build_provenance(path)
 
 
-@pytest.mark.parametrize("attestations", [[], [{}, {}], {}, None])
+@pytest.mark.parametrize("attestations", [[], [{}], {}, None])
 def test_missing_duplicate_or_malformed_attestation_fails_closed(
     tmp_path, monkeypatch, attestations
 ):
     build = _write(tmp_path / "build.json", monkeypatch)
-    with pytest.raises(ValueError, match="exactly one"):
+    with pytest.raises(ValueError, match="at least one|missing"):
         provenance.verify_attestation(attestations, build)
+
+
+def test_attestation_selects_exact_build_invocation_from_rerun_results(
+    tmp_path, monkeypatch
+):
+    build = _write(tmp_path / "build.json", monkeypatch)
+    expected = _attestation(build)[0]
+    earlier = json.loads(json.dumps(expected))
+    earlier["verificationResult"]["statement"]["predicate"]["runDetails"][
+        "metadata"
+    ]["invocationId"] = (
+        "https://github.com/example/archmorph/actions/runs/12345/attempts/1"
+    )
+
+    provenance.verify_attestation([earlier, expected], build)
+    with pytest.raises(ValueError, match="exactly one verified attestation"):
+        provenance.verify_attestation([expected, json.loads(json.dumps(expected))], build)
 
 
 @pytest.mark.parametrize(
@@ -288,6 +391,36 @@ def test_image_inspection_requires_exact_digest_labels_platform_and_embedded_con
             _inspection(build),
             embedded_contract=_contract("013", "014"),
             provenance=build,
+        )
+
+
+def test_image_inspection_allows_only_explicit_same_digest_repository_alias(
+    tmp_path, monkeypatch
+):
+    build = _write(tmp_path / "build.json", monkeypatch)
+    alias = "ghcr.io/example/archmorph-api-release-build"
+    inspection = _inspection(build)
+    inspection[0]["RepoDigests"] = [f"{alias}@{build['image_digest']}"]
+
+    provenance.verify_image_inspection(
+        inspection,
+        embedded_contract=_contract("014"),
+        provenance=build,
+        image_repository_alias=alias,
+    )
+    with pytest.raises(ValueError, match="exact immutable digest"):
+        provenance.verify_image_inspection(
+            inspection,
+            embedded_contract=_contract("014"),
+            provenance=build,
+            image_repository_alias="ghcr.io/example/other",
+        )
+    with pytest.raises(ValueError, match="alias"):
+        provenance.verify_image_inspection(
+            inspection,
+            embedded_contract=_contract("014"),
+            provenance=build,
+            image_repository_alias="invalid alias",
         )
 
 

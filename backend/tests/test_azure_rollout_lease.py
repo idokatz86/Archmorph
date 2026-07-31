@@ -351,13 +351,97 @@ def test_heartbeat_counts_malformed_or_missing_lease_id_as_bounded_loss(
         intent="",
         intent_lease_id_file=None,
         rollout_lease_id_file=lease_file,
+        status_file=tmp_path / "heartbeat-status",
     )
 
     with patch.object(coordination.time, "sleep"):
         assert coordination._heartbeat(args, owner) == 4
 
     assert storage.leases == {}
+    assert args.status_file.read_text(encoding="utf-8") == "lost\n"
     assert capsys.readouterr().err.count("LostLease") == 2
+
+
+def test_heartbeat_assertion_fails_closed_for_loss_malformed_status_or_dead_pid(
+    tmp_path,
+):
+    status_file = tmp_path / "heartbeat-status"
+    with patch.object(coordination.os, "kill") as kill:
+        coordination._assert_heartbeat(status_file, 123)
+        kill.assert_called_once_with(123, 0)
+
+    status_file.write_text("lost\n", encoding="utf-8")
+    with pytest.raises(coordination.LostLease, match="reported lost ownership"):
+        coordination._assert_heartbeat(status_file, 123)
+
+    status_file.write_text("unexpected\n", encoding="utf-8")
+    with pytest.raises(coordination.LostLease, match="status is malformed"):
+        coordination._assert_heartbeat(status_file, 123)
+
+    status_file.unlink()
+    with (
+        patch.object(coordination.os, "kill", side_effect=ProcessLookupError),
+        pytest.raises(coordination.LostLease, match="is not running"),
+    ):
+        coordination._assert_heartbeat(status_file, 123)
+
+
+def test_supervised_mutation_is_terminated_when_heartbeat_dies(tmp_path):
+    owner, storage, _clock = _coordinator()
+    lease_id = owner.acquire_rollout(mode="deploy", wait_seconds=0, retry_seconds=1)
+    lease_file = tmp_path / "rollout-lease-id"
+    coordination._secure_write(lease_file, lease_id)
+    args = SimpleNamespace(
+        mutation_command=["mutation", "arg"],
+        rollout_lease_id_file=lease_file,
+        status_file=tmp_path / "heartbeat-status",
+        heartbeat_pid=123,
+        poll_seconds=1,
+    )
+    process = SimpleNamespace(pid=456, returncode=None)
+    polls = iter([None, None])
+    process.poll = lambda: next(polls)
+    process.wait = lambda timeout=None: setattr(process, "returncode", -15) or -15
+    heartbeat_checks = [None, None, coordination.LostLease("lost")]
+
+    with (
+        patch.object(coordination.subprocess, "Popen", return_value=process) as popen,
+        patch.object(coordination, "_assert_heartbeat", side_effect=heartbeat_checks),
+        patch.object(coordination.time, "sleep"),
+        patch.object(coordination.os, "killpg") as killpg,
+        pytest.raises(coordination.LostLease, match="lost"),
+    ):
+        coordination._supervise_command(args, owner)
+
+    popen.assert_called_once_with(["mutation", "arg"], start_new_session=True)
+    assert killpg.call_args_list == [
+        ((456, coordination.signal.SIGTERM),),
+        ((456, coordination.signal.SIGKILL),),
+    ]
+    assert storage.leases[owner.lock_blob][0] == lease_id
+
+
+def test_supervised_mutation_rechecks_ownership_after_success(tmp_path):
+    owner, _storage, _clock = _coordinator()
+    lease_id = owner.acquire_rollout(mode="deploy", wait_seconds=0, retry_seconds=1)
+    lease_file = tmp_path / "rollout-lease-id"
+    coordination._secure_write(lease_file, lease_id)
+    args = SimpleNamespace(
+        mutation_command=["--", "mutation"],
+        rollout_lease_id_file=lease_file,
+        status_file=tmp_path / "heartbeat-status",
+        heartbeat_pid=123,
+        poll_seconds=1,
+    )
+    process = SimpleNamespace(pid=456, returncode=0, poll=lambda: 0)
+
+    with (
+        patch.object(coordination.subprocess, "Popen", return_value=process),
+        patch.object(coordination, "_assert_heartbeat") as heartbeat,
+    ):
+        assert coordination._supervise_command(args, owner) == 0
+
+    assert heartbeat.call_count == 2
 
 
 def test_secure_coordination_write_fsyncs_file_and_directory(tmp_path):
@@ -432,6 +516,81 @@ def test_fake_azure_cli_uses_login_auth_and_never_account_keys_or_sas():
     assert "--sas-token" not in command
     assert "--query" not in command
     assert command[command.index("--output") + 1] == "json"
+
+
+def test_transaction_state_upload_requires_lease_and_download_is_passwordless(
+    tmp_path,
+):
+    storage = coordination.AzureCliBlobLeaseStorage(
+        account="exampleaccount",
+        container="state",
+    )
+    source = tmp_path / "rollout-state.json"
+    source.write_text('{"signed":true}\n', encoding="utf-8")
+    destination = tmp_path / "downloaded.json"
+    with patch.object(
+        coordination.subprocess,
+        "run",
+        return_value=CompletedProcess([], 0, stdout=""),
+    ) as run:
+        storage.upload_owned(
+            ".archmorph-rollout/production/exclusive.lock",
+            source,
+            LEASE_ID_PLACEHOLDER,
+        )
+        assert storage.download(
+            ".archmorph-rollout/production/exclusive.lock",
+            destination,
+        )
+
+    upload = run.call_args_list[0].args[0]
+    download = run.call_args_list[1].args[0]
+    assert "upload" in upload
+    assert upload[upload.index("--lease-id") + 1] == LEASE_ID_PLACEHOLDER
+    assert upload[upload.index("--overwrite") + 1] == "true"
+    assert "download" in download
+    for command in (upload, download):
+        assert command[command.index("--auth-mode") + 1] == "login"
+        assert "--account-key" not in command
+        assert "--sas-token" not in command
+
+
+def test_transaction_upload_commit_then_timeout_is_reconciled_by_exact_readback(
+    tmp_path,
+):
+    storage = coordination.AzureCliBlobLeaseStorage(
+        account="exampleaccount",
+        container="state",
+    )
+    source = tmp_path / "rollout-state.json"
+    source.write_text('{"signed":true}\n', encoding="utf-8")
+
+    def run(arguments):
+        if "upload" in arguments:
+            raise coordination.AzureCliError("timeout")
+        readback = Path(arguments[arguments.index("--file") + 1])
+        readback.write_bytes(source.read_bytes())
+        return CompletedProcess([], 0, stdout="")
+
+    with patch.object(storage, "_run", side_effect=run):
+        storage.upload_owned(
+            ".archmorph-rollout/production/exclusive.lock",
+            source,
+            LEASE_ID_PLACEHOLDER,
+        )
+
+    assert not (tmp_path / ".rollout-state.json.readback").exists()
+
+
+def test_lock_sentinel_is_not_treated_as_durable_transaction(tmp_path):
+    state = tmp_path / "state.json"
+    state.write_bytes(coordination._LOCK_SENTINEL)
+    assert coordination._transaction_present(state) is False
+    assert not state.exists()
+
+    state.write_text('{"schema_version":3,"signature":"signed"}\n', encoding="utf-8")
+    assert coordination._transaction_present(state) is True
+    assert state.exists()
 
 
 @pytest.mark.parametrize(

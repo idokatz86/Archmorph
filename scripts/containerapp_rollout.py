@@ -1502,13 +1502,14 @@ def write_manifest(
     build = provenance_module.verify_build_provenance(
         build_provenance,
         expected_role=role,
-        expected_image=image,
         expected_source_sha=source_sha,
         expected_repository=repository,
         expected_workflow="CI/CD",
         expected_workflow_path=".github/workflows/ci.yml",
         expected_contract=contract,
     )
+    if build["image_digest"] != image.rsplit("@", 1)[1]:
+        raise ValueError("release image digest does not match attested build provenance")
     payload = {
         "schema_version": _RELEASE_MANIFEST_SCHEMA_VERSION,
         "role": role,
@@ -1586,8 +1587,8 @@ def verify_manifest(
         raise ValueError("release manifest platform does not match build provenance")
     if build["role"] != required_role:
         raise ValueError("release manifest build role does not match release role")
-    if build["image"] != payload["image"]:
-        raise ValueError("release manifest image does not match build provenance")
+    if build["image_digest"] != payload["image_digest"]:
+        raise ValueError("release manifest image digest does not match build provenance")
     if build["source_sha"] != payload["source_sha"]:
         raise ValueError("release manifest source SHA does not match build provenance")
     if build["schema_contract"] != contract:
