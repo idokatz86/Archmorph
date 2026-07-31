@@ -25,16 +25,16 @@ jobs:
       matrix:
         language: [python, javascript]
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v4
+        uses: github/codeql-action/init@v4.37.3
         with:
           languages: ${{ matrix.language }}
           queries: security-extended
           
       - name: Perform Analysis
-        uses: github/codeql-action/analyze@v4
+        uses: github/codeql-action/analyze@v4.37.3
         with:
           category: codeql-${{ matrix.language }}
 
@@ -43,10 +43,10 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Setup Python
-        uses: actions/setup-python@v6
+        uses: actions/setup-python@v7
         with:
           python-version: "3.12"
 
@@ -59,7 +59,7 @@ jobs:
           pip-audit -r requirements.txt --ignore-vuln PYSEC-2025-183
 
       - name: Setup Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version: "22.13.0"
           cache: "npm"
@@ -89,7 +89,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - name: Run gitleaks
@@ -123,7 +123,7 @@ jobs:
             port: "8080:8080"
             health_url: http://127.0.0.1:8080/health
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v4
@@ -183,7 +183,7 @@ jobs:
           scanners: vuln
 
       - name: Upload Trivy SARIF to GitHub Security
-        uses: github/codeql-action/upload-sarif@v4
+        uses: github/codeql-action/upload-sarif@v4.37.3
         if: ${{ always() && hashFiles(format('trivy-results-{0}.sarif', matrix.image.name)) != '' }}
         continue-on-error: true
         with:
