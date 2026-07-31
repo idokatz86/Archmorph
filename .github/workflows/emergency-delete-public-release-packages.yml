@@ -1,0 +1,32 @@
+name: Emergency delete public release packages
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  delete-public-release-packages:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Delete accidentally public release staging packages
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for package in \
+            archmorph-api-release-build \
+            archmorph-api-bridge-release-build; do
+            metadata=$(gh api "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}")
+            visibility=$(jq -er '.visibility' <<<"$metadata")
+            repository=$(jq -er '.repository.full_name' <<<"$metadata")
+            if [ "$visibility" != public ] || [ "$repository" != "$GITHUB_REPOSITORY" ]; then
+              echo "::error::Refusing to delete package with unexpected identity or visibility"
+              exit 1
+            fi
+            gh api --method DELETE \
+              "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}"
+          done
