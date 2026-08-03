@@ -51,7 +51,7 @@
     "eslint-plugin-react": "^7.34.1",
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.7.0",
-    "jsdom": "^29.1.1",
+    "jsdom": "^30.0.1",
     "js-yaml": "file:../vendor/js-yaml-4.3.0.tgz",
     "nanoid": "file:../vendor/nanoid-3.3.16.tgz",
     "openapi-typescript": "^7.8.0",
