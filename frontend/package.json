@@ -67,6 +67,6 @@
     "js-yaml": "$js-yaml",
     "nanoid": "$nanoid",
     "postcss": "$postcss",
-    "undici": "^7.28.0"
+    "undici": "^7.29.0"
   }
 }
