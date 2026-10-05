@@ -750,6 +750,18 @@ def test_backend_image_and_schema_contract_are_hosted_immutable_and_fail_closed(
         build["steps"],
         "Verify private GHCR staging package ownership",
     )["run"]
+    bootstrap = _step_by_name(
+        build["steps"],
+        "Establish private staging before application image upload",
+    )
+    build_names = [step.get("name") for step in build["steps"]]
+    bootstrap_index = build_names.index(bootstrap["name"])
+    assert bootstrap_index < build_names.index("Build and push final staging image")
+    assert bootstrap_index < build_names.index("Build and push schema bridge overlay")
+    assert "ensure_private_release_staging.py" in bootstrap["run"]
+    assert bootstrap["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert "continue-on-error" not in bootstrap
+    assert "if" not in bootstrap
     scan_resolve = _step_by_name(
         scan["steps"],
         "Resolve immutable staging images for scanning",
@@ -851,8 +863,8 @@ def test_backend_image_and_schema_contract_are_hosted_immutable_and_fail_closed(
     assert 'az rest --method post --uri "$IMPORT_URI"' not in consume
     assert '--provenance "hosted-build-evidence/${role}-build-provenance-unsigned.json"' in consume
     assert "--unsigned-provenance" in consume
-    assert '"${GHCR_BUILD_REGISTRY}/archmorph-api-release-build"' in consume
-    assert '"${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-build"' in consume
+    assert '"${GHCR_BUILD_REGISTRY}/archmorph-api-release-staging-v2"' in consume
+    assert '"${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-staging-v2"' in consume
     assert "GHCR_BUILD_REGISTRY=\"ghcr.io/${GITHUB_REPOSITORY_OWNER,,}\"" in consume
     assert 'IMAGE_REF="${ACR_LOGIN_SERVER}/archmorph-api@${FINAL_SOURCE_IMAGE_REF#*@}"' in consume
     assert 'BRIDGE_IMAGE_REF="${ACR_LOGIN_SERVER}/archmorph-api-bridge@${BRIDGE_SOURCE_IMAGE_REF#*@}"' in consume
@@ -1095,10 +1107,10 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert "ROLLBACK_REVISIONS" in retain
     assert "Migration bridge is recovery-only" in retain
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BRIDGE_BASE_IMAGE=${{ env.GHCR_BUILD_REGISTRY }}/archmorph-api-release-build@${{ steps.build_backend.outputs.digest }}" in workflow_text
+    assert "BRIDGE_BASE_IMAGE=${{ env.GHCR_BUILD_REGISTRY }}/archmorph-api-release-staging-v2@${{ steps.build_backend.outputs.digest }}" in workflow_text
     assert "backend/bridge_overlay/Dockerfile" in workflow_text
     assert "context: ./backend" in workflow_text
-    assert "archmorph-api-bridge-release-build@${{ steps.build_bridge.outputs.digest }}" in workflow_text
+    assert "archmorph-api-bridge-release-staging-v2@${{ steps.build_bridge.outputs.digest }}" in workflow_text
     assert 'az rest --method post --uri "$IMPORT_URI"' in workflow_text
     assert 'IMPORTED_BRIDGE_DIGEST' in workflow_text
     detect = _step_by_name(steps, "Discover schema with same-identity database preflight")["run"]

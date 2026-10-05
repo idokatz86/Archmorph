@@ -254,6 +254,7 @@ jobs:
             backend/tests/test_containerapp_revision_builder.py \
             backend/tests/test_azure_rollout_lease.py \
             backend/tests/test_release_provenance.py \
+            backend/tests/test_private_release_staging.py \
             backend/tests/test_bridge_overlay.py \
             backend/tests/test_rollout_telemetry.py \
             backend/tests/test_migration_runtime_contract.py \
@@ -734,6 +735,14 @@ jobs:
       - name: Set up hosted Docker Buildx
         uses: docker/setup-buildx-action@bb05f3f5519dd87d3ba754cc423b652a5edd6d2c # v4
 
+      - name: Establish private staging before application image upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          python scripts/ensure_private_release_staging.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --registry "$GHCR_BUILD_REGISTRY"
+
       - name: Prepare immutable image build claims
         id: image_claims
         run: |
@@ -757,7 +766,7 @@ jobs:
         with:
           context: ./backend
           push: true
-          tags: ${{ env.GHCR_BUILD_REGISTRY }}/archmorph-api-release-build:${{ github.sha }}
+          tags: ${{ env.GHCR_BUILD_REGISTRY }}/archmorph-api-release-staging-v2:${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
           build-args: |
@@ -780,9 +789,9 @@ jobs:
           context: ./backend
           file: ./backend/bridge_overlay/Dockerfile
           push: true
-          tags: ${{ env.GHCR_BUILD_REGISTRY }}/archmorph-api-bridge-release-build:${{ github.sha }}
+          tags: ${{ env.GHCR_BUILD_REGISTRY }}/archmorph-api-bridge-release-staging-v2:${{ github.sha }}
           build-args: |
-            BRIDGE_BASE_IMAGE=${{ env.GHCR_BUILD_REGISTRY }}/archmorph-api-release-build@${{ steps.build_backend.outputs.digest }}
+            BRIDGE_BASE_IMAGE=${{ env.GHCR_BUILD_REGISTRY }}/archmorph-api-release-staging-v2@${{ steps.build_backend.outputs.digest }}
             ARCHMORPH_SOURCE_SHA=${{ github.sha }}
             ARCHMORPH_SOURCE_REPOSITORY=${{ github.repository }}
             ARCHMORPH_BUILD_WORKFLOW=.github/workflows/ci.yml
@@ -800,8 +809,8 @@ jobs:
         run: |
           set -euo pipefail
           for package in \
-            archmorph-api-release-build \
-            archmorph-api-bridge-release-build; do
+            archmorph-api-release-staging-v2 \
+            archmorph-api-bridge-release-staging-v2; do
             VERIFIED=false
             for attempt in {1..12}; do
               if gh api \
@@ -835,8 +844,8 @@ jobs:
             echo "::error::docker/build-push-action did not return an image digest"
             exit 1
           fi
-          FINAL_SOURCE_IMAGE_REF="${GHCR_BUILD_REGISTRY}/archmorph-api-release-build@${{ steps.build_backend.outputs.digest }}"
-          BRIDGE_SOURCE_IMAGE_REF="${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-build@${{ steps.build_bridge.outputs.digest }}"
+          FINAL_SOURCE_IMAGE_REF="${GHCR_BUILD_REGISTRY}/archmorph-api-release-staging-v2@${{ steps.build_backend.outputs.digest }}"
+          BRIDGE_SOURCE_IMAGE_REF="${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-staging-v2@${{ steps.build_bridge.outputs.digest }}"
           if ! [[ "$FINAL_SOURCE_IMAGE_REF" =~ ^.+@sha256:[0-9a-f]{64}$ ]]; then
             echo "::error::Built image reference is not an immutable sha256 digest"
             exit 1
@@ -1012,8 +1021,8 @@ jobs:
             --expected-platform linux/amd64 \
             --expected-contract backend/bridge-schema-contract.json \
             --field image)
-          if [ "${FINAL_IMAGE%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-release-build" ] || \
-            [ "${BRIDGE_IMAGE%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-build" ]; then
+          if [ "${FINAL_IMAGE%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-release-staging-v2" ] || \
+            [ "${BRIDGE_IMAGE%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-staging-v2" ]; then
             echo "::error::Hosted scan claims target an unexpected image repository"
             exit 1
           fi
@@ -1111,8 +1120,8 @@ jobs:
             --expected-platform linux/amd64 \
             --expected-contract backend/bridge-schema-contract.json \
             --field image)
-          if [ "${FINAL_IMAGE%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-release-build" ] || \
-            [ "${BRIDGE_IMAGE%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-build" ]; then
+          if [ "${FINAL_IMAGE%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-release-staging-v2" ] || \
+            [ "${BRIDGE_IMAGE%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-staging-v2" ]; then
             echo "::error::Hosted attestation claims target an unexpected image repository"
             exit 1
           fi
@@ -1333,8 +1342,8 @@ jobs:
             --expected-contract backend/bridge-schema-contract.json \
             --field image)
           GHCR_BUILD_REGISTRY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
-          if [ "${FINAL_SOURCE_IMAGE_REF%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-release-build" ] || \
-            [ "${BRIDGE_SOURCE_IMAGE_REF%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-build" ]; then
+          if [ "${FINAL_SOURCE_IMAGE_REF%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-release-staging-v2" ] || \
+            [ "${BRIDGE_SOURCE_IMAGE_REF%@*}" != "${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-staging-v2" ]; then
             echo "::error::Hosted build evidence targets an unexpected image repository"
             exit 1
           fi
