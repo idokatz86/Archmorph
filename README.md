@@ -212,7 +212,7 @@ The Archmorph policy gate blocks taggable Azure resources missing baseline tags,
 flowchart TB
     subgraph Azure["☁️ Azure Cloud"]
         subgraph Frontend["Static Web Apps"]
-            UI[React 19.2 + Vite 8.0<br/>TailwindCSS + Zustand]
+            UI[React 19.2 + Vite 8.1<br/>TailwindCSS + Zustand]
         end
         
         WAF[Azure Front Door<br/>WAF / OWASP CRS 3.2]
@@ -249,14 +249,14 @@ flowchart TB
             ErrorEnv[Error Envelope<br/>Middleware]
             FeatureFlags[Feature Flags<br/>% rollout + targeting]
             AuditLog[Audit Logging<br/>Structured JSON]
-            SessionStore[Session Store<br/>InMemory / Redis]
-            JobQueue[Job Queue + SSE<br/>Background Tasks]
+            SessionStore[Session Store<br/>Redis required in production]
+            JobQueue[Job Queue + SSE<br/>Shared-store leases + recovery]
             Auth[Auth Shell<br/>SWA/JWT + API keys]
         end
         
         subgraph Data["Data Services"]
             ACR[Container Registry]
-            DB[(PostgreSQL 16<br/>Flexible Server)]
+            DB[(PostgreSQL<br/>Flexible Server)]
             Blob[(Blob Storage)]
             Redis[(Redis 7<br/>Session + Cache)]
         end
@@ -312,14 +312,14 @@ flowchart TB
 
 | Component | Technology | Azure Service |
 |-----------|------------|---------------|
-| Frontend | React 19.2, Vite 8.0, TailwindCSS 4.2, Zustand, Lucide React | Static Web Apps |
+| Frontend | React 19.2, Vite 8.1, TailwindCSS 4.3, Zustand, Lucide React | Static Web Apps |
 | Backend API | Python 3.12, FastAPI, Gunicorn + Uvicorn | Container Apps |
 | AI Engine | GPT-4.1 (vision + chat) with GPT-4o fallback | Azure OpenAI |
 | Container Registry | Docker | Azure Container Registry |
-| Database | PostgreSQL 16 | Flexible Server |
+| Database | PostgreSQL (Terraform: 15; migration CI: 16) | Flexible Server |
 | Cache / Sessions | Redis 7 | Azure Cache for Redis |
 | Storage | Blob | Storage Account (metrics persistence) |
-| Scheduler | APScheduler (CronTrigger) | In-process |
+| Scheduler | GitHub Actions catalog refresh; auxiliary APScheduler jobs | External workflow + in-process |
 | Service Auto-Discovery | Daily sync + auto-integration | In-process engine |
 | Guided Questions | 32 questions, 8 categories, inter-question constraints | In-process engine |
 | Architecture Package Export | HTML package + target/DR SVG + talking points/limitations | In-process engine |
@@ -343,8 +343,8 @@ flowchart TB
 | Error Envelope | Structured error responses with correlation IDs | Middleware |
 | Feature Flags | Python module, % rollout + user targeting | In-process |
 | Audit Logging | Structured JSON + querying with risk levels | In-process |
-| Session Store | InMemory/Redis adapter | Azure Cache for Redis |
-| Job Queue + SSE | Background task processing with Server-Sent Events | In-process |
+| Session Store | Redis required by default in production; File/InMemory development adapters | Azure Cache for Redis |
+| Job Queue + SSE | Shared-store job leases, heartbeats, recovery, and Server-Sent Events | In-process workers + shared store |
 | API Versioning | v1 prefix mirror for all routes | Middleware |
 | WAF | OWASP CRS 3.2 | Azure Front Door Premium |
 | Testing | pytest (1554 tests) + Vitest (262 tests) + Playwright smoke (17 tests) | CI/CD |
@@ -359,6 +359,13 @@ flowchart TB
 | Multi-Cloud Cost | Side-by-side Azure/AWS/GCP TCO | In-process engine |
 | Product Analytics | PostHog + backend funnel tracking | In-process engine |
 > 📐 **Detailed Diagrams:** [architecture.excalidraw](docs/architecture.excalidraw) | [application-flow.excalidraw](docs/application-flow.excalidraw) — Open in [Excalidraw](https://excalidraw.com)
+
+The PostgreSQL version difference above is a configuration/validation gap, not a
+verified statement about the live database. See the
+[October 2026 maintenance review](docs/audits/2026-10-05-maintenance-review.md)
+for the alert inventory, component changes, architecture findings, and staged
+remediation plan. Package sourcing and lockfile maintenance are documented in
+[vendor/README.md](vendor/README.md).
 
 ---
 

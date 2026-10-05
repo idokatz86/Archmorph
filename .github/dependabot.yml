@@ -1,5 +1,10 @@
 version: 2
 
+registries:
+  microsoft-public-npm:
+    type: npm-registry
+    url: https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/
+
 updates:
   # Python backend dependencies
   - package-ecosystem: pip
@@ -30,14 +35,14 @@ updates:
         applies-to: security-updates
         patterns:
           - "*"
-    reviewers:
-      - idokatz86
     assignees:
       - idokatz86
 
   # Node.js frontend dependencies
   - package-ecosystem: npm
     directory: /frontend
+    registries:
+      - microsoft-public-npm
     schedule:
       interval: weekly
       day: monday
@@ -74,14 +79,57 @@ updates:
       - dependency-name: "eslint"
         versions:
           - "10.x"
-    reviewers:
-      - idokatz86
     assignees:
       - idokatz86
 
+  # Supporting npm projects are independently installed and audited.
+  - package-ecosystem: npm
+    directories:
+      - /
+      - /frontend/api
+    registries:
+      - microsoft-public-npm
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - javascript
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      npm-supporting:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
+  - package-ecosystem: pip
+    directories:
+      - /cli
+      - /mcp-gateway
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "UTC"
+    open-pull-requests-limit: 3
+    labels:
+      - dependencies
+      - python
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      pip-supporting:
+        patterns: ["*"]
+        update-types: [minor, patch]
+
   # Docker base images
   - package-ecosystem: docker
-    directory: /backend
+    directories:
+      - /backend
+      - /mcp-gateway
     schedule:
       interval: weekly
       time: "06:00"
@@ -91,8 +139,6 @@ updates:
       - docker
     commit-message:
       prefix: "chore(deps)"
-    reviewers:
-      - idokatz86
 
   # GitHub Actions versions
   - package-ecosystem: github-actions
@@ -110,8 +156,6 @@ updates:
       gh-actions:
         patterns:
           - "*"
-    reviewers:
-      - idokatz86
 
   # Terraform providers
   - package-ecosystem: terraform
@@ -130,7 +174,5 @@ updates:
       azurerm:
         patterns:
           - "hashicorp/azurerm"
-    reviewers:
-      - idokatz86
     assignees:
       - idokatz86

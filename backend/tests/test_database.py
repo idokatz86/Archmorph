@@ -8,8 +8,10 @@ Covers:
   - BaseRepository CRUD operations
 """
 
+import asyncio
 import os
 import sys
+from pathlib import Path
 
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
@@ -21,6 +23,35 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
 class TestDatabaseModule:
     """Tests for database.py engine setup."""
+
+    def test_asyncio_dependency_is_declared(self):
+        requirements = (
+            Path(__file__).resolve().parents[1] / "requirements.txt"
+        ).read_text().splitlines()
+        declared = [line.split("#", 1)[0].strip() for line in requirements]
+        assert "sqlalchemy[asyncio]>=2.0,<2.1" in declared
+
+    def test_postgres_default_driver_matches_declared_runtime_dependency(self):
+        from sqlalchemy.engine import make_url
+
+        dialect = make_url("postgresql://localhost/archmorph").get_dialect()
+        assert dialect.driver == "psycopg2"
+        assert dialect.import_dbapi().__name__ == "psycopg2"
+
+    def test_async_session_executes_query(self):
+        from sqlalchemy import text
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+
+        async def execute_query():
+            engine = create_async_engine("sqlite+aiosqlite:///:memory:")
+            try:
+                async with async_sessionmaker(engine)() as session:
+                    result = await session.execute(text("SELECT 1"))
+                    assert result.scalar_one() == 1
+            finally:
+                await engine.dispose()
+
+        asyncio.run(execute_query())
 
     def test_engine_is_created(self):
         from database import engine

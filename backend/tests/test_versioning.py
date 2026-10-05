@@ -2,6 +2,8 @@
 Tests for Architecture Versioning
 """
 
+import logging
+
 from versioning import (
     ArchitectureVersion, ArchitectureChange, ChangeType,
     create_version, get_version, get_latest_version, restore_version,
@@ -102,6 +104,22 @@ class TestVersionManagement:
     def setup_method(self):
         VERSION_STORE.clear()
     
+    def test_version_log_sanitizes_diagram_id(self, caplog):
+        diagram_id = "diag-123\r\nFORGED"
+        with caplog.at_level(logging.INFO, logger="versioning"):
+            version = create_version(diagram_id, {"mappings": []})
+
+        messages = [
+            record.getMessage()
+            for record in caplog.records
+            if record.name == "versioning"
+            and record.getMessage().startswith("Created version")
+        ]
+        assert len(messages) == 1
+        assert "\r" not in messages[0]
+        assert "\n" not in messages[0]
+        assert version.diagram_id == diagram_id
+
     def test_create_first_version(self):
         snapshot = {
             "diagram_id": "diag-123",

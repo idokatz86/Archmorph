@@ -96,6 +96,8 @@ def test_wall_clock_latency_budget_runs_once_without_xdist_or_coverage():
     assert "-m latency_budget" in latency
     assert "-n 0" in latency
     assert "--no-cov" in latency
+    assert "tests/test_analyze_latency_regression.py" in latency
+    assert latency.count("python -m pytest") == 1
     assert workflow["jobs"]["backend-latency-budget"]["timeout-minutes"] == 10
     assert workflow["jobs"]["backend-latency-budget"]["env"] == {
         "DATABASE_URL": "sqlite:////dev/shm/archmorph-latency.db",

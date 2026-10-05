@@ -218,7 +218,7 @@ jobs:
         run: uv pip install --system -r requirements.txt
 
       - name: Run latency regression budget serially
-        run: python -m pytest --tb=short -q -n 0 --no-cov -m latency_budget
+        run: python -m pytest --tb=short -q -n 0 --no-cov -m latency_budget tests/test_analyze_latency_regression.py
 
   rollout-contracts:
     runs-on: ubuntu-latest

@@ -7,6 +7,7 @@ import { createRequire } from 'node:module';
 
 import * as braceExpansion from 'brace-expansion';
 import yaml from 'js-yaml';
+import { customAlphabet as secureCustomAlphabet } from 'nanoid';
 import { customAlphabet, nanoid as nonSecureNanoid } from 'nanoid/non-secure';
 import { parse } from 'postcss';
 
@@ -44,6 +45,13 @@ test('Nano ID non-secure APIs terminate for negative sizes', () => {
   assert.equal(customAlphabet('abcdef', -5)(), '');
 });
 
+test('Nano ID custom generators terminate for zero sizes', () => {
+  for (const createGenerator of [customAlphabet, secureCustomAlphabet]) {
+    assert.equal(createGenerator('abcdef')(0), '');
+    assert.equal(createGenerator('abcdef', 0)(), '');
+  }
+});
+
 test('PostCSS blocks source-map traversal unless explicitly trusted', () => {
   const root = mkdtempSync(join(tmpdir(), 'archmorph-postcss-'));
   const subdirectory = join(root, 'subdirectory');
@@ -62,6 +70,8 @@ test('PostCSS blocks source-map traversal unless explicitly trusted', () => {
 
     assert.equal(parse(css, { from }).source?.input.map, undefined);
     assert.equal(parse(css, { from, unsafeMap: true }).source?.input.map?.text, map);
+    const absoluteMapCss = `a{}\n/*# sourceMappingURL=${join(root, 'outside.map')} */`;
+    assert.equal(parse(absoluteMapCss).source?.input.map, undefined);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

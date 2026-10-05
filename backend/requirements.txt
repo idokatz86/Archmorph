@@ -9,7 +9,7 @@ azure-storage-blob
 azure-identity
 openai
 psycopg2-binary
-sqlalchemy
+sqlalchemy[asyncio]>=2.0,<2.1  # Preserve the deployed psycopg2 default driver.
 asyncpg
 aiosqlite
 alembic

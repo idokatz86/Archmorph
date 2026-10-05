@@ -13,12 +13,12 @@ from pathlib import Path, PurePosixPath
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SOURCE_ARCHIVE = REPO_ROOT / "vendor" / "brace-expansion-5.0.8.tgz"
-DEFAULT_OUTPUT = REPO_ROOT / "vendor" / "brace-expansion-5.0.8-compat.tgz"
-SOURCE_SHA256 = "0d089af987938109a964ad09ecf0977c3c6fdd7469f6183be7766ebad0858ce1"
+SOURCE_ARCHIVE = REPO_ROOT / "vendor" / "brace-expansion-5.0.12.tgz"
+DEFAULT_OUTPUT = REPO_ROOT / "vendor" / "brace-expansion-5.0.12-compat.tgz"
+SOURCE_SHA256 = "ef8448ec78f20b692f04fa6d01f39b5ab34c66404bea3429f5a39c6c9e0be8b4"
 COMMONJS_PATH = "package/dist/commonjs/index.js"
-PRE_PATCH_SHA256 = "994eb761eca1c861f586ce6ab31bc2e7a6bc020dc4d6636d5e8b778c366d133f"
-POST_PATCH_SHA256 = "7f522cad03cb277bcac25fb64f8e5ce640ff8d15fd19a47f21f3b07df2aef5f5"
+PRE_PATCH_SHA256 = "e0ede97c712339a70bae2c96c675b1ffd30052bdf57f37f5a97b5945c40a9ae6"
+POST_PATCH_SHA256 = "05790f8de25fc6e390da28779267e68681462105596b6abb60e644115a451e69"
 COMPAT_SUFFIX = (
     b"\n// archmorph-commonjs-function-compat\n"
     b"module.exports = Object.assign(exports.expand, exports);\n"
