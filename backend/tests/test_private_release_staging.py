@@ -3,8 +3,10 @@ from __future__ import annotations
 import importlib.util
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
+import sys
 from unittest.mock import Mock
 from urllib.error import HTTPError, URLError
 
@@ -47,7 +49,9 @@ def test_missing_packages_publish_only_empty_bootstrap_then_verify(monkeypatch):
     monkeypatch.setattr(staging, "publish_empty_package", publish)
     monkeypatch.setattr(staging.time, "sleep", sleep)
 
-    staging.ensure_private_staging(REPOSITORY, REGISTRY, "test-token")
+    staging.ensure_private_staging(
+        REPOSITORY, REGISTRY, "test-token", owner_confirmed_absent=True,
+    )
 
     assert [call.args for call in publish.call_args_list] == [
         (REGISTRY, REPOSITORY, package) for package in staging.STAGING_PACKAGES
@@ -84,7 +88,9 @@ def test_public_bootstrap_fails_before_application_upload_or_second_package(monk
     monkeypatch.setattr(staging, "publish_empty_package", publish)
 
     with pytest.raises(staging.StagingError, match="not private and bound"):
-        staging.ensure_private_staging(REPOSITORY, REGISTRY, "test-token")
+        staging.ensure_private_staging(
+            REPOSITORY, REGISTRY, "test-token", owner_confirmed_absent=True,
+        )
     assert publish.call_count == 1
 
 
@@ -96,7 +102,9 @@ def test_failed_bootstrap_push_stops_package_verification(monkeypatch):
         Mock(side_effect=subprocess.CalledProcessError(1, ["docker", "push"])),
     )
     with pytest.raises(subprocess.CalledProcessError):
-        staging.ensure_private_staging(REPOSITORY, REGISTRY, "test-token")
+        staging.ensure_private_staging(
+            REPOSITORY, REGISTRY, "test-token", owner_confirmed_absent=True,
+        )
     assert metadata.call_count == 1
 
 
@@ -109,7 +117,9 @@ def test_bootstrap_metadata_timeout_is_not_success(monkeypatch):
     monkeypatch.setattr(staging.time, "sleep", sleep)
 
     with pytest.raises(staging.StagingError, match="did not become available"):
-        staging.ensure_private_staging(REPOSITORY, REGISTRY, "test-token")
+        staging.ensure_private_staging(
+            REPOSITORY, REGISTRY, "test-token", owner_confirmed_absent=True,
+        )
     assert metadata.call_count == 13
     assert publish.call_count == 1
     assert sleep.call_count == 11
@@ -162,10 +172,14 @@ def test_api_failures_are_not_treated_as_missing_packages(monkeypatch, status):
         staging.package_metadata("example", staging.STAGING_PACKAGES[0], "test-token")
 
 
-def test_only_not_found_allows_bootstrap(monkeypatch):
+def test_not_found_is_ambiguous_and_never_auto_bootstraps(monkeypatch):
     failure = HTTPError("https://api.github.com/", 404, "not found", {}, None)
     monkeypatch.setattr(staging, "urlopen", Mock(side_effect=failure))
-    assert staging.package_metadata("example", staging.STAGING_PACKAGES[0], "test-token") is None
+    publish = Mock()
+    monkeypatch.setattr(staging, "publish_empty_package", publish)
+    with pytest.raises(staging.StagingError, match="missing or inaccessible"):
+        staging.ensure_private_staging(REPOSITORY, REGISTRY, "test-token")
+    publish.assert_not_called()
 
 
 def test_network_failure_is_reported_without_secret_details(monkeypatch):
@@ -215,3 +229,43 @@ def test_bootstrap_build_scanning_attestation_deploy_and_cleanup_share_package_n
             assert package in cleanup
         assert "archmorph-api-release-build" not in scripts
         assert "archmorph-api-bridge-release-build" not in scripts
+    preflight = build_steps["Establish private staging before application image upload"]["run"]
+    assert "--owner-confirmed-absent" not in preflight
+
+
+@pytest.mark.parametrize(
+    ("actor", "ref"),
+    [("unrelated-user", "refs/heads/main"), ("example", "refs/heads/feature")],
+)
+def test_bootstrap_cli_refuses_non_owner_or_non_main_before_network(actor, ref):
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT), "--repository", REPOSITORY, "--registry", REGISTRY,
+            "--owner-confirmed-absent",
+        ],
+        env={**os.environ, "GITHUB_ACTOR": actor, "GITHUB_REF": ref, "GH_TOKEN": "test-token"},
+        text=True,
+        capture_output=True,
+        timeout=10,
+        check=False,
+    )
+    assert result.returncode == 1
+    assert "requires the repository owner on protected main" in result.stderr
+
+
+def test_bootstrap_workflow_is_explicit_owner_only_and_cannot_deploy():
+    path = SCRIPT.parents[1] / ".github/workflows/bootstrap-private-release-staging.yml"
+    workflow = yaml.safe_load(path.read_text())
+    trigger = workflow.get("on", workflow.get(True))
+    assert set(trigger) == {"workflow_dispatch"}
+    assert trigger["workflow_dispatch"]["inputs"]["owner_verified_absence"]["default"] is False
+    assert workflow["permissions"] == {"contents": "read", "packages": "write"}
+    steps = workflow["jobs"]["bootstrap"]["steps"]
+    guard = steps[0]["run"]
+    assert '"$GITHUB_ACTOR" != "$GITHUB_REPOSITORY_OWNER"' in guard
+    assert '"$GITHUB_REF" != "refs/heads/main"' in guard
+    assert '"$OWNER_VERIFIED_ABSENCE" != "true"' in guard
+    assert "--owner-confirmed-absent" in steps[-1]["run"]
+    assert "environment" not in workflow["jobs"]["bootstrap"]
+    assert "secrets." not in path.read_text()

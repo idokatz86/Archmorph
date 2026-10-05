@@ -1,4 +1,4 @@
-"""Establish empty GHCR packages before any application image is published."""
+"""Verify private GHCR staging, with separately authorized empty bootstrap."""
 
 from __future__ import annotations
 
@@ -81,7 +81,9 @@ def publish_empty_package(registry: str, repository: str, package: str) -> None:
         subprocess.run(["docker", "push", image], check=True, timeout=120)
 
 
-def ensure_private_staging(repository: str, registry: str, token: str) -> None:
+def ensure_private_staging(
+    repository: str, registry: str, token: str, *, owner_confirmed_absent: bool = False,
+) -> None:
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+", repository):
         raise StagingError("Invalid GitHub repository identity")
     owner = repository.split("/", 1)[0]
@@ -93,6 +95,11 @@ def ensure_private_staging(repository: str, registry: str, token: str) -> None:
     for package in STAGING_PACKAGES:
         metadata = package_metadata(owner, package, token)
         if metadata is None:
+            if not owner_confirmed_absent:
+                raise StagingError(
+                    "Package is missing or inaccessible; owner-scoped absence "
+                    "verification and explicit bootstrap are required"
+                )
             publish_empty_package(registry, repository, package)
             for attempt in range(12):
                 metadata = package_metadata(owner, package, token)
@@ -110,9 +117,18 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--repository", required=True)
     parser.add_argument("--registry", required=True)
+    parser.add_argument("--owner-confirmed-absent", action="store_true")
     args = parser.parse_args()
+    if args.owner_confirmed_absent and (
+        os.getenv("GITHUB_ACTOR", "").lower() != args.repository.split("/", 1)[0].lower()
+        or os.getenv("GITHUB_REF") != "refs/heads/main"
+    ):
+        parser.exit(1, "Empty bootstrap requires the repository owner on protected main\n")
     try:
-        ensure_private_staging(args.repository, args.registry, os.getenv("GH_TOKEN", ""))
+        ensure_private_staging(
+            args.repository, args.registry, os.getenv("GH_TOKEN", ""),
+            owner_confirmed_absent=args.owner_confirmed_absent,
+        )
     except (StagingError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as exc:
         if isinstance(exc, StagingError):
             parser.exit(1, f"Private staging verification failed: {exc}\n")
