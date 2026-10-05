@@ -75,6 +75,12 @@ The backend must start with PostgreSQL, Redis, `ENFORCE_POSTGRES=true`, and `REQ
 
 The `CI/CD` workflow must pass before release:
 
+- `build-backend-release`: establishes the new GHCR staging namespaces with
+  an empty `FROM scratch` image if absent, then verifies both packages are private
+  and linked to this repository **before** any application-image upload. Existing
+  public/unlinked packages, API permission errors, or metadata timeouts block
+  publication. Privacy is rechecked after the application builds. Do not bypass
+  either gate or restore the retired public package names.
 - `backend-tests`: Ruff, pytest, coverage threshold, OpenAPI export, committed OpenAPI contract snapshot check, backend SBOM, Grype.
 - `alembic-migration-smoke`: PostgreSQL plus pgvector structural migration checks covering heads, offline upgrade SQL generation, and an **empty-schema-only** `014 -> 013 -> 014` compatibility cycle. This is not evidence that production data can be downgraded; populated revision `014` is protected by refusal tests and uses fix-forward/bridge recovery.
 - `frontend-build`: ESLint, Vitest, Vite build, frontend SBOM, Grype.
@@ -85,6 +91,14 @@ The `CI/CD` workflow must pass before release:
 	exist; failure remains release-blocking and the bridge keeps the API compatible
 	with the prior frontend instead of attempting an unverified rollback.
 - `post-deploy-smoke`: deployed frontend, routed frontend URLs, API health, and OpenAPI schema checks.
+
+Staging uses `archmorph-api-release-staging-v2` and
+`archmorph-api-bridge-release-staging-v2`. Production ACR repository names,
+immutable digest verification, scan/attestation gates, and rollback contracts are
+unchanged. A failed empty bootstrap must be investigated before retrying; it does
+not authorize uploading application code to a public package. The manually
+dispatched emergency cleanup workflow checks visibility and repository ownership
+before deleting these staging packages; deletion still requires operator approval.
 
 The supporting workflows should also be green or explicitly reviewed:
 
