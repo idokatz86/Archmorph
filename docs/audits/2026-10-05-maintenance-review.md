@@ -92,7 +92,8 @@ and hosted CodeQL results are still required.
    instructions](../../vendor/README.md); no registry credentials are committed.
 4. **Strong lockfile integrity retained.** Some feed metadata supplies only
    SHA-1 pins. The explicit `npm run security:lock-integrity` maintenance command
-   verifies the existing archive identity and records SHA-512 pins. Its tests
+   verifies the existing archive identity and prepares SHA-512 candidate files
+   without overwriting the input lockfiles or an existing candidate. Its tests
    cover mismatches, download failures, unapproved sources, idempotence, and
    concurrent edits. CI does not silently rewrite lockfiles. Dependabot PRs may
    require this reviewed maintenance step until registry metadata improves.
@@ -230,3 +231,17 @@ URLs to psycopg3, but the deployed dependency contract is psycopg2-binary.
 The follow-up keeps SQLAlchemy on its supported 2.0 release line and adds a
 regression that imports the actual default PostgreSQL driver. A psycopg3 migration
 is deliberately not bundled into this maintenance patch.
+
+Automated PR review also identified a late concurrent-write window in the new
+integrity-maintenance command. A deterministic regression reproduced it. The
+command now exclusively creates separate `.sha512` candidates for review, never
+writes the original lockfiles, and tests edits arriving both during verification
+and immediately before output publication.
+
+On the next hosted run, 27 checks passed and the standalone latency budget
+reported 17.18 ms against its 15 ms limit. The same actual-route workload measured
+4.77 ms locally. Its dedicated CI runner now collects only the existing latency
+test module rather than importing the full backend suite before deselection.
+The workload, warm-up/sample counts, timing source, and threshold are unchanged;
+no retry or budget relaxation was added. The newest-head hosted result remains
+the release evidence, not the faster local measurement.

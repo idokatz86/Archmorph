@@ -56,11 +56,21 @@ Use `npm ci` in both the repository root and `frontend`, then run
 After resolving dependency updates, run `npm run security:lock-integrity` from the
 repository root before committing the lockfiles. Some feed metadata supplies only
 SHA-1 checksums. This explicit maintenance command downloads only approved-feed
-archives, verifies their existing pins, and records SHA-512 digests. It fails on
-download errors, checksum mismatches, unexpected sources, or concurrent lockfile
-changes. Re-run clean installs to verify the resulting pins. Do not weaken the
-integrity regression checks or silently rewrite lockfiles during CI; Dependabot
-updates may need this reviewed maintenance step.
+archives, verifies their existing pins, and writes SHA-512 candidates alongside
+the inputs as `package-lock.json.sha512`. It never writes the input lockfiles and
+refuses to overwrite an existing candidate. Already strengthened inputs produce
+no candidate.
+
+Review each candidate against its current lockfile, stop npm/editor writers, and
+apply only the verified integrity changes through your normal review workflow.
+Delete the candidate after review. This separate publication step prevents an
+edit arriving after verification from being silently overwritten by the tool.
+Download errors, checksum mismatches, unexpected sources, and changes observed
+during verification fail explicitly.
+
+Re-run clean installs to verify the resulting pins. Do not weaken the integrity
+regression checks or silently rewrite lockfiles during CI; Dependabot updates may
+need this reviewed maintenance step.
 
 ## Removal policy
 

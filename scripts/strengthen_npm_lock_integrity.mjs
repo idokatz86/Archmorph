@@ -48,6 +48,11 @@ for (const { path, original, lock, count } of updates) {
   if (await readFile(path, 'utf8') !== original) {
     throw new Error(`Lockfile changed during verification: ${path}`);
   }
-  await writeFile(path, `${JSON.stringify(lock, null, 2)}\n`);
-  console.log(`Verified existing archive pins and strengthened ${count} entries: ${path}`);
+  if (count === 0) {
+    console.log(`No SHA-1 archive pins to strengthen: ${path}`);
+    continue;
+  }
+  const output = `${path}.sha512`;
+  await writeFile(output, `${JSON.stringify(lock, null, 2)}\n`, { flag: 'wx' });
+  console.log(`Prepared ${count} verified SHA-512 pins in ${output}; review and apply with other writers stopped. Original lockfile unchanged.`);
 }
