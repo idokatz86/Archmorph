@@ -28,7 +28,15 @@ class TestDatabaseModule:
         requirements = (
             Path(__file__).resolve().parents[1] / "requirements.txt"
         ).read_text().splitlines()
-        assert "sqlalchemy[asyncio]" in requirements
+        declared = [line.split("#", 1)[0].strip() for line in requirements]
+        assert "sqlalchemy[asyncio]>=2.0,<2.1" in declared
+
+    def test_postgres_default_driver_matches_declared_runtime_dependency(self):
+        from sqlalchemy.engine import make_url
+
+        dialect = make_url("postgresql://localhost/archmorph").get_dialect()
+        assert dialect.driver == "psycopg2"
+        assert dialect.import_dbapi().__name__ == "psycopg2"
 
     def test_async_session_executes_query(self):
         from sqlalchemy import text

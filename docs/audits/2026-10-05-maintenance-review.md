@@ -15,8 +15,10 @@ Individual remediation analysis focused on open alerts. Historical dismissals
 were counted, not independently recertified.
 
 This is a repository and GitHub assessment, not a live Azure infrastructure audit.
-No production deployment, permission change, alert dismissal, issue closure,
-secret retrieval, merge, or push was performed.
+No production deployment, production permission change, alert dismissal, issue
+closure, secret retrieval, or merge was performed. The initial local assessment
+was subsequently published with explicit user approval; see the hosted follow-up
+below.
 
 ## GitHub alert inventory
 
@@ -74,9 +76,10 @@ and hosted CodeQL results are still required.
    failed migration, backend, latency, rollout, IaC, and CLI jobs with the same
    missing `greenlet` / SQLAlchemy asyncio import error.
    [requirements.txt](../../backend/requirements.txt) now declares
-   `sqlalchemy[asyncio]`, rather than relying on an incidental transitive install.
-   A fresh Python 3.12 environment resolved SQLAlchemy 2.1.1 with greenlet 3.5.6;
-   real async query and application smoke tests pass.
+   `sqlalchemy[asyncio]>=2.0,<2.1`, rather than relying on an incidental transitive
+   install. Initial SQLite-backed checks passed with 2.1.1, but hosted PostgreSQL
+   verification exposed its changed default driver. The supported 2.0 line
+   preserves the declared psycopg2 runtime while retaining async support.
 2. **Obsolete vendored npm packages.** The
    [security run](https://github.com/idokatz86/Archmorph/actions/runs/37271147617)
    stopped at the root js-yaml audit, before reaching the frontend audit.
@@ -212,3 +215,18 @@ The full hosted backend suite, PostgreSQL/Redis service-backed checks, container
 image rebuild/scans, browser release gates, and a new CodeQL run remain required
 before release. No claim is made that GitHub alerts are already closed or that
 production now runs the updated dependency graph.
+
+## Publication and hosted CI follow-up
+
+The user approved committing and pushing the maintenance branch, opening
+[idokatz86/Archmorph#1321](https://github.com/idokatz86/Archmorph/pull/1321),
+running hosted CI, and fixing related failures, explicitly stopping before merge
+or deployment. Auto-merge remains disabled. The existing local pre-push hook
+sets GitHub Actions to enabled; it does not deploy this branch.
+
+The first hosted PostgreSQL migration gate exposed a compatibility gap masked by
+the previous missing-greenlet failure: SQLAlchemy 2.1 defaults bare PostgreSQL
+URLs to psycopg3, but the deployed dependency contract is psycopg2-binary.
+The follow-up keeps SQLAlchemy on its supported 2.0 release line and adds a
+regression that imports the actual default PostgreSQL driver. A psycopg3 migration
+is deliberately not bundled into this maintenance patch.
