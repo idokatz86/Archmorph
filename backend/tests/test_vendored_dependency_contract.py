@@ -18,7 +18,7 @@ def test_frontend_uses_immutable_compatibility_archive_without_install_mutation(
         "scripts/security-packages.check.mjs"
     )
     assert package["devDependencies"]["brace-expansion"] == (
-        "file:../vendor/brace-expansion-5.0.8-compat.tgz"
+        "file:../vendor/brace-expansion-5.0.12-compat.tgz"
     )
     assert package["overrides"]["brace-expansion"] == "$brace-expansion"
 
@@ -59,7 +59,7 @@ def test_compose_frontend_matches_node_baseline_and_mounts_vendor_read_only():
 
 
 def test_compatibility_archive_check_rejects_different_gzip_bytes(tmp_path):
-    archive = REPO_ROOT / "vendor" / "brace-expansion-5.0.8-compat.tgz"
+    archive = REPO_ROOT / "vendor" / "brace-expansion-5.0.12-compat.tgz"
     repacked = tmp_path / archive.name
     repacked.write_bytes(
         gzip.compress(gzip.decompress(archive.read_bytes()), compresslevel=1, mtime=1)

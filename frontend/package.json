@@ -27,7 +27,7 @@
     "@types/dagre": "^0.7.54",
     "@xyflow/react": "^12.11.2",
     "dagre": "^0.8.5",
-    "dompurify": "^3.4.12",
+    "dompurify": "^3.4.16",
     "lucide-react": "^1.25.0",
     "prismjs": "^1.29.0",
     "react": "^19.2.7",
@@ -43,8 +43,8 @@
     "@types/react": "^19.2.16",
     "@types/react-dom": "^19.1.5",
     "@vitejs/plugin-react": "^6.0.3",
-    "@vitest/coverage-v8": "^4.1.10",
-    "brace-expansion": "file:../vendor/brace-expansion-5.0.8-compat.tgz",
+    "@vitest/coverage-v8": "^4.1.11",
+    "brace-expansion": "file:../vendor/brace-expansion-5.0.12-compat.tgz",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-prettier": "^5.5.6",
@@ -52,14 +52,14 @@
     "eslint-plugin-react-hooks": "^7.1.1",
     "globals": "^17.7.0",
     "jsdom": "^29.1.1",
-    "js-yaml": "file:../vendor/js-yaml-4.3.0.tgz",
-    "nanoid": "file:../vendor/nanoid-3.3.16.tgz",
+    "js-yaml": "^4.3.2",
+    "nanoid": "^3.3.18",
     "openapi-typescript": "^7.8.0",
-    "postcss": "file:../vendor/postcss-8.5.20.tgz",
+    "postcss": "^8.5.23",
     "prettier": "^3.9.5",
     "tailwindcss": "^4.3.3",
     "vite": "^8.1.5",
-    "vitest": "^4.1.6"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "@redocly/openapi-core": "1.34.7",
@@ -67,6 +67,6 @@
     "js-yaml": "$js-yaml",
     "nanoid": "$nanoid",
     "postcss": "$postcss",
-    "undici": "^7.28.0"
+    "undici": "^7.30.0"
   }
 }

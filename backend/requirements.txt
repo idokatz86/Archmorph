@@ -9,7 +9,7 @@ azure-storage-blob
 azure-identity
 openai
 psycopg2-binary
-sqlalchemy
+sqlalchemy[asyncio]
 asyncpg
 aiosqlite
 alembic

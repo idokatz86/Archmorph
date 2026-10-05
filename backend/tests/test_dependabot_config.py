@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 
 
@@ -10,8 +11,14 @@ CI_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "ci.yml"
 SECURITY_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "security.yml"
 ROOT_PACKAGE = REPO_ROOT / "package.json"
 FRONTEND_PACKAGE = REPO_ROOT / "frontend" / "package.json"
+ROOT_LOCK = REPO_ROOT / "package-lock.json"
 FRONTEND_LOCK = REPO_ROOT / "frontend" / "package-lock.json"
 NODE_VERSION = REPO_ROOT / ".nvmrc"
+MICROSOFT_PUBLIC_NPM = (
+    "https://ms-feed-25.pkgs.visualstudio.com/1es-public/"
+    "_packaging/npm-public/npm/registry/"
+)
+PUBLIC_NPM_SOURCES = ("https://registry.npmjs.org/", MICROSOFT_PUBLIC_NPM)
 
 
 def _frontend_npm_update() -> dict:
@@ -39,6 +46,47 @@ def test_dependabot_config_does_not_define_empty_registries():
     config = yaml.safe_load(DEPENDABOT_CONFIG.read_text(encoding="utf-8"))
 
     assert config.get("registries", {}) is not None
+
+
+def test_dependabot_uses_codeowners_instead_of_retired_reviewers_option():
+    assert "* @idokatz86" in (REPO_ROOT / ".github" / "CODEOWNERS").read_text()
+    for update in _all_updates():
+        assert "reviewers" not in update
+
+
+def test_dependabot_covers_every_dependency_manifest_and_runtime_image():
+    covered = {
+        (update["package-ecosystem"], directory)
+        for update in _all_updates()
+        for directory in update.get("directories", [update.get("directory")])
+    }
+    assert {
+        ("npm", "/"),
+        ("npm", "/frontend"),
+        ("npm", "/frontend/api"),
+        ("pip", "/backend"),
+        ("pip", "/cli"),
+        ("pip", "/mcp-gateway"),
+        ("docker", "/backend"),
+        ("docker", "/mcp-gateway"),
+        ("github-actions", "/"),
+        ("terraform", "/infra"),
+    } <= covered
+
+
+def test_npm_projects_and_dependabot_use_the_approved_public_feed():
+    config = yaml.safe_load(DEPENDABOT_CONFIG.read_text(encoding="utf-8"))
+    assert config["registries"]["microsoft-public-npm"] == {
+        "type": "npm-registry",
+        "url": MICROSOFT_PUBLIC_NPM,
+    }
+    for directory in (REPO_ROOT, REPO_ROOT / "frontend", REPO_ROOT / "frontend/api"):
+        assert (directory / ".npmrc").read_text().strip() == (
+            f"registry={MICROSOFT_PUBLIC_NPM}"
+        )
+    for update in _all_updates():
+        if update["package-ecosystem"] == "npm":
+            assert update["registries"] == ["microsoft-public-npm"]
 
 
 def test_frontend_dependabot_ignores_only_eslint_10_major_until_react_plugin_supports_it():
@@ -92,18 +140,47 @@ def test_node_runtime_contract_matches_current_toolchain_engines():
         )
 
 
-def test_frontend_lock_uses_patched_public_registry_packages():
-    lock = json.loads(FRONTEND_LOCK.read_text(encoding="utf-8"))
+@pytest.mark.parametrize(
+    ("lock_path", "expected"),
+    [
+        (ROOT_LOCK, {"js-yaml": "4.3.2"}),
+        (
+            FRONTEND_LOCK,
+            {
+                "dompurify": "3.4.16",
+                "undici": "7.30.0",
+                "js-yaml": "4.3.2",
+                "nanoid": "3.3.18",
+                "postcss": "8.5.23",
+                "vitest": "4.1.11",
+                "@vitest/mocker": "4.1.11",
+                "@vitest/coverage-v8": "4.1.11",
+                "browserslist": "4.28.7",
+                "baseline-browser-mapping": "2.11.0",
+            },
+        ),
+    ],
+)
+def test_locks_use_patched_public_registry_packages(lock_path, expected):
+    lock = json.loads(lock_path.read_text(encoding="utf-8"))
     packages = lock["packages"]
 
-    expected = {
-        "node_modules/dompurify": "3.4.12",
-        "node_modules/undici": "7.28.0",
-    }
-    for package_path, minimum_version in expected.items():
-        package = packages[package_path]
-        actual = tuple(int(part) for part in package["version"].split("."))
+    for path, package in packages.items():
+        if "resolved" in package:
+            assert package.get("integrity", "").startswith("sha512-"), (
+                f"{path} in {lock_path} needs a SHA-512 archive pin"
+            )
+
+    for name, minimum_version in expected.items():
+        matching = [
+            package
+            for path, package in packages.items()
+            if path == f"node_modules/{name}" or path.endswith(f"/node_modules/{name}")
+        ]
+        assert matching, f"{name} missing from {lock_path}"
         minimum = tuple(int(part) for part in minimum_version.split("."))
-        assert actual >= minimum
-        assert package["resolved"].startswith("https://registry.npmjs.org/")
-        assert package["integrity"].startswith("sha512-")
+        for package in matching:
+            actual = tuple(int(part) for part in package["version"].split("."))
+            assert actual >= minimum, f"{name} {package['version']} is below {minimum_version}"
+            assert package["resolved"].startswith(PUBLIC_NPM_SOURCES)
+            assert package["integrity"].startswith("sha512-")

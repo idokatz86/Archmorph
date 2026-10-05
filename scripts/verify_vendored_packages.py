@@ -32,35 +32,17 @@ class PackageContract:
 
 
 PACKAGES = {
-    "brace-expansion-5.0.8.tgz": PackageContract(
+    "brace-expansion-5.0.12.tgz": PackageContract(
         "brace-expansion",
-        "5.0.8",
-        "0d089af987938109a964ad09ecf0977c3c6fdd7469f6183be7766ebad0858ce1",
+        "5.0.12",
+        "ef8448ec78f20b692f04fa6d01f39b5ab34c66404bea3429f5a39c6c9e0be8b4",
         ("package/dist/commonjs/index.js", "package/dist/esm/index.js"),
     ),
-    "brace-expansion-5.0.8-compat.tgz": PackageContract(
+    "brace-expansion-5.0.12-compat.tgz": PackageContract(
         "brace-expansion",
-        "5.0.8",
-        "3d2d5a992096e7faf5c8271dc457fb6f77b200ae8218c1255fffce5fc6b20467",
+        "5.0.12",
+        "f2d69051f00a8e90a2ba1d9190aacb5da7b3b82228c46d42bca0876b872d27ca",
         ("package/dist/commonjs/index.js", "package/dist/esm/index.js"),
-    ),
-    "js-yaml-4.3.0.tgz": PackageContract(
-        "js-yaml",
-        "4.3.0",
-        "d7cc333d5361acfcb551e1279e090326b4e3dbe4831059aa85dc85b401a2e8c8",
-        ("package/index.js", "package/dist/js-yaml.mjs"),
-    ),
-    "nanoid-3.3.16.tgz": PackageContract(
-        "nanoid",
-        "3.3.16",
-        "7b1def0fea02c173bd29096bc22737ba517471b6cca361cdba2b05c74676649e",
-        ("package/index.cjs", "package/index.js", "package/non-secure/index.js"),
-    ),
-    "postcss-8.5.20.tgz": PackageContract(
-        "postcss",
-        "8.5.20",
-        "106e5ae35933848f8912f3395c17952a72867cf88c28176efc773f1ffeb87590",
-        ("package/lib/postcss.js", "package/lib/postcss.mjs"),
     ),
 }
 
@@ -129,8 +111,8 @@ def read_package(path: Path, contract: PackageContract) -> dict[str, bytes]:
 
 
 def verify_compatibility_delta(packages: dict[str, dict[str, bytes]]) -> None:
-    source = packages["brace-expansion-5.0.8.tgz"]
-    compat = packages["brace-expansion-5.0.8-compat.tgz"]
+    source = packages["brace-expansion-5.0.12.tgz"]
+    compat = packages["brace-expansion-5.0.12-compat.tgz"]
     if source.keys() != compat.keys():
         raise ValueError("brace-expansion compatibility archive changed its file set")
 

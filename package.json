@@ -11,6 +11,8 @@
     "lint:backend": "cd backend && ruff check .",
     "lint": "npm run lint:backend",
     "check:metadata": "python3 scripts/sync_version.py --check && python3 scripts/lint_public_metadata.py",
+    "security:lock-integrity": "node scripts/strengthen_npm_lock_integrity.mjs package-lock.json frontend/package-lock.json",
+    "test:lock-integrity": "node --test scripts/strengthen_npm_lock_integrity.test.mjs",
     "dev:backend": "cd backend && uvicorn main:app --reload --port 8000",
     "dev:frontend": "cd frontend && npm run dev",
     "build:frontend": "cd frontend && npm run build"
@@ -31,7 +33,7 @@
   "devDependencies": {
     "@axe-core/playwright": "^4.11.1",
     "@playwright/test": "^1.58.2",
-    "js-yaml": "file:vendor/js-yaml-4.3.0.tgz",
+    "js-yaml": "^4.3.2",
     "playwright": "^1.58.2",
     "puppeteer": "^25.0.2"
   },
