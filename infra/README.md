@@ -69,6 +69,16 @@ network access has no CI cutover override and fails closed. Before traffic shift
 shift, any routed verification failure restores and verifies the exact prior
 manifest, captures diagnostics, and fails. No live apply is required locally.
 
+`CONTAINER_APP_ENV` must identify the actual environment of the target live
+Container App, including its existing infrastructure subnet. CI checks the full
+environment resource identity before obtaining rollout ownership; it must never
+place a migration Job in an old default environment that cannot reach private
+Key Vault or database endpoints. Existing migration identities keep their current
+region through the discovered `migration_identity_location` input, independently
+of the Job region. New identities use the runtime region. The existing bootstrap
+plan verifier still rejects any identity deletion/replacement or other destructive
+plan; no ignore-changes or replacement bypass is used.
+
 For the first apply that creates the dedicated coordination container, point the
 private coordination settings at the existing private Terraform backend
 account/container and its reserved `.archmorph-rollout/` prefix. The release

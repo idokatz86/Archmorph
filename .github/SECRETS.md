@@ -17,7 +17,7 @@ These secrets are required in `.github/workflows/ci.yml`:
 | `ACR_NAME` | Azure Container Registry name | `myacrname` |
 | `ACR_LOGIN_SERVER` | ACR login server URL | `example.azurecr.io` |
 | `CONTAINER_APP_NAME` | Azure Container Apps name | `your-container-app` |
-| `CONTAINER_APP_ENV` | Container Apps Environment name | `your-container-app-env` |
+| `CONTAINER_APP_ENV` | Actual private-network environment of `CONTAINER_APP_NAME`; the release rejects a stale or mismatched environment before mutation | `your-container-app-env` |
 | `MIGRATION_JOB_NAME` | Manual Container Apps migration Job name | `your-migration-job` |
 | `MIGRATION_IDENTITY_NAME` | Dedicated user-assigned migration identity name | `your-migration-identity` |
 | `MIGRATION_KEY_VAULT_NAME` | Existing Key Vault name used by the migration bootstrap state | `your-key-vault` |

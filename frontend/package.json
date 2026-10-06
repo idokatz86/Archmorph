@@ -57,6 +57,7 @@
     "openapi-typescript": "^7.8.0",
     "postcss": "^8.5.23",
     "prettier": "^3.9.5",
+    "source-map-js": "file:../vendor/source-map-js-1.2.2.tgz",
     "tailwindcss": "^4.3.3",
     "vite": "^8.1.5",
     "vitest": "^4.1.11"
@@ -67,6 +68,7 @@
     "js-yaml": "$js-yaml",
     "nanoid": "$nanoid",
     "postcss": "$postcss",
+    "source-map-js": "$source-map-js",
     "undici": "^7.30.0"
   }
 }

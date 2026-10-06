@@ -7,6 +7,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 from typing import Any
 
 
@@ -33,6 +34,50 @@ _FORBIDDEN_TYPES = {
     "azurerm_subnet",
     "azurerm_virtual_network",
 }
+
+
+def validate_environment(app: dict[str, Any], environment: dict[str, Any]) -> None:
+    """Require migration to use the live app's private-network environment."""
+    if not isinstance(app, dict) or not isinstance(environment, dict):
+        raise ValueError("Container App environment metadata must be objects")
+    app_environment = app.get("environmentId")
+    target = environment.get("id")
+    if not isinstance(app_environment, str) or not isinstance(target, str):
+        raise ValueError("Container App environment identity is missing")
+    if (
+        not app_environment.casefold().startswith("/subscriptions/")
+        or app_environment.rstrip("/").casefold() != target.rstrip("/").casefold()
+    ):
+        raise ValueError("Migration environment does not match the live Container App")
+    if environment.get("provisioningState") != "Succeeded":
+        raise ValueError("Migration environment is not ready")
+    subnet = environment.get("subnetId")
+    if not isinstance(subnet, str) or "/subnets/" not in subnet.casefold():
+        raise ValueError("Migration environment has no private-network infrastructure subnet")
+
+
+def select_identity_location(
+    identities: list[dict[str, Any]], name: str, environment: dict[str, Any],
+) -> str:
+    """Preserve an existing identity's immutable region independently of the Job."""
+    if not isinstance(identities, list) or not name.strip():
+        raise ValueError("Migration identity inventory or name is invalid")
+    if any(not isinstance(identity, dict) for identity in identities):
+        raise ValueError("Migration identity inventory contains an invalid entry")
+    matches = [
+        identity for identity in identities
+        if isinstance(identity.get("name"), str)
+        and identity["name"].casefold() == name.casefold()
+    ]
+    if len(matches) > 1:
+        raise ValueError("Migration identity location is ambiguous")
+    location = matches[0].get("location") if matches else environment.get("location")
+    if not isinstance(location, str) or not location.strip():
+        raise ValueError("Migration identity location is missing")
+    normalized = location.replace(" ", "").lower()
+    if not re.fullmatch(r"[a-z][a-z0-9]+", normalized):
+        raise ValueError("Migration identity location is invalid")
+    return normalized
 
 
 def validate_backend_separation(*, primary: tuple[str, str, str], bootstrap: tuple[str, str, str]) -> None:
@@ -149,6 +194,13 @@ def verify_metadata(
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
+    environment = subparsers.add_parser("environment")
+    environment.add_argument("--app", required=True, type=Path)
+    environment.add_argument("--environment", required=True, type=Path)
+    identity = subparsers.add_parser("identity-location")
+    identity.add_argument("--input", required=True, type=Path)
+    identity.add_argument("--name", required=True)
+    identity.add_argument("--environment", required=True, type=Path)
     backend = subparsers.add_parser("backend")
     for name in (
         "primary-account",
@@ -173,7 +225,19 @@ def _parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = _parser().parse_args()
-    if args.command == "backend":
+    if args.command == "environment":
+        validate_environment(
+            json.loads(args.app.read_text(encoding="utf-8")),
+            json.loads(args.environment.read_text(encoding="utf-8")),
+        )
+        print("Migration environment matches the live private-network runtime.")
+    elif args.command == "identity-location":
+        print(select_identity_location(
+            json.loads(args.input.read_text(encoding="utf-8")),
+            args.name,
+            json.loads(args.environment.read_text(encoding="utf-8")),
+        ))
+    elif args.command == "backend":
         validate_backend_separation(
             primary=(args.primary_account, args.primary_container, args.primary_key),
             bootstrap=(args.bootstrap_account, args.bootstrap_container, args.bootstrap_key),

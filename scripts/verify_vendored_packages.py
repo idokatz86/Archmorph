@@ -44,6 +44,12 @@ PACKAGES = {
         "f2d69051f00a8e90a2ba1d9190aacb5da7b3b82228c46d42bca0876b872d27ca",
         ("package/dist/commonjs/index.js", "package/dist/esm/index.js"),
     ),
+    "source-map-js-1.2.2.tgz": PackageContract(
+        "source-map-js",
+        "1.2.2",
+        "142746d239d522e0b907de3b029520ae8995b76fc6546fbe8847786963062b9f",
+        ("package/LICENSE", "package/source-map.js", "package/lib/source-node.js"),
+    ),
 }
 
 

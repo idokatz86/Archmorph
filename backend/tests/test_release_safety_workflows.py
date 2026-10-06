@@ -141,7 +141,19 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert deploy["env"]["MIGRATION_TFSTATE_KEY"] == "${{ secrets.MIGRATION_TFSTATE_KEY }}"
     assert deploy["outputs"]["initial_schema"] == "${{ steps.current_schema.outputs.revision }}"
 
+    environment_preflight = _step_by_name(
+        deploy["steps"], "Verify migration environment and preserve identity location",
+    )["run"]
+    assert 'az containerapp show' in environment_preflight
+    assert 'az containerapp env show' in environment_preflight
+    assert 'environmentId:properties.managedEnvironmentId' in environment_preflight
+    assert 'subnetId:properties.vnetConfiguration.infrastructureSubnetId' in environment_preflight
+    assert "verify_migration_bootstrap.py environment" in environment_preflight
+    assert "verify_migration_bootstrap.py identity-location" in environment_preflight
+    assert 'az identity list' in environment_preflight
+
     plan = _step_by_name(deploy["steps"], "Plan migration bootstrap (Phase A)")["run"]
+    assert 'export TF_VAR_migration_identity_location="$MIGRATION_IDENTITY_LOCATION"' in plan
     apply = _step_by_name(deploy["steps"], "Apply migration bootstrap (Phase A)")["run"]
     propagation = _step_by_name(
         deploy["steps"],
@@ -249,6 +261,9 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
 
     step_names = [step.get("name") for step in deploy["steps"]]
     assert step_names.index(
+        "Verify migration environment and preserve identity location"
+    ) < step_names.index("Acquire durable production rollout ownership")
+    assert step_names.index(
         "Verify hosted immutable build evidence before Azure mutation"
     ) < step_names.index("Acquire durable production rollout ownership")
     assert step_names.index("Acquire durable production rollout ownership") < step_names.index(
@@ -299,6 +314,7 @@ def test_phase_a_bootstrap_is_separate_state_and_cannot_mutate_live_app():
 
     assert 'resource "azurerm_container_app_job" "database_migration"' in terraform
     assert 'resource "azurerm_user_assigned_identity" "database_migration"' in terraform
+    assert "coalesce(var.migration_identity_location, data.azurerm_container_app_environment.runtime.location)" in terraform
     assert 'resource "azurerm_role_assignment" "acr_pull"' in terraform
     assert 'resource "azurerm_role_assignment" "database_secret_reader"' in terraform
     assert 'resource "azurerm_key_vault_access_policy" "database_secret_reader"' in terraform

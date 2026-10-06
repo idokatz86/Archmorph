@@ -86,6 +86,10 @@ The `CI/CD` workflow must pass before release:
 - `frontend-build`: ESLint, Vitest, Vite build, frontend SBOM, Grype.
 - `upload-sarif`: SARIF upload attempted for available scans.
 - `deploy-backend`: Terraform validation/policy dependencies; renewable private Azure Blob rollout ownership; rollback-priority checks at schema-safe boundaries; exact traffic capture; GitHub build attestation plus OCI-label/embedded-contract verification; schema `013`/`014` bridge and signed immutable manifest; authorization-mode-aware Key Vault grant; same-identity secret/`SELECT 1`/schema preflight; exact-head migration; zero-traffic final smoke; exact restoration trap; production health verify.
+  Before mutation, the configured migration environment must match the live app's
+  full environment identity and private-network subnet. Any existing dedicated
+  migration identity retains its region; a stale environment setting must not
+  trigger identity replacement or public Key Vault access.
 - `deploy-frontend`: runs only after backend success, deploys the tested artifact, verifies routed pages, and restores the prior successful artifact on failure.
 	On the first bridge rollout only, no previous complete artifact contract may
 	exist; failure remains release-blocking and the bridge keeps the API compatible
