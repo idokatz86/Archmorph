@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Infrastructure and security maintenance
 
+- **Source-map dependency security patch** — vendor verified upstream
+  source-map-js 1.2.2 while registry publication is unavailable, closing
+  GHSA-68fv-2mgg-jv7q across transitive consumers without a major toolchain upgrade.
 - **Migration environment alignment** — reject stale migration environment
   settings before production mutation, require the live app's private-network
   environment, and preserve existing migration identity regions without allowing
