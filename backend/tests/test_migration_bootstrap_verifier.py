@@ -346,3 +346,36 @@ def test_canonical_state_metadata_has_distinct_schema_and_rejects_legacy(integri
     path.write_text(json.dumps(metadata))
     with pytest.raises(ValueError, match="integrity changed"):
         verifier.verify_metadata(**integrity_files)
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("0.5", "0.50000000000000001"),
+        ("9007199254740992.0", "9007199254740993.0"),
+        ("1e-30", "1.0000000000000001e-30"),
+        ("0.5", '"0.5"'),
+        ("7", '"7"'),
+    ],
+)
+def test_raw_json_number_changes_cannot_be_lost_or_collide_with_strings(
+    integrity_files, before, after,
+):
+    path = integrity_files["primary_state"]
+    original = path.read_text()
+    path.write_text(original.replace('"before"', before, 1))
+    verifier.write_metadata(
+        plan=integrity_files["plan"], lock=integrity_files["lock"],
+        primary_state=path, bootstrap_state=integrity_files["bootstrap_state"],
+        output=integrity_files["metadata_path"],
+    )
+    path.write_text(original.replace('"before"', after, 1))
+    with pytest.raises(ValueError, match="integrity changed"):
+        verifier.verify_metadata(**integrity_files)
+
+
+def test_duplicate_state_object_keys_fail_closed(tmp_path):
+    path = tmp_path / "state"
+    path.write_text('{"lineage":"example","serial":7,"value":1,"value":2}')
+    with pytest.raises(ValueError, match="duplicate"):
+        verifier._state_identity(path)

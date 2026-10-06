@@ -143,26 +143,57 @@ def _sha256(path: Path) -> str:
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+class _JsonNumber(str):
+    """Keep a validated JSON numeric token distinct from ordinary strings."""
+
+
+def _unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Terraform state contains duplicate JSON object keys")
+        result[key] = value
+    return result
+
+
+def _canonical_json(value: Any) -> str:
+    if isinstance(value, _JsonNumber):
+        return str(value)
+    if isinstance(value, list):
+        return "[" + ",".join(_canonical_json(item) for item in value) + "]"
+    if isinstance(value, dict):
+        return "{" + ",".join(
+            json.dumps(key) + ":" + _canonical_json(value[key])
+            for key in sorted(value)
+        ) + "}"
+    return json.dumps(value, separators=(",", ":"), allow_nan=False)
+
+
 def _state_identity(path: Path) -> dict[str, Any]:
-    state = json.loads(path.read_text(encoding="utf-8"))
+    state = json.loads(
+        path.read_text(encoding="utf-8"),
+        parse_float=_JsonNumber, parse_int=_JsonNumber, object_pairs_hook=_unique_object,
+    )
+    if not isinstance(state, dict):
+        raise ValueError(f"Terraform state {path} must be a JSON object")
     lineage = state.get("lineage")
     serial = state.get("serial")
-    if not isinstance(lineage, str) or not lineage or not isinstance(serial, int):
+    if (
+        type(lineage) is not str or not lineage
+        or not isinstance(serial, _JsonNumber)
+        or not re.fullmatch(r"0|[1-9][0-9]*", serial)
+    ):
         raise ValueError(f"Terraform state {path} has no valid lineage/serial")
     checks = state.get("check_results")
     if checks is not None:
         if not isinstance(checks, list):
             raise ValueError(f"Terraform state {path} has invalid check_results")
         # Terraform can emit this unordered collection in a different order on each pull.
-        state["check_results"] = sorted(
-            checks, key=lambda item: json.dumps(item, sort_keys=True, allow_nan=False),
-        )
-    canonical = json.dumps(
-        state, sort_keys=True, separators=(",", ":"), allow_nan=False,
-    ).encode("utf-8")
+        state["check_results"] = sorted(checks, key=_canonical_json)
+    canonical = _canonical_json(state).encode("utf-8")
     return {
         "lineage": lineage,
-        "serial": serial,
+        "serial": int(serial),
         "sha256": hashlib.sha256(canonical).hexdigest(),
     }
 

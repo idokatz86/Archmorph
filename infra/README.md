@@ -63,6 +63,8 @@ only the unordered top-level `check_results` collection. Terraform can reorder
 these records between consecutive pulls without changing state. No record or
 field is removed: changed check status, duplicates, resource values, lineage, and
 serial still fail verification. All other arrays remain order-sensitive. The
+number parser retains exact JSON numeric tokens separately from strings, avoiding
+floating-point rounding collisions; duplicate object keys fail closed. The
 saved binary plan and provider lock remain byte-hashed, and version 1 metadata is
 rejected rather than silently reused with a different digest algorithm.
 
