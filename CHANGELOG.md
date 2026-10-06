@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Infrastructure and security maintenance
 
+- **Migration environment alignment** — reject stale migration environment
+  settings before production mutation, require the live app's private-network
+  environment, and preserve existing migration identity regions without allowing
+  destructive Terraform replacement.
 - **Private release staging preflight** — bootstrap new GHCR staging namespaces
   using only empty scratch images and verify private visibility/repository binding
   before application uploads. Retain post-upload verification, image scanning,

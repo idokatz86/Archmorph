@@ -25,6 +25,75 @@ def _change(address: str, resource_type: str, actions: list[str], *, mode: str =
     }
 
 
+ENVIRONMENT_ID = (
+    "/subscriptions/example/resourceGroups/runtime/providers/"
+    "Microsoft.App/managedEnvironments/private-runtime"
+)
+ENVIRONMENT = {
+    "id": ENVIRONMENT_ID,
+    "location": "North Europe",
+    "subnetId": "/subscriptions/example/resourceGroups/runtime/providers/Microsoft.Network/virtualNetworks/runtime/subnets/apps",
+    "provisioningState": "Succeeded",
+}
+
+
+def test_environment_accepts_exact_runtime_identity_case_insensitively():
+    verifier.validate_environment(
+        {"environmentId": ENVIRONMENT_ID.upper()},
+        ENVIRONMENT,
+    )
+
+
+@pytest.mark.parametrize(
+    ("app", "environment", "reason"),
+    [
+        (None, ENVIRONMENT, "metadata must be objects"),
+        ({}, ENVIRONMENT, "identity is missing"),
+        ({"environmentId": None}, ENVIRONMENT, "identity is missing"),
+        ({"environmentId": ENVIRONMENT_ID + "-legacy"}, ENVIRONMENT, "does not match"),
+        (
+            {"environmentId": ENVIRONMENT_ID.replace("/example/", "/example-different/")},
+            ENVIRONMENT, "does not match",
+        ),
+        ({"environmentId": ENVIRONMENT_ID}, {**ENVIRONMENT, "subnetId": None}, "no private-network"),
+        ({"environmentId": ENVIRONMENT_ID}, {**ENVIRONMENT, "subnetId": ""}, "no private-network"),
+        ({"environmentId": ENVIRONMENT_ID}, {**ENVIRONMENT, "provisioningState": "Failed"}, "not ready"),
+    ],
+)
+def test_environment_rejects_stale_missing_or_non_private_target(app, environment, reason):
+    with pytest.raises(ValueError, match=reason):
+        verifier.validate_environment(app, environment)
+
+
+def test_existing_identity_keeps_its_region_when_job_environment_changes():
+    assert verifier.select_identity_location(
+        [{"name": "migration-identity", "location": "westeurope"}],
+        "migration-identity", ENVIRONMENT,
+    ) == "westeurope"
+
+
+def test_new_identity_uses_runtime_region():
+    assert verifier.select_identity_location([], "migration-identity", ENVIRONMENT) == "northeurope"
+
+
+@pytest.mark.parametrize(
+    "identities",
+    [
+        [{"name": "migration-identity", "location": None}],
+        [{"name": "migration-identity", "location": ""}],
+        [{"name": "migration-identity", "location": "west/europe"}],
+        [
+            {"name": "migration-identity", "location": "westeurope"},
+            {"name": "MIGRATION-IDENTITY", "location": "northeurope"},
+        ],
+        [None],
+    ],
+)
+def test_identity_location_cannot_silently_fallback_for_existing_identity(identities):
+    with pytest.raises(ValueError, match="identity"):
+        verifier.select_identity_location(identities, "migration-identity", ENVIRONMENT)
+
+
 def test_backend_rejects_equal_keys_even_when_other_tuple_fields_differ():
     with pytest.raises(ValueError, match="state key must differ"):
         verifier.validate_backend_separation(

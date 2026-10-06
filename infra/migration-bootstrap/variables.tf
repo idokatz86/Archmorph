@@ -60,6 +60,17 @@ variable "migration_image" {
   }
 }
 
+variable "migration_identity_location" {
+  description = "Existing migration identity location, discovered before plan to prevent replacement when aligning the Job environment. New identities default to the runtime region."
+  type        = string
+  default     = null
+
+  validation {
+    condition     = var.migration_identity_location == null ? true : can(regex("^[a-z][a-z0-9]+$", var.migration_identity_location))
+    error_message = "migration_identity_location must be a canonical Azure region name or null."
+  }
+}
+
 variable "expected_alembic_head" {
   description = "Exact single Alembic head expected after migration."
   type        = string

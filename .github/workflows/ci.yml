@@ -1275,6 +1275,32 @@ jobs:
             exit 1
           fi
 
+      - name: Verify migration environment and preserve identity location
+        run: |
+          set -euo pipefail
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query '{environmentId:properties.managedEnvironmentId}' \
+            --output json > migration-runtime-app.json
+          az containerapp env show \
+            --name "$CONTAINER_APP_ENV" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query '{id:id,location:location,subnetId:properties.vnetConfiguration.infrastructureSubnetId,provisioningState:properties.provisioningState}' \
+            --output json > migration-runtime-environment.json
+          python scripts/verify_migration_bootstrap.py environment \
+            --app migration-runtime-app.json \
+            --environment migration-runtime-environment.json
+          az identity list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query '[].{name:name,location:location}' \
+            --output json > migration-identity-locations.json
+          MIGRATION_IDENTITY_LOCATION=$(python scripts/verify_migration_bootstrap.py identity-location \
+            --input migration-identity-locations.json \
+            --name "$MIGRATION_IDENTITY_NAME" \
+            --environment migration-runtime-environment.json)
+          echo "MIGRATION_IDENTITY_LOCATION=$MIGRATION_IDENTITY_LOCATION" >> "$GITHUB_ENV"
+
       - name: Download hosted immutable backend build evidence
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
@@ -1913,6 +1939,7 @@ jobs:
           export TF_VAR_database_secret_name="$MIGRATION_DATABASE_SECRET_NAME"
           export TF_VAR_migration_job_name="$MIGRATION_JOB_NAME"
           export TF_VAR_migration_identity_name="$MIGRATION_IDENTITY_NAME"
+          export TF_VAR_migration_identity_location="$MIGRATION_IDENTITY_LOCATION"
           export TF_VAR_migration_image="$IMAGE_REF"
           export TF_VAR_expected_alembic_head="$EXPECTED_ALEMBIC_HEAD"
           export TF_VAR_environment="prod"
