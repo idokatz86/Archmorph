@@ -149,7 +149,22 @@ def _state_identity(path: Path) -> dict[str, Any]:
     serial = state.get("serial")
     if not isinstance(lineage, str) or not lineage or not isinstance(serial, int):
         raise ValueError(f"Terraform state {path} has no valid lineage/serial")
-    return {"lineage": lineage, "serial": serial, "sha256": _sha256(path)}
+    checks = state.get("check_results")
+    if checks is not None:
+        if not isinstance(checks, list):
+            raise ValueError(f"Terraform state {path} has invalid check_results")
+        # Terraform can emit this unordered collection in a different order on each pull.
+        state["check_results"] = sorted(
+            checks, key=lambda item: json.dumps(item, sort_keys=True, allow_nan=False),
+        )
+    canonical = json.dumps(
+        state, sort_keys=True, separators=(",", ":"), allow_nan=False,
+    ).encode("utf-8")
+    return {
+        "lineage": lineage,
+        "serial": serial,
+        "sha256": hashlib.sha256(canonical).hexdigest(),
+    }
 
 
 def write_metadata(
@@ -161,7 +176,7 @@ def write_metadata(
     output: Path,
 ) -> dict[str, Any]:
     metadata = {
-        "schema_version": 1,
+        "schema_version": 2,
         "plan_sha256": _sha256(plan),
         "provider_lock_sha256": _sha256(lock),
         "primary_state": _state_identity(primary_state),
@@ -181,7 +196,7 @@ def verify_metadata(
 ) -> None:
     expected = json.loads(metadata_path.read_text(encoding="utf-8"))
     actual = {
-        "schema_version": 1,
+        "schema_version": 2,
         "plan_sha256": _sha256(plan),
         "provider_lock_sha256": _sha256(lock),
         "primary_state": _state_identity(primary_state),

@@ -58,6 +58,14 @@ CI also reads the primary state and refuses bootstrap when that state still owns
 the Job. Apply the primary root's reviewed `removed { destroy = false }` change
 first; a resource must never be managed by both states.
 
+Migration integrity metadata version 2 hashes state as canonical JSON, sorting
+only the unordered top-level `check_results` collection. Terraform can reorder
+these records between consecutive pulls without changing state. No record or
+field is removed: changed check status, duplicates, resource values, lineage, and
+serial still fail verification. All other arrays remain order-sensitive. The
+saved binary plan and provider lock remain byte-hashed, and version 1 metadata is
+rejected rather than silently reused with a different digest algorithm.
+
 Private deployment configuration must supply a distinct
 `MIGRATION_TFSTATE_KEY`, migration Job/identity names, Key Vault name, database
 Secret name, and existing prerequisite names. Do not publish their concrete

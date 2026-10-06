@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Infrastructure and security maintenance
 
+- **Stable migration state integrity** — canonicalize only Terraform's unordered
+  check-result collection when hashing state evidence, eliminating false apply
+  blocks while retaining exact plan/lock hashes and detection of real state or
+  check-result changes. Version the new digest contract explicitly.
 - **Source-map dependency security patch** — vendor verified upstream
   source-map-js 1.2.2 while registry publication is unavailable, closing
   GHSA-68fv-2mgg-jv7q across transitive consumers without a major toolchain upgrade.
