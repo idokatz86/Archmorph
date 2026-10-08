@@ -43,6 +43,12 @@ account/container but requires a distinct `MONITORING_TFSTATE_KEY`. This is a
 separate state identity, not a new storage or IAM boundary. Its key must not
 collide with either existing state. Do not create a public backend or use
 storage-account keys/SAS.
+Terraform's Azure backend initializes an empty state blob during planning. A
+retry keeps the same key and must prove a version-4, serial-zero state with no
+resources, outputs, or check results. Any managed history/content blocks initial
+planning and requires separate adoption review. The monitoring lineage/digest is
+captured and must remain unchanged throughout the plan; keys are never rotated
+or deleted to bypass this check.
 
 ## Planning procedure
 
@@ -62,8 +68,8 @@ storage-account keys/SAS.
    intended creates, exact receiver, canonical alert fields, known security
    values, and six output identities. It rejects updates, replacements, missing
    resources, extra receivers/dimensions, provisioners, and unrelated reads.
-   Primary and migration state are re-read; their lossless identities must be
-   unchanged during planning.
+   Primary, migration, and pristine monitoring state are re-read; all three
+   lossless identities must be unchanged during planning.
 7. The plan, logs, metadata, provider lock, canonical spec, and private state
    evidence are retained only in an encrypted seven-day artifact. The existing
    AES-256-CBC/PBKDF2 review-bundle convention is retained; the encrypted artifact

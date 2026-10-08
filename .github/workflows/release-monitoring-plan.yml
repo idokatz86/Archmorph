@@ -133,9 +133,14 @@ jobs:
             --account-name "$MIGRATION_TFSTATE_STORAGE_ACCOUNT" \
             --container-name "$MIGRATION_TFSTATE_CONTAINER" \
             --name "$MONITORING_TFSTATE_KEY" --output json > "$E/monitoring-state-exists.json"
-          if [ "$(jq -er '.exists | tostring' "$E/monitoring-state-exists.json")" != "false" ]; then
-            echo "::error::Initial monitoring planning requires an unused state key; inspect existing state separately"
-            exit 1
+          if [ "$(jq -er '.exists | tostring' "$E/monitoring-state-exists.json")" = "true" ]; then
+            az storage blob download --auth-mode login --only-show-errors --no-progress \
+              --account-name "$MIGRATION_TFSTATE_STORAGE_ACCOUNT" \
+              --container-name "$MIGRATION_TFSTATE_CONTAINER" \
+              --name "$MONITORING_TFSTATE_KEY" \
+              --file "$E/monitoring-before-init.json" --output none
+            python3 scripts/verify_release_monitoring.py empty-state \
+              --input "$E/monitoring-before-init.json"
           fi
 
       - name: Create and verify the five-resource saved plan without apply
@@ -150,6 +155,8 @@ jobs:
             -backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}" \
             -backend-config="key=${MONITORING_TFSTATE_KEY}" > "$E/monitoring-init.log" 2>&1
           terraform -chdir=infra/release-monitoring validate -no-color
+          terraform -chdir=infra/release-monitoring state pull > "$E/monitoring-state.json"
+          python3 scripts/verify_release_monitoring.py empty-state --input "$E/monitoring-state.json"
           if ! terraform -chdir=infra/release-monitoring plan -input=false -lock-timeout=60s \
             -out="$E/release-monitoring.tfplan" > "$E/plan.log" 2>&1; then
             echo "::error::Monitoring plan failed; inspect the encrypted diagnostic evidence"
@@ -159,6 +166,7 @@ jobs:
           terraform -chdir=infra/release-monitoring show -no-color "$E/release-monitoring.tfplan" > "$E/plan.txt"
           terraform -chdir=infra state pull > "$E/primary-current.json"
           terraform -chdir=infra/migration-bootstrap state pull > "$E/migration-current.json"
+          terraform -chdir=infra/release-monitoring state pull > "$E/monitoring-current.json"
           python3 scripts/verify_release_monitoring.py plan \
             --input "$E/plan.json" --plan-binary "$E/release-monitoring.tfplan" \
             --lock infra/release-monitoring/.terraform.lock.hcl \
@@ -166,6 +174,8 @@ jobs:
             --primary-state "$E/primary-state.json" --migration-state "$E/migration-state.json" \
             --primary-current "$E/primary-current.json" --migration-current "$E/migration-current.json" \
             --monitoring-existence "$E/monitoring-state-exists.json" \
+            --monitoring-state "$E/monitoring-state.json" --monitoring-current "$E/monitoring-current.json" \
+            --monitoring-before-init "$E/monitoring-before-init.json" \
             --spec infra/monitoring/migration-alert-specs.json \
             --output "$E/plan-metadata.json" > "$E/redacted-summary.json"
           cat "$E/redacted-summary.json"

@@ -126,6 +126,19 @@ def validate_live_absence(inventory: list[dict[str, Any]]) -> None:
         raise ValueError("Release monitoring already exists; reviewed adoption is required")
 
 
+def empty_monitoring_identity(path: Path) -> dict[str, Any]:
+    """Allow only Terraform's initialized, never-applied monitoring state."""
+    identity = _state_identity(path)
+    state = _load(path)
+    if (
+        type(state.get("version")) is not int or state["version"] != 4 or identity["serial"] != 0
+        or state.get("resources") != [] or state.get("outputs") != {}
+        or state.get("check_results") not in (None, [])
+    ):
+        raise ValueError("Monitoring state is not pristine; reviewed adoption is required")
+    return identity
+
+
 def _one(values: object, label: str) -> dict[str, Any]:
     if not isinstance(values, list) or len(values) != 1 or not isinstance(values[0], dict):
         raise ValueError(f"Exactly one {label} is required")
@@ -294,6 +307,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     subparsers = parser.add_subparsers(dest="command", required=True)
     subparsers.add_parser("backend")
+    empty = subparsers.add_parser("empty-state")
+    empty.add_argument("--input", type=Path, required=True)
     inputs = subparsers.add_parser("inputs")
     inputs.add_argument("--app", type=Path, required=True)
     inputs.add_argument("--workspace", type=Path, required=True)
@@ -308,6 +323,9 @@ def main() -> None:
     plan.add_argument("--primary-current", type=Path, required=True)
     plan.add_argument("--migration-current", type=Path, required=True)
     plan.add_argument("--monitoring-existence", type=Path, required=True)
+    plan.add_argument("--monitoring-state", type=Path, required=True)
+    plan.add_argument("--monitoring-current", type=Path, required=True)
+    plan.add_argument("--monitoring-before-init", type=Path, required=True)
     plan.add_argument("--plan-binary", type=Path, required=True)
     plan.add_argument("--lock", type=Path, required=True)
     plan.add_argument("--spec", type=Path, required=True)
@@ -316,6 +334,9 @@ def main() -> None:
     if args.command == "backend":
         validate_backend()
         print("Monitoring state identity is distinct from primary and migration state.")
+    elif args.command == "empty-state":
+        empty_monitoring_identity(args.input)
+        print("Monitoring state is initialized but contains no resources, outputs, or apply history.")
     elif args.command == "inputs":
         validate_telemetry(_load(args.app), _load(args.workspace))
         validate_primary_ownership(_load(args.primary_state))
@@ -329,8 +350,17 @@ def main() -> None:
             or _state_identity(args.migration_state) != _state_identity(args.migration_current)
         ):
             raise ValueError("Primary or migration state changed during monitoring planning")
-        if _load(args.monitoring_existence) != {"exists": False}:
-            raise ValueError("Initial monitoring planning requires a confirmed unused state key")
+        existence = _load(args.monitoring_existence)
+        if (
+            not isinstance(existence, dict) or set(existence) != {"exists"}
+            or not isinstance(existence["exists"], bool)
+        ):
+            raise ValueError("Initial monitoring planning requires explicit state-existence evidence")
+        monitoring_identity = empty_monitoring_identity(args.monitoring_state)
+        if existence["exists"] and monitoring_identity != empty_monitoring_identity(args.monitoring_before_init):
+            raise ValueError("Monitoring state changed during initialization")
+        if monitoring_identity != empty_monitoring_identity(args.monitoring_current):
+            raise ValueError("Monitoring state changed during planning")
         result = validate_plan(
             _load(args.input), app=_load(args.app), workspace=_load(args.workspace),
             expected_email=os.environ["TF_VAR_alert_email"], specification_path=args.spec,
@@ -339,13 +369,14 @@ def main() -> None:
         if not re.fullmatch(r"[0-9a-f]{40}", source):
             raise ValueError("Plan source must be an exact commit")
         metadata = {
-            "schema_version": 1, "purpose": "review-only-not-approved-for-apply",
+            "schema_version": 2, "purpose": "review-only-not-approved-for-apply",
             "planned_at": datetime.now(timezone.utc).isoformat(),
             "source_sha": source, "plan_sha256": _digest(args.plan_binary),
             "provider_lock_sha256": _digest(args.lock), "spec_sha256": _digest(args.spec),
             "primary_state": _state_identity(args.primary_state),
             "migration_state": _state_identity(args.migration_state),
-            "monitoring_state_initially_absent": True,
+            "monitoring_state": monitoring_identity,
+            "monitoring_state_exists_before_init": existence["exists"],
             "monitoring_backend_sha256": hashlib.sha256(json.dumps([
                 os.environ["MIGRATION_TFSTATE_STORAGE_ACCOUNT"],
                 os.environ["MIGRATION_TFSTATE_CONTAINER"],
