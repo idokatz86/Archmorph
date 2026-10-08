@@ -24,6 +24,11 @@ Expected first plan: **five creates, zero updates, zero deletes**.
 All query predicates, aggregation, threshold zero, failing periods, and
 notification bindings come from the reviewed contract. Query validation remains
 enabled. There are no dimension splits or additional notification receivers.
+Alert action-group IDs are constructed from the existing verified resource-group
+scope and the managed group's fixed name, retaining Terraform's resource
+dependency. This makes membership concrete in the initial plan instead of
+accepting an unknown provider-generated ID. Unknown or additional group bindings
+remain approval-blocking.
 
 The primary root no longer manages these five resources. Its
 [non-destructive ownership declarations](../release-monitoring-ownership.tf)
