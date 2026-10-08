@@ -1219,7 +1219,7 @@ def test_migration_alerts_use_action_group_and_explicit_platform_owner():
     assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "release"' in terraform
     assert "for_each = local.alert_specs" in terraform
     assert "count =" not in terraform
-    assert "azurerm_monitor_action_group.critical.id" in terraform
+    assert "azurerm_monitor_action_group.critical.name" in terraform
     assert re.search(r'owner\s*=\s*"platform-engineering"', terraform)
     for name in (
         "application_insights_resource_id",
@@ -1243,7 +1243,8 @@ def test_reviewed_migration_alert_specs_match_terraform_exactly():
         assert re.search(rf"\b{name}\s*=\s*{re.escape(value)}\b", terraform)
     for name in ("minimum_failing_periods_to_trigger_alert", "number_of_evaluation_periods"):
         assert f"each.value.criteria.failing_periods.{name}" in terraform
-    assert "action_groups = [azurerm_monitor_action_group.critical.id]" in terraform
+    assert "action_groups = [local.critical_action_id]" in terraform
+    assert "/providers/Microsoft.Insights/actionGroups/${azurerm_monitor_action_group.critical.name}" in terraform
 
 
 def test_rollback_health_verification_uses_authenticated_api_health():

@@ -49,7 +49,10 @@ data "azurerm_resources" "workspace" {
 locals {
   application_insights = one(data.azurerm_resources.application_insights.resources)
   workspace            = one(data.azurerm_resources.workspace.resources)
-  alert_specs          = jsondecode(file("${path.module}/../monitoring/migration-alert-specs.json")).alerts
+  resource_group_id    = join("/", slice(split("/", local.application_insights.id), 0, 5))
+  # The provider-generated ID is unknown on create; retain the resource dependency via its name.
+  critical_action_id = "${local.resource_group_id}/providers/Microsoft.Insights/actionGroups/${azurerm_monitor_action_group.critical.name}"
+  alert_specs        = jsondecode(file("${path.module}/../monitoring/migration-alert-specs.json")).alerts
   alert_names = {
     failure           = "archmorph-migration-job-failure"
     timeout           = "archmorph-migration-job-timeout"
@@ -108,7 +111,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "release" {
   }
 
   action {
-    action_groups = [azurerm_monitor_action_group.critical.id]
+    action_groups = [local.critical_action_id]
   }
 
   auto_mitigation_enabled          = true

@@ -163,6 +163,7 @@ def validate_plan(
         raise ValueError("Monitoring plan has no resource change inventory")
     if plan.get("errored") or plan.get("complete") is False:
         raise ValueError("Monitoring plan is incomplete")
+    _configuration_resources(plan)
     expected = {ACTION_GROUP_ADDRESS, *ALERT_ADDRESSES.values()}
     managed: dict[str, dict[str, Any]] = {}
     for entry in plan["resource_changes"]:
@@ -218,7 +219,7 @@ def validate_plan(
         values = entry["change"]["after"]
         unknowns = entry["change"].get("after_unknown", {})
         _known_unknowns(unknowns, {
-            "id", "action", "created_with_api_version",
+            "id", "created_with_api_version",
             "is_a_legacy_log_analytics_rule", "is_workspace_alerts_storage_configured",
         })
         if (
@@ -239,21 +240,13 @@ def validate_plan(
         if criterion.get("dimension") or criterion.get("resource_id_column"):
             raise ValueError("Unreviewed alert dimensionality is not allowed")
         action = _one(values.get("action"), "alert action")
-        if unknowns.get("action"):
-            _known_unknowns(_one(unknowns["action"], "action unknowns"), {"action_groups"})
         if action.get("custom_properties") or action.get("email_subject"):
             raise ValueError("Unreviewed alert actions are not allowed")
         groups = action.get("action_groups")
         if not isinstance(groups, list) or len(groups) != 1:
             raise ValueError("Exactly one reviewed alert action group is required")
-        if groups[0] is not None and _id(groups[0]) != action_id:
+        if _id(groups[0]) != action_id:
             raise ValueError("Alert targets an unexpected notification group")
-        expressions = _configuration_resources(plan).get(address.split("[", 1)[0], {}).get("expressions", {})
-        action_expressions = expressions.get("action", [])
-        action_expression = _one(action_expressions, "action expression").get("action_groups", {})
-        references = action_expression.get("references", [])
-        if references != ["azurerm_monitor_action_group.critical.id", "azurerm_monitor_action_group.critical"]:
-            raise ValueError("Alert action must reference only the reviewed managed action group")
         inventory.append({
             "id": expected_ids[role],
             "properties": {

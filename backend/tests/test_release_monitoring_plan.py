@@ -30,6 +30,7 @@ APP = {
 }
 WORKSPACE = {"id": APP["workspaceId"], "location": "westeurope"}
 EMAIL = "oncall@example.com"
+ACTION_GROUP_ID = PREFIX + "/providers/Microsoft.Insights/actionGroups/archmorph-critical-alerts"
 
 
 @pytest.fixture(autouse=True)
@@ -77,7 +78,7 @@ def _plan():
             "type": "azurerm_monitor_scheduled_query_rules_alert_v2",
             "mode": "managed",
             "change": {
-                "actions": ["create"], "after_unknown": {"id": True, "action": [{"action_groups": True}]},
+                "actions": ["create"], "after_unknown": {"id": True},
                 "after": {
                     "name": monitoring.ALERT_NAMES[role],
                     "resource_group_name": "example-runtime", "location": "westeurope",
@@ -86,7 +87,7 @@ def _plan():
                     "enabled": spec["enabled"], "severity": spec["severity"],
                     "scopes": [APP["id"]], "evaluation_frequency": spec["evaluation_frequency"],
                     "window_duration": spec["window_duration"],
-                    "criteria": [criteria], "action": [{"action_groups": [None]}],
+                    "criteria": [criteria], "action": [{"action_groups": [ACTION_GROUP_ID]}],
                 },
             },
         })
@@ -97,7 +98,7 @@ def _plan():
                 "resources": [{
                     "address": "azurerm_monitor_scheduled_query_rules_alert_v2.release",
                     "expressions": {"action": [{"action_groups": {
-                        "references": ["azurerm_monitor_action_group.critical.id", "azurerm_monitor_action_group.critical"],
+                        "references": ["local.critical_action_id"],
                     }}]},
                 }],
             },
@@ -184,10 +185,9 @@ def test_plan_rejects_unknown_security_relevant_values():
         _verify(plan)
 
 
-def test_provider_computed_readonly_metadata_and_new_group_id_are_allowed():
+def test_provider_computed_readonly_metadata_is_allowed():
     plan = _plan()
     for entry in plan["resource_changes"][1:]:
-        entry["change"]["after"]["action"][0]["action_groups"] = [None]
         entry["change"]["after_unknown"].update({
             "created_with_api_version": True,
             "is_a_legacy_log_analytics_rule": True,
@@ -198,7 +198,7 @@ def test_provider_computed_readonly_metadata_and_new_group_id_are_allowed():
 
 def test_unknown_action_properties_do_not_hide_behind_new_group_id():
     plan = _plan()
-    plan["resource_changes"][1]["change"]["after_unknown"]["action"][0]["custom_properties"] = True
+    plan["resource_changes"][1]["change"]["after_unknown"]["action"] = [{"custom_properties": True}]
     with pytest.raises(ValueError, match="must be known"):
         _verify(plan)
 
@@ -214,9 +214,9 @@ def test_notification_contract_cannot_change_or_expand(mode):
     elif mode == "disabled_group":
         group["enabled"] = False
     else:
-        plan["configuration"]["root_module"]["resources"][0]["expressions"]["action"][0]["action_groups"] = {
-            "constant_value": [PREFIX + "/providers/Microsoft.Insights/actionGroups/unapproved"],
-        }
+        plan["resource_changes"][1]["change"]["after"]["action"][0]["action_groups"] = [
+            PREFIX + "/providers/Microsoft.Insights/actionGroups/unapproved",
+        ]
     with pytest.raises(ValueError):
         _verify(plan)
 
@@ -237,6 +237,21 @@ def test_output_contract_cannot_silently_shrink():
     plan = _plan()
     plan["output_changes"].pop("critical_action_group_id")
     with pytest.raises(ValueError, match="six resource identities"):
+        _verify(plan)
+
+
+@pytest.mark.parametrize("groups", [None, [None], [], [ACTION_GROUP_ID, ACTION_GROUP_ID]])
+def test_action_group_binding_must_be_concrete_and_single(groups):
+    plan = _plan()
+    plan["resource_changes"][1]["change"]["after"]["action"][0]["action_groups"] = groups
+    with pytest.raises(ValueError):
+        _verify(plan)
+
+
+def test_unknown_action_group_id_is_not_accepted_as_a_plan_approval():
+    plan = _plan()
+    plan["resource_changes"][1]["change"]["after_unknown"]["action"] = [{"action_groups": True}]
+    with pytest.raises(ValueError, match="must be known"):
         _verify(plan)
 
 

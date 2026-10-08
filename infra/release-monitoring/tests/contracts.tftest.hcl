@@ -64,6 +64,14 @@ run "canonical_five_resource_plan" {
   }
 
   assert {
+    condition = alltrue([
+      for alert in azurerm_monitor_scheduled_query_rules_alert_v2.release :
+      one(one(alert.action).action_groups) == local.critical_action_id
+    ])
+    error_message = "Every alert must have a concrete approved notification group in the saved plan."
+  }
+
+  assert {
     condition = (
       one(azurerm_monitor_action_group.critical.email_receiver).email_address == var.alert_email &&
       one(azurerm_monitor_action_group.critical.email_receiver).use_common_alert_schema &&
