@@ -369,17 +369,20 @@ def notification_request(
         ) from None
 
 
-def _notification_poll_url(location: str) -> str:
+def _notification_poll_url(location: str, group_id: str) -> str:
     url = urljoin("https://management.azure.com", location)
     parsed = urlsplit(url)
-    prefix = f"/subscriptions/{os.environ['AZURE_SUBSCRIPTION_ID']}/providers/Microsoft.Insights/notificationStatus/"
+    prefix = _id(group_id) + "/notificationStatus/"
     if (
         parsed.scheme != "https" or parsed.netloc != "management.azure.com"
         or not parsed.path.casefold().startswith(prefix.casefold())
         or not re.fullmatch(r"[A-Za-z0-9_-]+", parsed.path[len(prefix):])
-        or parsed.query != "api-version=2021-09-01" or parsed.fragment
+        or parsed.query not in {
+            "api-version=2021-09-01", "api-version=2022-06-01", "api-version=2023-01-01",
+        }
+        or parsed.fragment
     ):
-        raise ValueError("Notification polling URL is outside the approved subscription/API")
+        raise ValueError("Notification polling URL is outside the approved action group/API")
     return url
 
 
@@ -406,7 +409,7 @@ def send_email_test(receiver: dict[str, Any], group_id: str) -> dict[str, Any]:
         return notification_result(result)
     if status != 202 or not location:
         raise ValueError("Notification request has no accepted polling contract; do not automatically resend")
-    polling = _notification_poll_url(location)
+    polling = _notification_poll_url(location, group_id)
     evidence_dir = os.environ.get("MONITORING_EVIDENCE_DIR")
     if evidence_dir:
         (Path(evidence_dir) / "notification-request.json").write_text(

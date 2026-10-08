@@ -444,7 +444,7 @@ def test_accepted_test_polls_without_resending_and_retains_request_identity(tmp_
     monkeypatch.setenv("MONITORING_EVIDENCE_DIR", str(tmp_path))
     monkeypatch.setattr(operations, "az_json", Mock(return_value={"accessToken": "short-lived-test-token"}))
     monkeypatch.setattr(operations.time, "sleep", Mock())
-    location = "/subscriptions/example/providers/Microsoft.Insights/notificationStatus/example-id?api-version=2021-09-01"
+    location = _group()["id"] + "/notificationStatus/example-id?api-version=2022-06-01"
     request = Mock(side_effect=[
         (202, {}, location), (200, {"state": "InProgress"}, None), (200, _notification(), None),
     ])
@@ -461,7 +461,7 @@ def test_accepted_notification_timeout_never_resends(monkeypatch):
     monkeypatch.setattr(operations, "az_json", Mock(return_value={"accessToken": "short-lived-test-token"}))
     monkeypatch.setattr(operations.time, "monotonic", Mock(side_effect=[0, 301]))
     request = Mock(return_value=(202, {}, (
-        "/subscriptions/example/providers/Microsoft.Insights/notificationStatus/id?api-version=2021-09-01"
+        _group()["id"] + "/notificationStatus/id?api-version=2021-09-01"
     )))
     monkeypatch.setattr(operations, "notification_request", request)
     with pytest.raises(TimeoutError, match="do not resend"):
@@ -488,10 +488,21 @@ def test_notification_http_error_does_not_disclose_tokens_or_receiver(monkeypatc
     "http://management.azure.com/subscriptions/example/providers/Microsoft.Insights/notificationStatus/id?api-version=2021-09-01",
     "/subscriptions/example-other/providers/Microsoft.Insights/notificationStatus/id?api-version=2021-09-01",
     "/subscriptions/example/providers/Microsoft.Insights/notificationStatus/../id?api-version=2021-09-01",
+    _group()["id"] + "-other/notificationStatus/id?api-version=2021-09-01",
+    _group()["id"] + "/notificationStatus/../id?api-version=2021-09-01",
+    _group()["id"] + "/notificationStatus/id?api-version=2021-09-01&extra=unapproved",
 ])
 def test_notification_polling_cannot_send_token_outside_approved_endpoint(location):
     with pytest.raises(ValueError):
-        operations._notification_poll_url(location)
+        operations._notification_poll_url(location, _group()["id"])
+
+
+def test_documented_action_group_scoped_location_is_accepted():
+    location = "https://management.azure.com" + _group()["id"] + "/notificationStatus/11111111111111?api-version=2022-06-01"
+    assert operations._notification_poll_url(location, _group()["id"]) == location
+    assert operations._notification_poll_url(location.upper().replace(
+        "HTTPS://MANAGEMENT.AZURE.COM", "https://management.azure.com"
+    ).replace("API-VERSION", "api-version"), _group()["id"])
 
 
 @pytest.mark.parametrize(
@@ -568,6 +579,42 @@ def test_notification_recovery_is_separate_from_apply_and_production_rollout():
     for step in job["steps"]:
         if "uses" in step:
             assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", step["uses"])
+
+
+@pytest.mark.parametrize(
+    ("confirmation", "ref", "sha", "allowed"),
+    [
+        ("true", "refs/heads/main", "a" * 40, True),
+        ("false", "refs/heads/main", "a" * 40, False),
+        ("", "refs/heads/main", "a" * 40, False),
+        ("true", "refs/heads/feature", "a" * 40, False),
+        ("true", "refs/heads/main", "d" * 40, False),
+    ],
+)
+def test_notification_only_cli_checks_authorization_before_any_send(
+    tmp_path, monkeypatch, confirmation, ref, sha, allowed,
+):
+    app = tmp_path / "app.json"
+    app.write_text(json.dumps(APP))
+    output = tmp_path / "result.json"
+    sender = Mock(return_value={"test": "completed"})
+    monkeypatch.setattr(operations, "test_email", sender)
+    monkeypatch.setenv("CONFIRM_NOTIFICATION_TEST", confirmation)
+    monkeypatch.setenv("GITHUB_REF", ref)
+    monkeypatch.setenv("GITHUB_SHA", sha)
+    monkeypatch.setattr(sys, "argv", [
+        "release_monitoring_apply.py", "test-email", "--retry-only",
+        "--app", str(app), "--output", str(output),
+    ])
+    if allowed:
+        operations.main()
+        sender.assert_called_once_with(APP)
+        assert output.exists()
+    else:
+        with pytest.raises(ValueError, match="exact-source protected approval"):
+            operations.main()
+        sender.assert_not_called()
+        assert not output.exists()
 
 
 @pytest.mark.parametrize("command", ["queries", "verify", "attest", "test-email"])
