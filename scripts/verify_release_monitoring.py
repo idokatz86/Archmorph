@@ -127,11 +127,11 @@ def validate_live_absence(inventory: list[dict[str, Any]]) -> None:
 
 
 def empty_monitoring_identity(path: Path) -> dict[str, Any]:
-    """Allow only Terraform's initialized, never-applied monitoring state."""
+    """Allow only the observed empty initial backend revisions."""
     identity = _state_identity(path)
     state = _load(path)
     if (
-        type(state.get("version")) is not int or state["version"] != 4 or identity["serial"] != 0
+        type(state.get("version")) is not int or state["version"] != 4 or identity["serial"] not in (0, 1)
         or state.get("resources") != [] or state.get("outputs") != {}
         or state.get("check_results") not in (None, [])
     ):
@@ -336,7 +336,7 @@ def main() -> None:
         print("Monitoring state identity is distinct from primary and migration state.")
     elif args.command == "empty-state":
         empty_monitoring_identity(args.input)
-        print("Monitoring state is initialized but contains no resources, outputs, or apply history.")
+        print("Monitoring state is at an initial revision and contains no resources or outputs.")
     elif args.command == "inputs":
         validate_telemetry(_load(args.app), _load(args.workspace))
         validate_primary_ownership(_load(args.primary_state))
