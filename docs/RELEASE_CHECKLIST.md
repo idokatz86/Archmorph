@@ -112,6 +112,11 @@ before deleting these staging packages; deletion still requires operator approva
 
 The supporting workflows should also be green or explicitly reviewed:
 
+- If the required migration/bridge alerts or their six output identities are
+  absent, follow the [scoped monitoring prerequisite plan](operations/release-monitoring-plan.md).
+  A preparation request is not authorization to provision monitoring or resume
+  migration; keep the applied-alert gate intact.
+
 - `Security Scanning`
 - `Backend Performance K6 Tests`
 - `Playwright Tests`

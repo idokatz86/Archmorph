@@ -2118,7 +2118,6 @@ jobs:
           ACR_SCOPE_ID=$(terraform -chdir=infra/migration-bootstrap output -raw acr_scope_id)
           DATABASE_SECRET_SCOPE_ID=$(terraform -chdir=infra/migration-bootstrap output -raw \
             database_secret_scope_id)
-          KEY_VAULT_ID=$(terraform -chdir=infra/migration-bootstrap output -raw key_vault_id)
           KEY_VAULT_AUTHORIZATION_MODE=$(terraform -chdir=infra/migration-bootstrap output -raw \
             key_vault_authorization_mode)
 
@@ -2134,7 +2133,8 @@ jobs:
                 --query "[?roleDefinitionName=='Key Vault Secrets User'] | length(@)" -o tsv)
             else
               SECRET_ACCESS_COUNT=$(az keyvault show \
-                --ids "$KEY_VAULT_ID" \
+                --name "$MIGRATION_KEY_VAULT_NAME" \
+                --resource-group "$AZURE_RESOURCE_GROUP" \
                 --query "length(properties.accessPolicies[?objectId=='$MIGRATION_PRINCIPAL_ID' && contains(permissions.secrets, 'Get')])" -o tsv)
             fi
             JOB_JSON=$(az containerapp job show \
