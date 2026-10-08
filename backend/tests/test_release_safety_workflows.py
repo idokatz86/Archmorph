@@ -208,6 +208,11 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert "az role assignment list" in propagation
     assert "key_vault_authorization_mode" in propagation
     assert "az keyvault show" in propagation
+    vault_query = propagation.split("az keyvault show", 1)[1].split(" -o tsv)", 1)[0]
+    assert '--name "$MIGRATION_KEY_VAULT_NAME"' in vault_query
+    assert '--resource-group "$AZURE_RESOURCE_GROUP"' in vault_query
+    assert "--ids" not in vault_query
+    assert "contains(permissions.secrets, 'Get')" in vault_query
     assert "properties.provisioningState" in propagation
     assert "DATABASE_URL" in propagation
     assert "db-connection" in propagation

@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Infrastructure and security maintenance
 
+- **Migration vault preflight CLI compatibility** — query access-policy-mode
+  Key Vaults with the supported name/resource-group selectors rather than the
+  unsupported `az keyvault show --ids`, retaining the exact identity Get check.
 - **Stable migration state integrity** — canonicalize only Terraform's unordered
   check-result collection when hashing state evidence, eliminating false apply
   blocks while retaining exact plan/lock hashes and detection of real state or
