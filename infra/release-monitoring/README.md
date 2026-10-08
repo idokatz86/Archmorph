@@ -1,7 +1,7 @@
 # Isolated release monitoring
 
-**Plan only. No infrastructure apply or application rollout is authorized by the
-planning workflow.**
+**Planning never applies resources. Monitoring apply requires a separate
+exact-plan approval and never deploys the application.**
 
 This root is the single Terraform owner of four migration/bridge scheduled-query
 rules and the dedicated critical email action group. It consumes the unchanged
@@ -67,7 +67,9 @@ blocks approval.
    on protected `main`, supplying the exact reviewed `source_sha`.
 5. The workflow validates telemetry linkage, requires absence of existing
    monitoring ownership, initializes the isolated backend, validates the root,
-   and saves a real Terraform binary plan.
+   and saves a real Terraform binary plan. Before planning it executes all four
+   canonical queries at the actual Application Insights scope and exercises
+   matching/excluded synthetic rows without ingesting events or notifying anyone.
 6. [The verifier](../../scripts/verify_release_monitoring.py) allows only the five
    intended creates, exact receiver, canonical alert fields, known security
    values, and six output identities. It rejects updates, replacements, missing
@@ -83,9 +85,43 @@ blocks approval.
    lock, five-resource diff, state identities, recipient source, and cost before
    requesting explicit saved-plan apply approval.
 
-There is no apply input or apply job. A future apply implementation must validate
-the approved immutable artifact/hash, exact source and provider lock, current
-state, and rollout ownership. Plan success is not permission to apply it.
+The planning workflow has no apply input or apply job. Plan success is not
+permission to apply it.
+
+## Explicitly approved monitoring-only apply
+
+Use [Apply approved release monitoring](../../.github/workflows/release-monitoring-apply.yml)
+only after the owner approves the exact successful plan run/attempt, source SHA,
+saved-plan SHA-256, encrypted-bundle SHA-256, cost, and existing email test.
+The confirmation input defaults to false. The workflow requires protected `main`
+at the same source SHA as the plan and uses the existing production environment
+and private ephemeral runner. It cannot select a historical/latest fallback.
+
+Before any resource mutation it:
+
+1. Verifies the successful planning workflow identity and approved ciphertext
+   hash before decryption, then extracts only bounded allowlisted regular files.
+2. Uses Terraform 1.9.8, matching planning, with immutable provider/action pins.
+3. Acquires the existing renewable rollout lease and respects emergency rollback
+   priority. GitHub concurrency is additional coordination, not a substitute.
+4. Re-reads all three states and approved telemetry metadata, repeats live query
+   validation, and validates the exact binary plan, provider lock, canonical
+   specification, five-create allowlist, recipient, and unchanged state identities.
+   Plans older than seven days or any drift fail closed and require a new approval.
+5. Applies only the approved saved binary plan under lease supervision. It never
+   runs a new plan inside apply, applies the primary root, changes permissions,
+   opens networking, executes a database migration, or changes application traffic.
+
+After apply it validates all six output identities, attests the exact four live
+alert definitions, and verifies that the action group has only the approved
+enabled email receiver. It sends one `logalertv2` test notification to the existing
+`ALERT_EMAIL` and requires Azure's completed send status. That is not proof that a
+human received/read the email; inbox confirmation remains a separate observation.
+It releases the lease, retains encrypted evidence, and removes plaintext
+artifacts even when a step fails. Partial Terraform failure requires inspection
+of the resulting state and a new recovery decision, never automatic destruction.
+
+Monitoring success does not resume the separately paused application release.
 
 ## Release output contract
 
@@ -101,7 +137,7 @@ After a separately approved apply, the deployment gate reads only this root's:
 Missing outputs remain release-blocking. The existing
 [applied-resource attestation](../../scripts/verify_migration_alerts.py) still
 compares enabled state, severity, scopes, queries, timing, aggregation, thresholds,
-and action-group IDs against the canonical specification. There is no fallback
+auto-resolution, and action-group IDs against the canonical specification. There is no fallback
 to stale primary outputs or automatically discovered unrelated alert IDs.
 
 ## Cost estimate and remaining approval gates
@@ -120,12 +156,18 @@ and [Azure Retail Prices API](https://prices.azure.com/api/retail/prices).
 This excludes existing telemetry ingestion/retention, taxes, discounts, and
 temporary runner compute. It is not a cost ceiling or an apply approval.
 
-A live aggregate-only query probe returned `RemoteServerFault`; query execution
-at the selected telemetry scope is **not yet verified**. Do not claim that a
-successful Terraform plan proves alert execution or delivery. Before apply,
-confirm current pricing, approved notification recipient, query compilation,
-and the test window. After apply, verify exact live resource metadata and approved
-synthetic notifications without using customer data or starting a real migration.
+The original plan's `AppEvents`/`Name`/`Properties` queries were rejected at the
+Application Insights component scope with `SEM0100`; those are workspace schema
+names. The corrected canonical specification uses `customEvents`/`name`/
+`customDimensions` at the same component scope. All four equivalent queries
+passed live aggregate-only validation, with unchanged thresholds, filters,
+windows, and recipient. The old plan is superseded, not safe to apply.
+
+Both planning and apply now revalidate live compilation/output shape and
+read-only synthetic predicate behavior. A successful Terraform plan alone still
+does not prove notification delivery. Confirm current pricing, approved recipient,
+and the test window, then retain actual applied-resource and email-test evidence
+without using customer data or starting a real migration.
 
 The missing-evidence query is retained without semantic changes. Validate its
 behavior for a normal in-progress migration as well as missing terminal evidence;

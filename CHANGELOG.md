@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Infrastructure and security maintenance
 
+- **Verified monitoring-only apply** -- correct the canonical queries to the
+  Application Insights schema, validate live and read-only synthetic queries, and
+  require explicit source/run/plan/ciphertext approval for a lease-supervised
+  five-resource apply with live attestation and an existing-recipient email test.
+  Application rollout remains separate and paused.
 - **Isolated release-monitoring planning** -- establish one Terraform owner for
   the four canonical migration/bridge alerts and critical email group, reuse
   existing telemetry, and produce encrypted five-create review plans without an

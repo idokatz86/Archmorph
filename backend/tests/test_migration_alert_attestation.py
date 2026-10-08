@@ -38,6 +38,7 @@ def _alert(role: str) -> dict:
         "id": IDS[role],
         "properties": {
             "enabled": specification["enabled"],
+            "autoMitigate": specification["auto_mitigation_enabled"],
             "severity": specification["severity"],
             "scopes": [APP_INSIGHTS],
             "evaluationFrequency": specification["evaluation_frequency"],
@@ -83,10 +84,10 @@ def _attest(inventory: list[dict]) -> dict[str, dict]:
 def test_applied_alert_attestation_passes_exact_state_and_whitespace_only_kql_changes():
     inventory = _inventory()
     inventory[0]["properties"]["criteria"]["allOf"][0]["query"] = """
-        AppEvents
-          | where   Name == 'migration_failed'
-        | where tostring(Properties['application']) == 'archmorph'
-        | where tostring(Properties['owner']) == 'platform-engineering'
+        customEvents
+          | where   name == 'migration_failed'
+        | where tostring(customDimensions['application']) == 'archmorph'
+        | where tostring(customDimensions['owner']) == 'platform-engineering'
         | summarize FailureEvents = count()
     """
 
@@ -108,6 +109,8 @@ def test_applied_alert_attestation_rejects_missing_alert():
     ("field", "value", "drift"),
     [
         ("enabled", False, "enabled"),
+        ("autoMitigate", False, "auto_mitigation_enabled"),
+        ("autoMitigate", "true", "must be a boolean"),
         ("severity", 2, "severity"),
         (
             "scopes",
@@ -122,6 +125,13 @@ def test_applied_alert_attestation_rejects_top_level_drift(field, value, drift):
     inventory = _inventory()
     inventory[0]["properties"][field] = value
     with pytest.raises(ValueError, match=drift):
+        _attest(inventory)
+
+
+def test_applied_alert_attestation_requires_auto_mitigation_evidence():
+    inventory = _inventory()
+    del inventory[0]["properties"]["autoMitigate"]
+    with pytest.raises(ValueError, match="missing required field autoMitigate"):
         _attest(inventory)
 
 

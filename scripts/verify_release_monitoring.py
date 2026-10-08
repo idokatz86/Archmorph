@@ -264,6 +264,7 @@ def validate_plan(
             "id": expected_ids[role],
             "properties": {
                 "enabled": values.get("enabled"),
+                "autoMitigate": values.get("auto_mitigation_enabled"),
                 "severity": values.get("severity"),
                 "scopes": values.get("scopes"),
                 "evaluationFrequency": values.get("evaluation_frequency"),

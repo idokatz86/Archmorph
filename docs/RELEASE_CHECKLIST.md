@@ -80,6 +80,10 @@ The `CI/CD` workflow must pass before release:
   approved [isolated monitoring plan](../infra/release-monitoring/README.md).
   The six output IDs come from that root, not the primary state; absence or drift
   blocks migration. Planning support does not authorize an infrastructure apply.
+  The separate monitoring apply workflow verifies exact plan/ciphertext hashes,
+  immutable source/provider identity, current states, live query results, and
+  rollout ownership before the saved five-resource apply. Its success and email
+  send evidence do not authorize application deployment.
 - `build-backend-release`: verifies both GHCR staging packages are private
   and linked to this repository **before** any application-image upload. Existing
   public/unlinked packages, API permission errors, or metadata timeouts block

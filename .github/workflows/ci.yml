@@ -263,6 +263,7 @@ jobs:
             backend/tests/test_migration_bootstrap_verifier.py \
             backend/tests/test_migration_alert_attestation.py \
             backend/tests/test_release_monitoring_plan.py \
+            backend/tests/test_release_monitoring_apply.py \
             backend/tests/test_frontend_release.py \
             backend/tests/test_helm_release_contract.py \
             backend/tests/test_helm_secret_contract.py \
