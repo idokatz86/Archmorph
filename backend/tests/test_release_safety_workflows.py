@@ -1,4 +1,3 @@
-import json
 import re
 from pathlib import Path
 
@@ -11,6 +10,7 @@ ROLLBACK_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "rollback.yml"
 MONITORING_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "monitoring.yml"
 MIGRATION_BOOTSTRAP = REPO_ROOT / "infra" / "migration-bootstrap" / "main.tf"
 MAIN_TERRAFORM = REPO_ROOT / "infra" / "main.tf"
+MONITORING_TERRAFORM = REPO_ROOT / "infra" / "release-monitoring" / "main.tf"
 HELM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "helm-release.yml"
 TERRAFORM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "terraform-prod.yml"
 MIGRATION_ALERT_SPECS = REPO_ROOT / "infra" / "monitoring" / "migration-alert-specs.json"
@@ -449,7 +449,10 @@ def test_alert_attestation_precedes_every_migration_job_start():
     steps = workflow["jobs"]["deploy-backend"]["steps"]
     names = [step.get("name") for step in steps]
     attest = _step_by_name(steps, "Attest applied migration alerts before Job execution")["run"]
-    assert "terraform -chdir=infra output -json" in attest
+    assert "terraform -chdir=infra/release-monitoring output -json" in attest
+    assert "terraform -chdir=infra output -json" not in attest
+    assert "verify_release_monitoring.py backend" in attest
+    assert '-backend-config="key=${MONITORING_TFSTATE_KEY}"' in attest
     assert "verify_migration_alerts.py" in attest
     assert "migration_failure_alert_id" in attest
     assert "migration_timeout_alert_id" in attest
@@ -1210,25 +1213,14 @@ def test_frontend_waits_for_backend_and_has_previous_artifact_rollback():
 
 
 def test_migration_alerts_use_action_group_and_explicit_platform_owner():
-    terraform = MAIN_TERRAFORM.read_text(encoding="utf-8")
-    outputs = (REPO_ROOT / "infra" / "outputs.tf").read_text(encoding="utf-8")
-    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure"' in terraform
-    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_timeout"' in terraform
-    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_missing_evidence"' in terraform
-    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "bridge_customer_degraded"' in terraform
-    migration_alerts = terraform.split(
-        'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure"',
-        1,
-    )[1].split("# Slow API Response Alert", 1)[0]
-    assert "count =" not in migration_alerts
-    assert "AppEvents" in terraform
-    assert "migration_started" in terraform
-    assert "migration_succeeded" in terraform
-    assert "migration_failed" in terraform
-    assert "migration_timed_out" in terraform
-    assert "bridge_customer_degraded" in terraform
+    terraform = MONITORING_TERRAFORM.read_text(encoding="utf-8")
+    outputs = (MONITORING_TERRAFORM.parent / "outputs.tf").read_text(encoding="utf-8")
+    primary_outputs = (REPO_ROOT / "infra" / "outputs.tf").read_text(encoding="utf-8")
+    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "release"' in terraform
+    assert "for_each = local.alert_specs" in terraform
+    assert "count =" not in terraform
     assert "azurerm_monitor_action_group.critical.id" in terraform
-    assert 'owner = "platform-engineering"' in terraform
+    assert re.search(r'owner\s*=\s*"platform-engineering"', terraform)
     for name in (
         "application_insights_resource_id",
         "migration_failure_alert_id",
@@ -1238,59 +1230,20 @@ def test_migration_alerts_use_action_group_and_explicit_platform_owner():
         "critical_action_group_id",
     ):
         assert f'output "{name}"' in outputs
+        assert f'output "{name}"' not in primary_outputs
 
 
 def test_reviewed_migration_alert_specs_match_terraform_exactly():
-    terraform = MAIN_TERRAFORM.read_text(encoding="utf-8")
-    specifications = json.loads(MIGRATION_ALERT_SPECS.read_text(encoding="utf-8"))[
-        "alerts"
-    ]
-    resources = {
-        "failure": "migration_job_failure",
-        "timeout": "migration_job_timeout",
-        "missing_evidence": "migration_missing_evidence",
-        "customer_degraded": "bridge_customer_degraded",
-    }
-
-    for role, resource_name in resources.items():
-        block = _terraform_alert_block(terraform, resource_name)
-        specification = specifications[role]
-        criteria = specification["criteria"]
-        periods = criteria["failing_periods"]
-        query = re.search(r"query\s*=\s*<<-KQL\n(.*?)\n\s*KQL", block, re.DOTALL)
-        assert query is not None
-        assert _canonical_kql(query.group(1)) == _canonical_kql(specification["query"])
-        assert re.search(rf"severity\s*=\s*{specification['severity']}\b", block)
-        assert re.search(
-            rf"enabled\s*=\s*{str(specification['enabled']).lower()}\b", block
-        )
-        assert 'scopes               = [azurerm_application_insights.main.id]' in block
-        assert (
-            f'evaluation_frequency = "{specification["evaluation_frequency"]}"'
-            in block
-        )
-        assert f'window_duration      = "{specification["window_duration"]}"' in block
-        assert (
-            f'time_aggregation_method = "{criteria["time_aggregation_method"]}"'
-            in block
-        )
-        assert f'operator                = "{criteria["operator"]}"' in block
-        assert re.search(rf"threshold\s*=\s*{criteria['threshold']}\b", block)
-        assert (
-            f'metric_measure_column   = "{criteria["metric_measure_column"]}"'
-            in block
-        )
-        assert re.search(
-            rf"minimum_failing_periods_to_trigger_alert\s*=\s*"
-            rf"{periods['minimum_failing_periods_to_trigger_alert']}\b",
-            block,
-        )
-        assert re.search(
-            rf"number_of_evaluation_periods\s*=\s*"
-            rf"{periods['number_of_evaluation_periods']}\b",
-            block,
-        )
-        assert "action_groups = [azurerm_monitor_action_group.critical.id]" in block
+    terraform = MONITORING_TERRAFORM.read_text(encoding="utf-8")
+    assert 'jsondecode(file("${path.module}/../monitoring/migration-alert-specs.json")).alerts' in terraform
+    for name in ("severity", "enabled", "evaluation_frequency", "window_duration"):
+        assert re.search(rf"\b{name}\s*=\s*each.value.{name}\b", terraform)
+    for name in ("query", "time_aggregation_method", "operator", "threshold", "metric_measure_column"):
+        value = "each.value.query" if name == "query" else f"each.value.criteria.{name}"
+        assert re.search(rf"\b{name}\s*=\s*{re.escape(value)}\b", terraform)
+    for name in ("minimum_failing_periods_to_trigger_alert", "number_of_evaluation_periods"):
+        assert f"each.value.criteria.failing_periods.{name}" in terraform
+    assert "action_groups = [azurerm_monitor_action_group.critical.id]" in terraform
 
 
 def test_rollback_health_verification_uses_authenticated_api_health():

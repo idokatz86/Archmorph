@@ -1157,18 +1157,9 @@ resource "azurerm_application_insights" "main" {
 # ─────────────────────────────────────────────────────────────
 # Azure Monitor Action Group (for alerts)
 # ─────────────────────────────────────────────────────────────
-resource "azurerm_monitor_action_group" "critical" {
+data "azurerm_monitor_action_group" "critical" {
   name                = "archmorph-critical-alerts"
   resource_group_name = azurerm_resource_group.main.name
-  short_name          = "archcrit"
-
-  email_receiver {
-    name                    = "admin"
-    email_address           = var.alert_email
-    use_common_alert_schema = true
-  }
-
-  tags = local.tags
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -1194,7 +1185,7 @@ resource "azurerm_monitor_metric_alert" "high_error_rate" {
   }
 
   action {
-    action_group_id = azurerm_monitor_action_group.critical.id
+    action_group_id = data.azurerm_monitor_action_group.critical.id
   }
 
   tags = local.tags
@@ -1219,7 +1210,7 @@ resource "azurerm_monitor_metric_alert" "high_response_time" {
   }
 
   action {
-    action_group_id = azurerm_monitor_action_group.critical.id
+    action_group_id = data.azurerm_monitor_action_group.critical.id
   }
 
   tags = local.tags
@@ -1244,7 +1235,7 @@ resource "azurerm_monitor_metric_alert" "high_cpu" {
   }
 
   action {
-    action_group_id = azurerm_monitor_action_group.critical.id
+    action_group_id = data.azurerm_monitor_action_group.critical.id
   }
 
   tags = local.tags
@@ -1269,7 +1260,7 @@ resource "azurerm_monitor_metric_alert" "db_connections" {
   }
 
   action {
-    action_group_id = azurerm_monitor_action_group.critical.id
+    action_group_id = data.azurerm_monitor_action_group.critical.id
   }
 
   tags = local.tags
@@ -1294,7 +1285,7 @@ resource "azurerm_monitor_metric_alert" "storage_availability" {
   }
 
   action {
-    action_group_id = azurerm_monitor_action_group.critical.id
+    action_group_id = data.azurerm_monitor_action_group.critical.id
   }
 
   tags = local.tags
@@ -1330,7 +1321,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "openai_failures" {
   }
 
   action {
-    action_groups = [azurerm_monitor_action_group.critical.id]
+    action_groups = [data.azurerm_monitor_action_group.critical.id]
   }
 
   tags = local.tags
@@ -1366,7 +1357,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "container_restarts" {
   }
 
   action {
-    action_groups = [azurerm_monitor_action_group.critical.id]
+    action_groups = [data.azurerm_monitor_action_group.critical.id]
   }
 
   tags = local.tags
@@ -1403,7 +1394,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "durable_job_recovery"
   }
 
   action {
-    action_groups = [azurerm_monitor_action_group.critical.id]
+    action_groups = [data.azurerm_monitor_action_group.critical.id]
   }
 
   auto_mitigation_enabled = true
@@ -1441,171 +1432,11 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "durable_job_backlog" 
   }
 
   action {
-    action_groups = [azurerm_monitor_action_group.critical.id]
+    action_groups = [data.azurerm_monitor_action_group.critical.id]
   }
 
   auto_mitigation_enabled = true
   tags                    = local.tags
-}
-
-# Migration rollout owner: Platform Engineering. These alerts cover Job
-# terminal failure/timeout and absence of the runner's immutable success marker.
-resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure" {
-  name                 = "archmorph-migration-job-failure"
-  resource_group_name  = azurerm_resource_group.main.name
-  location             = azurerm_resource_group.main.location
-  description          = "Platform Engineering: migration Job failed or was cancelled; production rollout must remain blocked"
-  severity             = 1
-  enabled              = true
-  scopes               = [azurerm_application_insights.main.id]
-  evaluation_frequency = "PT5M"
-  window_duration      = "PT15M"
-
-  criteria {
-    query                   = <<-KQL
-      AppEvents
-      | where Name == 'migration_failed'
-      | where tostring(Properties['application']) == 'archmorph'
-      | where tostring(Properties['owner']) == 'platform-engineering'
-      | summarize FailureEvents = count()
-    KQL
-    time_aggregation_method = "Maximum"
-    operator                = "GreaterThan"
-    threshold               = 0
-    metric_measure_column   = "FailureEvents"
-    failing_periods {
-      minimum_failing_periods_to_trigger_alert = 1
-      number_of_evaluation_periods             = 1
-    }
-  }
-
-  action {
-    action_groups = [azurerm_monitor_action_group.critical.id]
-  }
-
-  auto_mitigation_enabled = true
-  tags = merge(local.tags, {
-    owner = "platform-engineering"
-  })
-}
-
-resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_timeout" {
-  name                 = "archmorph-migration-job-timeout"
-  resource_group_name  = azurerm_resource_group.main.name
-  location             = azurerm_resource_group.main.location
-  description          = "Platform Engineering: migration Job timed out; production rollout must remain blocked"
-  severity             = 1
-  enabled              = true
-  scopes               = [azurerm_application_insights.main.id]
-  evaluation_frequency = "PT5M"
-  window_duration      = "PT15M"
-
-  criteria {
-    query                   = <<-KQL
-      AppEvents
-      | where Name == 'migration_timed_out'
-      | where tostring(Properties['application']) == 'archmorph'
-      | where tostring(Properties['owner']) == 'platform-engineering'
-      | summarize TimeoutEvents = count()
-    KQL
-    time_aggregation_method = "Maximum"
-    operator                = "GreaterThan"
-    threshold               = 0
-    metric_measure_column   = "TimeoutEvents"
-    failing_periods {
-      minimum_failing_periods_to_trigger_alert = 1
-      number_of_evaluation_periods             = 1
-    }
-  }
-
-  action {
-    action_groups = [azurerm_monitor_action_group.critical.id]
-  }
-
-  auto_mitigation_enabled = true
-  tags = merge(local.tags, {
-    owner = "platform-engineering"
-  })
-}
-
-resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_missing_evidence" {
-  name                 = "archmorph-migration-missing-evidence"
-  resource_group_name  = azurerm_resource_group.main.name
-  location             = azurerm_resource_group.main.location
-  description          = "Platform Engineering: a migration execution started without exact-head success evidence within the rollout window"
-  severity             = 1
-  enabled              = true
-  scopes               = [azurerm_application_insights.main.id]
-  evaluation_frequency = "PT5M"
-  window_duration      = "PT30M"
-
-  criteria {
-    query                   = <<-KQL
-      AppEvents
-      | where Name in ('migration_started', 'migration_succeeded')
-      | where tostring(Properties['application']) == 'archmorph'
-      | where tostring(Properties['owner']) == 'platform-engineering'
-      | extend Execution = tostring(Properties['execution'])
-      | summarize Started = countif(Name == 'migration_started'), Succeeded = countif(Name == 'migration_succeeded') by Execution
-      | summarize MissingEvidence = countif(Started > Succeeded)
-    KQL
-    time_aggregation_method = "Maximum"
-    operator                = "GreaterThan"
-    threshold               = 0
-    metric_measure_column   = "MissingEvidence"
-    failing_periods {
-      minimum_failing_periods_to_trigger_alert = 1
-      number_of_evaluation_periods             = 1
-    }
-  }
-
-  action {
-    action_groups = [azurerm_monitor_action_group.critical.id]
-  }
-
-  auto_mitigation_enabled = true
-  tags = merge(local.tags, {
-    owner = "platform-engineering"
-  })
-}
-
-resource "azurerm_monitor_scheduled_query_rules_alert_v2" "bridge_customer_degraded" {
-  name                 = "archmorph-bridge-customer-degraded"
-  resource_group_name  = azurerm_resource_group.main.name
-  location             = azurerm_resource_group.main.location
-  description          = "Platform Engineering: schema recovery retained authenticated read-only customer service; fix-forward is required"
-  severity             = 1
-  enabled              = true
-  scopes               = [azurerm_application_insights.main.id]
-  evaluation_frequency = "PT1M"
-  window_duration      = "PT5M"
-
-  criteria {
-    query                   = <<-KQL
-      AppEvents
-      | where Name == 'bridge_customer_degraded'
-      | where tostring(Properties['application']) == 'archmorph'
-      | where tostring(Properties['owner']) == 'platform-engineering'
-      | summarize DegradedEvents = count()
-    KQL
-    time_aggregation_method = "Maximum"
-    operator                = "GreaterThan"
-    threshold               = 0
-    metric_measure_column   = "DegradedEvents"
-    failing_periods {
-      minimum_failing_periods_to_trigger_alert = 1
-      number_of_evaluation_periods             = 1
-    }
-  }
-
-  action {
-    action_groups = [azurerm_monitor_action_group.critical.id]
-  }
-
-  auto_mitigation_enabled = true
-  tags = merge(local.tags, {
-    owner = "platform-engineering"
-  })
 }
 
 # Slow API Response Alert (P95 > 10s, log-based for endpoint detail)
@@ -1638,7 +1469,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "slow_endpoints" {
   }
 
   action {
-    action_groups = [azurerm_monitor_action_group.critical.id]
+    action_groups = [data.azurerm_monitor_action_group.critical.id]
   }
 
   tags = local.tags
@@ -1672,7 +1503,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "exception_spike" {
   }
 
   action {
-    action_groups = [azurerm_monitor_action_group.critical.id]
+    action_groups = [data.azurerm_monitor_action_group.critical.id]
   }
 
   tags = local.tags
@@ -1720,7 +1551,7 @@ resource "azurerm_monitor_metric_alert" "availability_test" {
   }
 
   action {
-    action_group_id = azurerm_monitor_action_group.critical.id
+    action_group_id = data.azurerm_monitor_action_group.critical.id
   }
 
   tags = local.tags
