@@ -263,3 +263,119 @@ def test_plan_metadata_detects_plan_lock_lineage_serial_or_state_hash_change(tmp
             primary_state=primary,
             bootstrap_state=bootstrap,
         )
+
+
+@pytest.fixture
+def integrity_files(tmp_path):
+    files = {
+        name: tmp_path / name
+        for name in ("plan", "lock", "primary_state", "bootstrap_state", "metadata_path")
+    }
+    files["plan"].write_bytes(b"reviewed binary plan")
+    files["lock"].write_bytes(b"reviewed provider lock")
+    for name in ("primary_state", "bootstrap_state"):
+        files[name].write_text(json.dumps({
+            "lineage": name,
+            "serial": 7,
+            "resources": [
+                {"name": "example-a", "values": {"setting": "before"}},
+                {"name": "example-b", "values": {"setting": "unchanged"}},
+            ],
+            "check_results": [
+                {"object_kind": "var", "config_addr": "var.region", "status": "pass", "objects": []},
+                {"object_kind": "var", "config_addr": "var.image", "status": "pass", "objects": []},
+            ],
+        }))
+    verifier.write_metadata(
+        plan=files["plan"], lock=files["lock"],
+        primary_state=files["primary_state"], bootstrap_state=files["bootstrap_state"],
+        output=files["metadata_path"],
+    )
+    return files
+
+
+def test_metadata_accepts_only_serialization_and_check_result_order_changes(integrity_files):
+    for name in ("primary_state", "bootstrap_state"):
+        path = integrity_files[name]
+        state = json.loads(path.read_text())
+        state["check_results"].reverse()
+        path.write_text(json.dumps(state, indent=4, sort_keys=True) + "\n")
+    verifier.verify_metadata(**integrity_files)
+
+
+@pytest.mark.parametrize("name", ["primary_state", "bootstrap_state"])
+@pytest.mark.parametrize(
+    "field",
+    ["lineage", "serial", "resource_value", "resource_order", "check_status", "check_removed", "check_added"],
+)
+def test_canonical_state_digest_still_rejects_real_changes(integrity_files, name, field):
+    path = integrity_files[name]
+    state = json.loads(path.read_text())
+    if field == "lineage":
+        state["lineage"] = "different"
+    elif field == "serial":
+        state["serial"] += 1
+    elif field == "resource_value":
+        state["resources"][0]["values"]["setting"] = "after"
+    elif field == "resource_order":
+        state["resources"].reverse()
+    elif field == "check_status":
+        state["check_results"][0]["status"] = "fail"
+    elif field == "check_removed":
+        state["check_results"].pop()
+    else:
+        state["check_results"].append(dict(state["check_results"][0]))
+    path.write_text(json.dumps(state))
+    with pytest.raises(ValueError, match="integrity changed"):
+        verifier.verify_metadata(**integrity_files)
+
+
+@pytest.mark.parametrize("name", ["plan", "lock"])
+def test_plan_and_provider_lock_still_use_exact_byte_hashes(integrity_files, name):
+    path = integrity_files[name]
+    path.write_bytes(path.read_bytes() + b"\n")
+    with pytest.raises(ValueError, match="integrity changed"):
+        verifier.verify_metadata(**integrity_files)
+
+
+def test_canonical_state_metadata_has_distinct_schema_and_rejects_legacy(integrity_files):
+    path = integrity_files["metadata_path"]
+    metadata = json.loads(path.read_text())
+    assert metadata["schema_version"] == 2
+    metadata["schema_version"] = 1
+    path.write_text(json.dumps(metadata))
+    with pytest.raises(ValueError, match="integrity changed"):
+        verifier.verify_metadata(**integrity_files)
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        ("0.5", "0.50000000000000001"),
+        ("9007199254740992.0", "9007199254740993.0"),
+        ("1e-30", "1.0000000000000001e-30"),
+        ("0.5", '"0.5"'),
+        ("7", '"7"'),
+    ],
+)
+def test_raw_json_number_changes_cannot_be_lost_or_collide_with_strings(
+    integrity_files, before, after,
+):
+    path = integrity_files["primary_state"]
+    original = path.read_text()
+    path.write_text(original.replace('"before"', before, 1))
+    verifier.write_metadata(
+        plan=integrity_files["plan"], lock=integrity_files["lock"],
+        primary_state=path, bootstrap_state=integrity_files["bootstrap_state"],
+        output=integrity_files["metadata_path"],
+    )
+    path.write_text(original.replace('"before"', after, 1))
+    with pytest.raises(ValueError, match="integrity changed"):
+        verifier.verify_metadata(**integrity_files)
+
+
+def test_duplicate_state_object_keys_fail_closed(tmp_path):
+    path = tmp_path / "state"
+    path.write_text('{"lineage":"example","serial":7,"value":1,"value":2}')
+    with pytest.raises(ValueError, match="duplicate"):
+        verifier._state_identity(path)
