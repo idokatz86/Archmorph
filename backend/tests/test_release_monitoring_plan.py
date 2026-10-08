@@ -323,18 +323,23 @@ def test_plan_cli_requires_explicit_monitoring_existence_evidence(plan_files):
         monitoring.main()
 
 
-def test_retry_accepts_only_initialized_empty_monitoring_state(plan_files):
+@pytest.mark.parametrize("serial", [0, 1])
+def test_retry_accepts_only_initialized_empty_monitoring_state(plan_files, serial):
     plan_files["monitoring-existence"].write_text('{"exists":true}')
+    for name in ("monitoring-state", "monitoring-current", "monitoring-before-init"):
+        state = json.loads(plan_files[name].read_text())
+        state["serial"] = serial
+        plan_files[name].write_text(json.dumps(state))
     monitoring.main()
     evidence = json.loads(plan_files["output"].read_text())
     assert evidence["monitoring_state_exists_before_init"] is True
-    assert evidence["monitoring_state"]["serial"] == 0
+    assert evidence["monitoring_state"]["serial"] == serial
 
 
 @pytest.mark.parametrize(
     ("field", "value"),
     [
-        ("version", 3), ("serial", 1), ("serial", -1),
+        ("version", 3), ("serial", 2), ("serial", -1),
         ("resources", [{"type": "azurerm_monitor_action_group", "name": "critical"}]),
         ("outputs", {"existing": {"value": "do-not-adopt"}}),
         ("check_results", [{"status": "pass"}]),
@@ -354,6 +359,15 @@ def test_retry_rejects_replaced_empty_state_lineage(plan_files):
     path = plan_files["monitoring-current"]
     state = json.loads(path.read_text())
     state["lineage"] = "different"
+    path.write_text(json.dumps(state))
+    with pytest.raises(ValueError, match="Monitoring state changed"):
+        monitoring.main()
+
+
+def test_empty_state_serial_must_not_advance_while_planning(plan_files):
+    path = plan_files["monitoring-current"]
+    state = json.loads(path.read_text())
+    state["serial"] = 1
     path.write_text(json.dumps(state))
     with pytest.raises(ValueError, match="Monitoring state changed"):
         monitoring.main()

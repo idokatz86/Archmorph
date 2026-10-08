@@ -44,11 +44,15 @@ separate state identity, not a new storage or IAM boundary. Its key must not
 collide with either existing state. Do not create a public backend or use
 storage-account keys/SAS.
 Terraform's Azure backend initializes an empty state blob during planning. A
-retry keeps the same key and must prove a version-4, serial-zero state with no
-resources, outputs, or check results. Any managed history/content blocks initial
+retry keeps the same key and must prove a version-4 initial state (serial 0 or 1) with no
+resources, outputs, or check results. Any content or later revision blocks initial
 planning and requires separate adoption review. The monitoring lineage/digest is
 captured and must remain unchanged throughout the plan; keys are never rotated
 or deleted to bypass this check.
+The live backend initialized at serial 1; its zero resource/output counts were
+verified through the private endpoint without exporting state values. A later
+serial, any content, or any serial/lineage/digest change during planning still
+blocks approval.
 
 ## Planning procedure
 
