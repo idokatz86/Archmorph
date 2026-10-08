@@ -261,6 +261,7 @@ def plan_files(tmp_path, monkeypatch):
         name: tmp_path / name for name in (
             "input", "app", "workspace", "primary-state", "migration-state",
             "primary-current", "migration-current", "monitoring-existence",
+            "monitoring-state", "monitoring-current", "monitoring-before-init",
             "plan-binary", "lock", "output",
         )
     }
@@ -271,6 +272,10 @@ def plan_files(tmp_path, monkeypatch):
         lineage = "primary" if name.startswith("primary") else "migration"
         files[name].write_text(json.dumps({"lineage": lineage, "serial": 7, "resources": []}))
     files["monitoring-existence"].write_text('{"exists":false}')
+    for name in ("monitoring-state", "monitoring-current", "monitoring-before-init"):
+        files[name].write_text(json.dumps({
+            "version": 4, "lineage": "monitoring", "serial": 0, "resources": [], "outputs": {},
+        }))
     files["plan-binary"].write_bytes(b"example reviewed binary")
     files["lock"].write_bytes(b"example pinned provider lock")
     for key, value in {
@@ -290,7 +295,9 @@ def test_plan_cli_emits_review_only_identity_not_private_values(plan_files, caps
     public_summary = json.loads(capsys.readouterr().out)
     evidence = json.loads(plan_files["output"].read_text())
     assert evidence["purpose"] == "review-only-not-approved-for-apply"
-    assert evidence["monitoring_state_initially_absent"] is True
+    assert evidence["schema_version"] == 2
+    assert evidence["monitoring_state_exists_before_init"] is False
+    assert evidence["monitoring_state"]["serial"] == 0
     assert evidence["primary_state"]["serial"] == 7
     assert evidence["migration_state"]["serial"] == 7
     assert len(evidence["plan_sha256"]) == 64
@@ -310,9 +317,55 @@ def test_plan_cli_rejects_state_changed_during_plan(plan_files, which):
     assert not plan_files["output"].exists()
 
 
-def test_plan_cli_requires_explicit_unused_monitoring_key_evidence(plan_files):
+def test_plan_cli_requires_explicit_monitoring_existence_evidence(plan_files):
+    plan_files["monitoring-existence"].write_text('{"exists":"false"}')
+    with pytest.raises(ValueError, match="state-existence"):
+        monitoring.main()
+
+
+def test_retry_accepts_only_initialized_empty_monitoring_state(plan_files):
     plan_files["monitoring-existence"].write_text('{"exists":true}')
-    with pytest.raises(ValueError, match="unused state key"):
+    monitoring.main()
+    evidence = json.loads(plan_files["output"].read_text())
+    assert evidence["monitoring_state_exists_before_init"] is True
+    assert evidence["monitoring_state"]["serial"] == 0
+
+
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [
+        ("version", 3), ("serial", 1), ("serial", -1),
+        ("resources", [{"type": "azurerm_monitor_action_group", "name": "critical"}]),
+        ("outputs", {"existing": {"value": "do-not-adopt"}}),
+        ("check_results", [{"status": "pass"}]),
+    ],
+)
+def test_retry_rejects_any_monitoring_state_content_or_history(plan_files, field, value):
+    path = plan_files["monitoring-state"]
+    state = json.loads(path.read_text())
+    state[field] = value
+    path.write_text(json.dumps(state))
+    with pytest.raises(ValueError):
+        monitoring.main()
+    assert not plan_files["output"].exists()
+
+
+def test_retry_rejects_replaced_empty_state_lineage(plan_files):
+    path = plan_files["monitoring-current"]
+    state = json.loads(path.read_text())
+    state["lineage"] = "different"
+    path.write_text(json.dumps(state))
+    with pytest.raises(ValueError, match="Monitoring state changed"):
+        monitoring.main()
+
+
+def test_retry_rejects_state_replacement_during_backend_initialization(plan_files):
+    plan_files["monitoring-existence"].write_text('{"exists":true}')
+    path = plan_files["monitoring-before-init"]
+    state = json.loads(path.read_text())
+    state["lineage"] = "different"
+    path.write_text(json.dumps(state))
+    with pytest.raises(ValueError, match="during initialization"):
         monitoring.main()
 
 
