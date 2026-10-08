@@ -117,11 +117,22 @@ alert definitions, and verifies that the action group has only the approved
 enabled email receiver. It sends one `logalertv2` test notification to the existing
 `ALERT_EMAIL` and requires Azure's completed send status. That is not proof that a
 human received/read the email; inbox confirmation remains a separate observation.
+Test requests use the documented Action Groups REST payload with the already
+verified email receiver, rather than relying on CLI receiver argument mapping.
+An accepted asynchronous request is polled at the exact approved subscription
+endpoint without resending; its identity is retained in encrypted diagnostics.
 It releases the lease, retains encrypted evidence, and removes plaintext
 artifacts even when a step fails. Partial Terraform failure requires inspection
 of the resulting state and a new recovery decision, never automatic destruction.
 
 Monitoring success does not resume the separately paused application release.
+
+If apply and live attestation succeeded but notification failed, **do not rerun
+the apply workflow**. First reconcile whether the notification was accepted.
+For a confirmed rejected request, the owner may dispatch
+[Test existing release monitoring email](../../.github/workflows/release-monitoring-notification.yml)
+with explicit exact-source approval. It reads state outputs, re-attests the live
+alerts/receiver, and sends one test only; it has no plan/apply/deploy path.
 
 ## Release output contract
 

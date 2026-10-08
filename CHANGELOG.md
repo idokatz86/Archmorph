@@ -30,6 +30,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Infrastructure and security maintenance
 
+- **Monitoring email-test recovery** -- send the explicit verified REST receiver
+  payload and poll accepted requests without resending. A separate manual
+  notification-only workflow can complete delivery verification without repeating
+  an already successful infrastructure apply.
 - **Verified monitoring-only apply** -- correct the canonical queries to the
   Application Insights schema, validate live and read-only synthetic queries, and
   require explicit source/run/plan/ciphertext approval for a lease-supervised
