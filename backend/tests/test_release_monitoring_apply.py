@@ -13,6 +13,7 @@ import subprocess
 import sys
 import tarfile
 from unittest.mock import Mock
+from urllib.error import HTTPError
 
 import pytest
 import yaml
@@ -415,15 +416,82 @@ def test_pending_notification_is_not_reported_as_delivered():
 
 
 def test_email_test_uses_only_preverified_existing_recipient(monkeypatch):
-    query = Mock(side_effect=[_group(), _notification()])
+    query = Mock(return_value=_group())
+    sender = Mock(return_value=operations.notification_result(_notification()))
     monkeypatch.setattr(operations, "az_json", query)
+    monkeypatch.setattr(operations, "send_email_test", sender)
     report = operations.test_email(APP)
     assert report["recipient_inbox_receipt_confirmed"] is False
-    assert query.call_args_list[1].args[0] == [
-        "monitor", "action-group", "test-notifications", "create",
-        "--resource-group", "example-runtime", "--action-group", "archmorph-critical-alerts",
-        "--alert-type", "logalertv2", "--add-action", "email", "admin", EMAIL, "usecommonalertschema",
-    ]
+    sender.assert_called_once_with(
+        _group()["properties"]["emailReceivers"][0], _group()["id"],
+    )
+
+
+def test_email_rest_payload_contains_the_verified_receiver(monkeypatch):
+    monkeypatch.setattr(operations, "az_json", Mock(return_value={"accessToken": "short-lived-test-token"}))
+    request = Mock(return_value=(200, _notification(), None))
+    monkeypatch.setattr(operations, "notification_request", request)
+    result = operations.send_email_test(_group()["properties"]["emailReceivers"][0], _group()["id"])
+    assert result["email_test_status"] == "Completed"
+    assert request.call_args.args[2] == {
+        "alertType": "logalertv2",
+        "emailReceivers": [{"name": "admin", "emailAddress": EMAIL, "useCommonAlertSchema": True}],
+    }
+    assert request.call_args.args[0].endswith("/createNotifications?api-version=2021-09-01")
+
+
+def test_accepted_test_polls_without_resending_and_retains_request_identity(tmp_path, monkeypatch):
+    monkeypatch.setenv("MONITORING_EVIDENCE_DIR", str(tmp_path))
+    monkeypatch.setattr(operations, "az_json", Mock(return_value={"accessToken": "short-lived-test-token"}))
+    monkeypatch.setattr(operations.time, "sleep", Mock())
+    location = "/subscriptions/example/providers/Microsoft.Insights/notificationStatus/example-id?api-version=2021-09-01"
+    request = Mock(side_effect=[
+        (202, {}, location), (200, {"state": "InProgress"}, None), (200, _notification(), None),
+    ])
+    monkeypatch.setattr(operations, "notification_request", request)
+    operations.send_email_test(_group()["properties"]["emailReceivers"][0], _group()["id"])
+    assert len(request.call_args_list[0].args) == 3
+    assert all(len(call.args) == 2 for call in request.call_args_list[1:])
+    saved = json.loads((tmp_path / "notification-request.json").read_text())
+    assert saved["send_attempts"] == 1 and saved["accepted"] is True
+    assert EMAIL not in json.dumps(saved)
+
+
+def test_accepted_notification_timeout_never_resends(monkeypatch):
+    monkeypatch.setattr(operations, "az_json", Mock(return_value={"accessToken": "short-lived-test-token"}))
+    monkeypatch.setattr(operations.time, "monotonic", Mock(side_effect=[0, 301]))
+    request = Mock(return_value=(202, {}, (
+        "/subscriptions/example/providers/Microsoft.Insights/notificationStatus/id?api-version=2021-09-01"
+    )))
+    monkeypatch.setattr(operations, "notification_request", request)
+    with pytest.raises(TimeoutError, match="do not resend"):
+        operations.send_email_test(_group()["properties"]["emailReceivers"][0], _group()["id"])
+    assert request.call_count == 1
+
+
+def test_notification_http_error_does_not_disclose_tokens_or_receiver(monkeypatch):
+    opener = Mock()
+    opener.open.side_effect = HTTPError(
+        "https://management.azure.com", 400, "private@example.com short-lived-test-token", {}, None,
+    )
+    monkeypatch.setattr(operations, "build_opener", Mock(return_value=opener))
+    with pytest.raises(RuntimeError, match="HTTP 400") as caught:
+        operations.notification_request("https://management.azure.com", "short-lived-test-token", {})
+    assert "private@example.com" not in str(caught.value)
+    assert "short-lived-test-token" not in str(caught.value)
+    assert opener.open.call_args.kwargs["timeout"] == 30
+    assert isinstance(operations.build_opener.call_args.args[0], operations._NoRedirect)
+
+
+@pytest.mark.parametrize("location", [
+    "https://example.com/token",
+    "http://management.azure.com/subscriptions/example/providers/Microsoft.Insights/notificationStatus/id?api-version=2021-09-01",
+    "/subscriptions/example-other/providers/Microsoft.Insights/notificationStatus/id?api-version=2021-09-01",
+    "/subscriptions/example/providers/Microsoft.Insights/notificationStatus/../id?api-version=2021-09-01",
+])
+def test_notification_polling_cannot_send_token_outside_approved_endpoint(location):
+    with pytest.raises(ValueError):
+        operations._notification_poll_url(location)
 
 
 @pytest.mark.parametrize(
@@ -479,6 +547,27 @@ def test_planning_workflow_requires_live_queries_but_still_cannot_apply():
     )
     assert re.search(r"\bterraform(?:\s+-\S+)*\s+apply\b", text) is None
     assert all(step.get("with", {}).get("terraform_version", "1.9.8") == "1.9.8" for step in steps)
+
+
+def test_notification_recovery_is_separate_from_apply_and_production_rollout():
+    text = (ROOT / ".github/workflows/release-monitoring-notification.yml").read_text()
+    workflow = yaml.safe_load(text)
+    trigger = workflow.get("on", workflow.get(True))
+    assert set(trigger) == {"workflow_dispatch"}
+    assert trigger["workflow_dispatch"]["inputs"]["confirm_notification_test"]["default"] is False
+    job = workflow["jobs"]["notification-test"]
+    assert job["environment"] == "production"
+    assert "secrets.ALERT_EMAIL" in job["env"]["TF_VAR_alert_email"]
+    assert re.search(r"\bterraform(?:\s+-\S+)*\s+(apply|plan|destroy)\b", text) is None
+    assert "az containerapp" not in text
+    names = [step.get("name") for step in job["steps"]]
+    assert names.index("Attest the existing monitored resources without changing state") < names.index(
+        "Send one verified existing-recipient test"
+    )
+    assert "--retry-only" in text
+    for step in job["steps"]:
+        if "uses" in step:
+            assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", step["uses"])
 
 
 @pytest.mark.parametrize("command", ["queries", "verify", "attest", "test-email"])

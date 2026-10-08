@@ -13,7 +13,11 @@ import re
 import shutil
 import subprocess
 import tarfile
+import time
 from typing import Any
+from urllib.error import HTTPError, URLError
+from urllib.parse import urljoin, urlsplit
+from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 from verify_migration_alerts import attest_alerts
 from verify_migration_bootstrap import _state_identity
@@ -336,6 +340,94 @@ def notification_result(payload: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+class _NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def notification_request(
+    url: str, token: str, body: dict[str, Any] | None = None,
+) -> tuple[int, dict[str, Any], str | None]:
+    request = Request(
+        url, method="POST" if body is not None else "GET",
+        data=json.dumps(body).encode() if body is not None else None,
+        headers={"Authorization": f"Bearer {token}", "Content-Type": "application/json"},
+    )
+    try:
+        with build_opener(_NoRedirect()).open(request, timeout=30) as response:
+            content = response.read()
+            result = json.loads(content) if content else {}
+            if not isinstance(result, dict):
+                raise ValueError("Notification API response must be an object")
+            return response.status, result, response.headers.get("Location")
+    except HTTPError as exc:
+        raise RuntimeError(f"Notification API request failed: HTTP {exc.code}") from None
+    except (URLError, TimeoutError) as exc:
+        raise RuntimeError(
+            f"Notification request did not complete: {type(exc).__name__}; "
+            "do not resend until request status is reconciled"
+        ) from None
+
+
+def _notification_poll_url(location: str) -> str:
+    url = urljoin("https://management.azure.com", location)
+    parsed = urlsplit(url)
+    prefix = f"/subscriptions/{os.environ['AZURE_SUBSCRIPTION_ID']}/providers/Microsoft.Insights/notificationStatus/"
+    if (
+        parsed.scheme != "https" or parsed.netloc != "management.azure.com"
+        or not parsed.path.casefold().startswith(prefix.casefold())
+        or not re.fullmatch(r"[A-Za-z0-9_-]+", parsed.path[len(prefix):])
+        or parsed.query != "api-version=2021-09-01" or parsed.fragment
+    ):
+        raise ValueError("Notification polling URL is outside the approved subscription/API")
+    return url
+
+
+def send_email_test(receiver: dict[str, Any], group_id: str) -> dict[str, Any]:
+    credential = az_json([
+        "account", "get-access-token", "--resource", "https://management.azure.com/",
+        "--query", "{accessToken:accessToken}",
+    ], label="Short-lived notification authentication")
+    token = credential.get("accessToken")
+    if not isinstance(token, str) or not token:
+        raise ValueError("Short-lived notification token missing")
+    request_body = {
+        "alertType": "logalertv2",
+        "emailReceivers": [{
+            "name": receiver["name"], "emailAddress": receiver["emailAddress"],
+            "useCommonAlertSchema": True,
+        }],
+    }
+    status, result, location = notification_request(
+        f"https://management.azure.com{group_id}/createNotifications?api-version=2021-09-01",
+        token, request_body,
+    )
+    if status == 200:
+        return notification_result(result)
+    if status != 202 or not location:
+        raise ValueError("Notification request has no accepted polling contract; do not automatically resend")
+    polling = _notification_poll_url(location)
+    evidence_dir = os.environ.get("MONITORING_EVIDENCE_DIR")
+    if evidence_dir:
+        (Path(evidence_dir) / "notification-request.json").write_text(
+            json.dumps({"accepted": True, "polling_url": polling, "send_attempts": 1}) + "\n",
+            encoding="utf-8",
+        )
+    deadline = time.monotonic() + 300
+    while time.monotonic() < deadline:
+        time.sleep(5)
+        status, result, _ = notification_request(polling, token)
+        if status == 202:
+            continue
+        if status != 200:
+            raise ValueError("Notification status response is invalid; do not automatically resend")
+        if result.get("state") == "Completed":
+            return notification_result(result)
+        if result.get("state") not in {"Pending", "InProgress", "Running"}:
+            raise ValueError("Notification test failed; inspect accepted request status before retry")
+    raise TimeoutError("Notification was accepted but completion is unverified; do not resend")
+
+
 def test_email(app: dict[str, Any]) -> dict[str, Any]:
     group_id = expected_resource_ids(app)["critical_action_group_id"]
     group = az_json([
@@ -343,13 +435,8 @@ def test_email(app: dict[str, Any]) -> dict[str, Any]:
         "--url", f"https://management.azure.com{group_id}?api-version=2023-01-01",
     ], label="Notification test receiver verification")
     validate_action_group(group, group_id, os.environ["TF_VAR_alert_email"])
-    result = az_json([
-        "monitor", "action-group", "test-notifications", "create",
-        "--resource-group", os.environ["AZURE_RESOURCE_GROUP"], "--action-group", ACTION_GROUP_NAME,
-        "--alert-type", "logalertv2", "--add-action", "email", "admin",
-        os.environ["TF_VAR_alert_email"], "usecommonalertschema",
-    ], label="Approved email test notification")
-    return notification_result(result)
+    receiver = _one(group["properties"]["emailReceivers"], "approved email receiver")
+    return send_email_test(receiver, group_id)
 
 
 def main() -> None:
@@ -380,6 +467,7 @@ def main() -> None:
     notification = commands.add_parser("test-email")
     notification.add_argument("--app", type=Path, required=True)
     notification.add_argument("--output", type=Path, required=True)
+    notification.add_argument("--retry-only", action="store_true")
     args = parser.parse_args()
     if args.command == "approval":
         approval()
@@ -398,7 +486,15 @@ def main() -> None:
         elif args.command == "attest":
             report = attest_live(args.outputs, _load(args.app), args.spec)
         else:
-            approval()
+            if args.retry_only:
+                if (
+                    os.environ.get("CONFIRM_NOTIFICATION_TEST") != "true"
+                    or os.environ.get("GITHUB_REF") != "refs/heads/main"
+                    or os.environ.get("GITHUB_SHA") != os.environ.get("APPROVED_SOURCE_SHA")
+                ):
+                    raise ValueError("Notification-only recovery requires exact-source protected approval")
+            else:
+                approval()
             report = test_email(_load(args.app))
         args.output.write_text(json.dumps(report, sort_keys=True, indent=2) + "\n", encoding="utf-8")
         print(json.dumps(report, sort_keys=True))
