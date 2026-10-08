@@ -370,6 +370,11 @@ def test_plan_workflow_is_manual_protected_exact_sha_and_cannot_apply():
     assert upload["with"]["path"].endswith(".tar.gz.enc")
     assert upload["with"]["name"].endswith("${{ github.run_id }}-${{ github.run_attempt }}")
     assert "Remove plaintext plan and state evidence" in source
+    for step in job["steps"]:
+        if "uses" in step:
+            assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", step["uses"]), (
+                "Every action in the production OIDC planning job must be immutable"
+            )
 
 
 def test_monitoring_has_one_owner_and_primary_never_destroys_it():

@@ -194,7 +194,7 @@ jobs:
 
       - name: Retain encrypted review evidence only
         if: always() && env.MONITORING_EVIDENCE_DIR != ''
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: release-monitoring-plan-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/release-monitoring-plan.tar.gz.enc
