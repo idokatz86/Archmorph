@@ -45,7 +45,7 @@ jobs:
     runs-on: ${{ fromJSON(vars.ROLLBACK_PRIORITY_RUNNER_LABELS) }}
     timeout-minutes: 60
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Azure Login for rollout coordination (OIDC)
         uses: azure/login@v3
@@ -74,7 +74,7 @@ jobs:
     timeout-minutes: 45
     environment: production
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Azure Login (OIDC)
         uses: azure/login@v3

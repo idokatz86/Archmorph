@@ -32,7 +32,7 @@ jobs:
       DEFAULT_TARGET_RPS: "100"
       DEFAULT_RUN_TIME: "5m"
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Resolve soak configuration
         id: config
