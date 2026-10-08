@@ -83,10 +83,10 @@ def _attest(inventory: list[dict]) -> dict[str, dict]:
 def test_applied_alert_attestation_passes_exact_state_and_whitespace_only_kql_changes():
     inventory = _inventory()
     inventory[0]["properties"]["criteria"]["allOf"][0]["query"] = """
-        AppEvents
-          | where   Name == 'migration_failed'
-        | where tostring(Properties['application']) == 'archmorph'
-        | where tostring(Properties['owner']) == 'platform-engineering'
+        customEvents
+          | where   name == 'migration_failed'
+        | where tostring(customDimensions['application']) == 'archmorph'
+        | where tostring(customDimensions['owner']) == 'platform-engineering'
         | summarize FailureEvents = count()
     """
 

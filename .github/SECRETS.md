@@ -64,6 +64,14 @@ state snapshots, telemetry inventory, or binary plan in unencrypted artifacts.
 The monitoring key is an independent state identity, not a separate storage or
 IAM isolation boundary; the shared container's existing access policy is unchanged.
 
+`Apply approved release monitoring` reuses those same settings plus the existing
+rollout-coordination account/container. Its manual inputs must bind an approved
+successful plan run/attempt, exact current-main SHA, saved-plan hash, and encrypted
+bundle hash. The confirmation defaults to false; this workflow applies only the
+saved monitoring plan and sends one approved email test. It does not merge or
+deploy the application. Plaintext plan/state/recipient data remain private and
+only encrypted evidence is retained.
+
 ## Production Terraform Workflow Secrets
 
 These secrets are required in `.github/workflows/terraform-prod.yml`:

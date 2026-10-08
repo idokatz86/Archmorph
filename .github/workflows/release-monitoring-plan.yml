@@ -89,7 +89,7 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
-          terraform_version: "1.9.x"
+          terraform_version: "1.9.8"
           terraform_wrapper: false
 
       - name: Verify isolated ownership and existing telemetry metadata
@@ -142,6 +142,15 @@ jobs:
             python3 scripts/verify_release_monitoring.py empty-state \
               --input "$E/monitoring-before-init.json"
           fi
+
+      - name: Validate live and synthetic canonical queries without ingestion
+        run: |
+          set -euo pipefail
+          python3 scripts/release_monitoring_apply.py queries \
+            --app "$MONITORING_EVIDENCE_DIR/telemetry.json" \
+            --workspace "$MONITORING_EVIDENCE_DIR/workspace.json" \
+            --spec infra/monitoring/migration-alert-specs.json \
+            --output "$MONITORING_EVIDENCE_DIR/query-evidence.json"
 
       - name: Create and verify the five-resource saved plan without apply
         id: plan

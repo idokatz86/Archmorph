@@ -9,7 +9,7 @@
       "enabled": true,
       "evaluation_frequency": "PT5M",
       "window_duration": "PT15M",
-      "query": "AppEvents\n| where Name == 'migration_failed'\n| where tostring(Properties['application']) == 'archmorph'\n| where tostring(Properties['owner']) == 'platform-engineering'\n| summarize FailureEvents = count()",
+      "query": "customEvents\n| where name == 'migration_failed'\n| where tostring(customDimensions['application']) == 'archmorph'\n| where tostring(customDimensions['owner']) == 'platform-engineering'\n| summarize FailureEvents = count()",
       "criteria": {
         "time_aggregation_method": "Maximum",
         "operator": "GreaterThan",
@@ -32,7 +32,7 @@
       "enabled": true,
       "evaluation_frequency": "PT5M",
       "window_duration": "PT15M",
-      "query": "AppEvents\n| where Name == 'migration_timed_out'\n| where tostring(Properties['application']) == 'archmorph'\n| where tostring(Properties['owner']) == 'platform-engineering'\n| summarize TimeoutEvents = count()",
+      "query": "customEvents\n| where name == 'migration_timed_out'\n| where tostring(customDimensions['application']) == 'archmorph'\n| where tostring(customDimensions['owner']) == 'platform-engineering'\n| summarize TimeoutEvents = count()",
       "criteria": {
         "time_aggregation_method": "Maximum",
         "operator": "GreaterThan",
@@ -55,7 +55,7 @@
       "enabled": true,
       "evaluation_frequency": "PT5M",
       "window_duration": "PT30M",
-      "query": "AppEvents\n| where Name in ('migration_started', 'migration_succeeded')\n| where tostring(Properties['application']) == 'archmorph'\n| where tostring(Properties['owner']) == 'platform-engineering'\n| extend Execution = tostring(Properties['execution'])\n| summarize Started = countif(Name == 'migration_started'), Succeeded = countif(Name == 'migration_succeeded') by Execution\n| summarize MissingEvidence = countif(Started > Succeeded)",
+      "query": "customEvents\n| where name in ('migration_started', 'migration_succeeded')\n| where tostring(customDimensions['application']) == 'archmorph'\n| where tostring(customDimensions['owner']) == 'platform-engineering'\n| extend Execution = tostring(customDimensions['execution'])\n| summarize Started = countif(name == 'migration_started'), Succeeded = countif(name == 'migration_succeeded') by Execution\n| summarize MissingEvidence = countif(Started > Succeeded)",
       "criteria": {
         "time_aggregation_method": "Maximum",
         "operator": "GreaterThan",
@@ -78,7 +78,7 @@
       "enabled": true,
       "evaluation_frequency": "PT1M",
       "window_duration": "PT5M",
-      "query": "AppEvents\n| where Name == 'bridge_customer_degraded'\n| where tostring(Properties['application']) == 'archmorph'\n| where tostring(Properties['owner']) == 'platform-engineering'\n| summarize DegradedEvents = count()",
+      "query": "customEvents\n| where name == 'bridge_customer_degraded'\n| where tostring(customDimensions['application']) == 'archmorph'\n| where tostring(customDimensions['owner']) == 'platform-engineering'\n| summarize DegradedEvents = count()",
       "criteria": {
         "time_aggregation_method": "Maximum",
         "operator": "GreaterThan",
