@@ -137,7 +137,7 @@ After a separately approved apply, the deployment gate reads only this root's:
 Missing outputs remain release-blocking. The existing
 [applied-resource attestation](../../scripts/verify_migration_alerts.py) still
 compares enabled state, severity, scopes, queries, timing, aggregation, thresholds,
-and action-group IDs against the canonical specification. There is no fallback
+auto-resolution, and action-group IDs against the canonical specification. There is no fallback
 to stale primary outputs or automatically discovered unrelated alert IDs.
 
 ## Cost estimate and remaining approval gates

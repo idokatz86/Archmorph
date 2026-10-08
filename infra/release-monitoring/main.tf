@@ -114,7 +114,7 @@ resource "azurerm_monitor_scheduled_query_rules_alert_v2" "release" {
     action_groups = [local.critical_action_id]
   }
 
-  auto_mitigation_enabled          = true
+  auto_mitigation_enabled          = each.value.auto_mitigation_enabled
   skip_query_validation            = false
   workspace_alerts_storage_enabled = false
   tags                             = local.tags
