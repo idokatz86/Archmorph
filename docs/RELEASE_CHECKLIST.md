@@ -33,6 +33,7 @@ Core deployment secrets:
 - `MIGRATION_KEY_VAULT_NAME`
 - `MIGRATION_DATABASE_SECRET_NAME`
 - `MIGRATION_TFSTATE_KEY`
+- `MONITORING_TFSTATE_KEY` -- distinct monitoring state in the existing private migration-state container
 - `RELEASE_MANIFEST_HMAC_KEY` — at least 32 bytes; signs final release evidence
 	and migration recovery state
 - `APPLICATIONINSIGHTS_CONNECTION_STRING` — provides the instrumentation key for secret-free migration lifecycle evidence
@@ -75,6 +76,10 @@ The backend must start with PostgreSQL, Redis, `ENFORCE_POSTGRES=true`, and `REQ
 
 The `CI/CD` workflow must pass before release:
 
+- Release-monitoring resources must already be provisioned by an explicitly
+  approved [isolated monitoring plan](../infra/release-monitoring/README.md).
+  The six output IDs come from that root, not the primary state; absence or drift
+  blocks migration. Planning support does not authorize an infrastructure apply.
 - `build-backend-release`: verifies both GHCR staging packages are private
   and linked to this repository **before** any application-image upload. Existing
   public/unlinked packages, API permission errors, or metadata timeouts block

@@ -12,6 +12,7 @@ This directory contains the checked-in Terraform configuration for the Azure-hos
 | Rollout coordination container | `infra/main.tf` | Private Blob container; finite leases and rollback intents use the reviewed release workload identity only |
 | Terraform remote state | Partial `azurerm` backend blocks | Resource group, account, container, and key come from private CI/operator configuration |
 | Migration Job bootstrap | `infra/migration-bootstrap` | Separate state owns only the dedicated identity, secret-scoped/AcrPull RBAC, propagation wait, and manual Job |
+| Release monitoring | `infra/release-monitoring` | Separate state owns four canonical migration/bridge alerts and one approved critical email group; existing telemetry is read-only |
 
 ## Bridge-first application rollout
 
@@ -57,6 +58,13 @@ Concurrent Job executions are rejected before bootstrap and again before start.
 CI also reads the primary state and refuses bootstrap when that state still owns
 the Job. Apply the primary root's reviewed `removed { destroy = false }` change
 first; a resource must never be managed by both states.
+
+The six release-monitoring output identities now come only from
+[the isolated monitoring root](release-monitoring/README.md). The primary root
+reads, but does not manage, the shared critical action group; its removed blocks
+never destroy pre-existing monitors. Initial monitoring planning refuses any
+already-owned/live target and requires a reviewed transfer in that case.
+Monitoring remains unapplied until an owner approves an exact saved plan.
 
 Migration integrity metadata version 2 hashes state as canonical JSON, sorting
 only the unordered top-level `check_results` collection. Terraform can reorder

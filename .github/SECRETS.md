@@ -33,6 +33,9 @@ These secrets are required in `.github/workflows/ci.yml`:
 | `MIGRATION_TFSTATE_STORAGE_ACCOUNT` | Migration-bootstrap state account; must differ from the primary account or use a separate container | `<migration-state-account>` |
 | `MIGRATION_TFSTATE_CONTAINER` | Migration-bootstrap state container; must differ from the primary container when sharing an account | `<migration-state-container>` |
 | `MIGRATION_TFSTATE_KEY` | Separate migration-bootstrap Terraform state key; must also differ from the primary key | `migration-bootstrap.tfstate` |
+| `MONITORING_TFSTATE_KEY` | Dedicated release-monitoring state key in the existing migration-state account/container; must differ from primary and migration keys | `release-monitoring.tfstate` |
+| `MONITORING_APPLICATION_INSIGHTS_NAME` | Exact existing workspace-based Application Insights component used by the monitoring-only plan | `example-insights` |
+| `MONITORING_WORKSPACE_NAME` | Exact existing Log Analytics workspace linked to that component | `example-logs` |
 | `SWA_RESTORE_IMAGE` | Approved Static Web Apps deployment client pinned by immutable digest | `mcr.microsoft.com/<approved-image>@sha256:<64-hex-digest>` |
 | `TFSTATE_STAGING_KEY` | Distinct staging Terraform state key | `staging.tfstate` |
 | `TF_RESOURCE_GROUP_ENVIRONMENT` | Existing stack suffix used only during reviewed adoption | `configured-stack-suffix` |
@@ -52,6 +55,14 @@ These secrets are required in `.github/workflows/monitoring.yml`:
 |-------------|-------------|---------------|
 | `API_URL` | Backend API URL, including the required `/api` suffix | `https://your-api.example.com/api` |
 | `FRONTEND_URL` | Frontend Static Web App URL | `https://your-swa.azurestaticapps.net` |
+
+The manual `Release monitoring plan` workflow reuses the production environment
+OIDC identity, private runner, existing private state backends, `ALERT_EMAIL`, and
+`TFPLAN_ARTIFACT_PASSPHRASE`. It accepts an exact reviewed main SHA, produces only
+an encrypted review plan, and contains no apply job. Do not expose the recipient,
+state snapshots, telemetry inventory, or binary plan in unencrypted artifacts.
+The monitoring key is an independent state identity, not a separate storage or
+IAM isolation boundary; the shared container's existing access policy is unchanged.
 
 ## Production Terraform Workflow Secrets
 

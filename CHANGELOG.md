@@ -30,6 +30,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Infrastructure and security maintenance
 
+- **Isolated release-monitoring planning** -- establish one Terraform owner for
+  the four canonical migration/bridge alerts and critical email group, reuse
+  existing telemetry, and produce encrypted five-create review plans without an
+  apply job. Release attestation reads the isolated six-output contract and stays
+  fail-closed until monitoring is separately approved and provisioned.
 - **Stable migration state integrity** — canonicalize only Terraform's unordered
   check-result collection when hashing state evidence, eliminating false apply
   blocks while retaining exact plan/lock hashes and detection of real state or

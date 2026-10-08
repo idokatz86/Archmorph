@@ -262,6 +262,7 @@ jobs:
             backend/tests/test_run_migrations.py \
             backend/tests/test_migration_bootstrap_verifier.py \
             backend/tests/test_migration_alert_attestation.py \
+            backend/tests/test_release_monitoring_plan.py \
             backend/tests/test_frontend_release.py \
             backend/tests/test_helm_release_contract.py \
             backend/tests/test_helm_secret_contract.py \
@@ -424,7 +425,7 @@ jobs:
 
       - name: Validate checked-in Terraform roots without remote backends
         run: |
-          for dir in . staging dr observability migration-bootstrap; do
+          for dir in . staging dr observability migration-bootstrap release-monitoring; do
             echo "::group::terraform validate infra/$dir"
             if [[ "$dir" == "." ]]; then
               cache_name="root"
@@ -437,6 +438,9 @@ jobs:
             terraform -chdir="$dir" validate -no-color
             echo "::endgroup::"
           done
+
+      - name: Test isolated monitoring with mocked Azure metadata
+        run: terraform -chdir=release-monitoring test -no-color
 
   # ============================================
   # TERRAFORM POLICY-AS-CODE
@@ -1193,6 +1197,7 @@ jobs:
       MIGRATION_TFSTATE_STORAGE_ACCOUNT: ${{ secrets.MIGRATION_TFSTATE_STORAGE_ACCOUNT }}
       MIGRATION_TFSTATE_CONTAINER: ${{ secrets.MIGRATION_TFSTATE_CONTAINER }}
       MIGRATION_TFSTATE_KEY: ${{ secrets.MIGRATION_TFSTATE_KEY }}
+      MONITORING_TFSTATE_KEY: ${{ secrets.MONITORING_TFSTATE_KEY }}
       RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
       APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
       STATIC_WEB_APP_NAME: ${{ vars.STATIC_WEB_APP_NAME || 'archmorph-frontend' }}
@@ -1260,7 +1265,8 @@ jobs:
             TFSTATE_KEY \
             MIGRATION_TFSTATE_STORAGE_ACCOUNT \
             MIGRATION_TFSTATE_CONTAINER \
-            MIGRATION_TFSTATE_KEY; do
+            MIGRATION_TFSTATE_KEY \
+            MONITORING_TFSTATE_KEY; do
             value="${!name:-}"
             if [ -z "$value" ]; then
               echo "::error::Required backend deploy input ${name} is not set"
@@ -2172,13 +2178,19 @@ jobs:
       - name: Attest applied migration alerts before Job execution
         run: |
           set -euo pipefail
-          terraform -chdir=infra output -json > infra/applied-outputs.json
-          MIGRATION_FAILURE_ALERT_ID=$(jq -er '.migration_failure_alert_id.value' infra/applied-outputs.json)
-          MIGRATION_TIMEOUT_ALERT_ID=$(jq -er '.migration_timeout_alert_id.value' infra/applied-outputs.json)
-          MIGRATION_MISSING_EVIDENCE_ALERT_ID=$(jq -er '.migration_missing_evidence_alert_id.value' infra/applied-outputs.json)
-          BRIDGE_CUSTOMER_DEGRADED_ALERT_ID=$(jq -er '.bridge_customer_degraded_alert_id.value' infra/applied-outputs.json)
-          APPLICATION_INSIGHTS_RESOURCE_ID=$(jq -er '.application_insights_resource_id.value' infra/applied-outputs.json)
-          CRITICAL_ACTION_GROUP_ID=$(jq -er '.critical_action_group_id.value' infra/applied-outputs.json)
+          python scripts/verify_release_monitoring.py backend
+          terraform -chdir=infra/release-monitoring init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${MIGRATION_TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}" \
+            -backend-config="key=${MONITORING_TFSTATE_KEY}"
+          terraform -chdir=infra/release-monitoring output -json > monitoring-applied-outputs.json
+          MIGRATION_FAILURE_ALERT_ID=$(jq -er '.migration_failure_alert_id.value' monitoring-applied-outputs.json)
+          MIGRATION_TIMEOUT_ALERT_ID=$(jq -er '.migration_timeout_alert_id.value' monitoring-applied-outputs.json)
+          MIGRATION_MISSING_EVIDENCE_ALERT_ID=$(jq -er '.migration_missing_evidence_alert_id.value' monitoring-applied-outputs.json)
+          BRIDGE_CUSTOMER_DEGRADED_ALERT_ID=$(jq -er '.bridge_customer_degraded_alert_id.value' monitoring-applied-outputs.json)
+          APPLICATION_INSIGHTS_RESOURCE_ID=$(jq -er '.application_insights_resource_id.value' monitoring-applied-outputs.json)
+          CRITICAL_ACTION_GROUP_ID=$(jq -er '.critical_action_group_id.value' monitoring-applied-outputs.json)
           mapfile -t APPLIED_ALERT_IDS < <(az resource list \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --resource-type Microsoft.Insights/scheduledQueryRules \
