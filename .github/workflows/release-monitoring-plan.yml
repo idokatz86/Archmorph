@@ -168,6 +168,7 @@ jobs:
             --monitoring-existence "$E/monitoring-state-exists.json" \
             --spec infra/monitoring/migration-alert-specs.json \
             --output "$E/plan-metadata.json" > "$E/redacted-summary.json"
+          cat "$E/redacted-summary.json"
           cp infra/release-monitoring/.terraform.lock.hcl "$E/provider.lock.hcl"
           cp infra/monitoring/migration-alert-specs.json "$E/migration-alert-specs.json"
           {
@@ -190,7 +191,7 @@ jobs:
             -out "$RUNNER_TEMP/release-monitoring-plan.tar.gz.enc" \
             -pass env:TFPLAN_ARTIFACT_PASSPHRASE
           sha256sum "$RUNNER_TEMP/release-monitoring-plan.tar.gz.enc" \
-            | awk '{print "Encrypted artifact SHA-256: `" $1 "`"}' >> "$GITHUB_STEP_SUMMARY"
+            | awk '{print "Encrypted artifact SHA-256: `" $1 "`"}' | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Retain encrypted review evidence only
         if: always() && env.MONITORING_EVIDENCE_DIR != ''

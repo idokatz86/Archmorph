@@ -385,6 +385,9 @@ def test_plan_workflow_is_manual_protected_exact_sha_and_cannot_apply():
     assert upload["with"]["path"].endswith(".tar.gz.enc")
     assert upload["with"]["name"].endswith("${{ github.run_id }}-${{ github.run_attempt }}")
     assert "Remove plaintext plan and state evidence" in source
+    assert 'cat "$E/redacted-summary.json"' in source
+    assert 'cat "$E/plan.json"' not in source
+    assert 'tee -a "$GITHUB_STEP_SUMMARY"' in source
     for step in job["steps"]:
         if "uses" in step:
             assert re.fullmatch(r"[^@\s]+@[0-9a-f]{40}", step["uses"]), (
