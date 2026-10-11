@@ -134,6 +134,16 @@ For a confirmed rejected request, the owner may dispatch
 with explicit exact-source approval. It reads state outputs, re-attests the live
 alerts/receiver, and sends one test only; it has no plan/apply/deploy path.
 
+A repeated `BadRequest: There are no valid receivers in the request` with the
+receiver's `status` already `Enabled` is not a code defect: Azure requires a
+one-time-passcode email confirmation for new action-group email receivers
+before any notification -- test or real alert -- is delivered to them, and the
+ARM API never exposes this pending-confirmation state (only the Portal UI
+does). See [#1334](https://github.com/idokatz86/Archmorph/issues/1334) for the
+confirmed root cause and the inbox-side remediation steps; this also means
+real alerts will not deliver email until the receiver is confirmed, independent
+of the separately paused application release.
+
 ## Release output contract
 
 After a separately approved apply, the deployment gate reads only this root's:
