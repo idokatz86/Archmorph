@@ -1,6 +1,7 @@
 import json
 import logging
 import asyncio
+from functools import partial
 from typing import Callable, Dict, Any, List
 
 from actor_context import ActorContext
@@ -67,7 +68,21 @@ class ToolRegistry:
             if asyncio.iscoroutinefunction(func):
                 result = await func(**kwargs)
             else:
-                result = await asyncio.to_thread(func, **kwargs)
+                worker = asyncio.get_running_loop().run_in_executor(
+                    None,
+                    partial(func, **kwargs),
+                )
+                try:
+                    result = await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    try:
+                        await worker
+                    except Exception as exc:
+                        logger.warning(
+                            "Synchronous tool failed during cancellation error_type=%s",
+                            type(exc).__name__,
+                        )
+                    raise
                 
             return json.dumps({"status": "success", "result": result})
         except json.JSONDecodeError:

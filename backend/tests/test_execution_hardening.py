@@ -1,5 +1,6 @@
 import asyncio
 import json
+import threading
 from collections.abc import Generator
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
@@ -19,6 +20,7 @@ from models.tenant import Organization
 from routers.executions import router
 from services.agent_runner import AgentRunner
 from services.execution_state import transition_execution
+from services.tool_registry import ToolRegistry
 
 
 @pytest.fixture()
@@ -467,6 +469,152 @@ async def test_running_cancellation_propagates_to_active_async_tool(
         execution = db.get(Execution, "execution-1")
         assert execution is not None
         assert execution.status == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_running_cancellation_waits_for_active_synchronous_tool(
+    session_factory: sessionmaker[Session],
+):
+    _seed_execution(session_factory)
+    tool_started = threading.Event()
+    release_tool = threading.Event()
+    tool_finished = threading.Event()
+    tool_call = SimpleNamespace(
+        id="tool-call-1",
+        function=SimpleNamespace(name="blocking_sync_tool", arguments="{}"),
+    )
+
+    class ToolCallingModelClient:
+        async def chat(self, **_kwargs):
+            return _response(tool_calls=[tool_call])
+
+    class StubModelRouter:
+        def __init__(self, _db: Session, _organization_id: str):
+            pass
+
+        def route(self, _strategy: str):
+            return ToolCallingModelClient()
+
+    def blocking_sync_tool(**_kwargs):
+        tool_started.set()
+        assert release_tool.wait(timeout=2)
+        tool_finished.set()
+        return {"status": "success"}
+
+    registry = ToolRegistry()
+    registry.register(
+        name="blocking_sync_tool",
+        func=blocking_sync_tool,
+        schema={
+            "type": "function",
+            "function": {
+                "name": "blocking_sync_tool",
+                "description": "Test-only blocking synchronous tool.",
+                "parameters": {"type": "object", "properties": {}},
+            },
+        },
+    )
+
+    with (
+        patch("services.agent_runner.SessionLocal", side_effect=session_factory),
+        patch("services.agent_runner.ModelRouter", StubModelRouter),
+        patch("services.agent_runner.tool_registry", registry),
+    ):
+        run_task = asyncio.create_task(
+            AgentRunner("execution-1", actor_context=_actor()).run()
+        )
+        assert await asyncio.to_thread(tool_started.wait, 1)
+        with session_factory() as db:
+            assert transition_execution(
+                db,
+                "execution-1",
+                from_statuses=("running",),
+                to_status="cancel_requested",
+                organization_id="org-a",
+            )
+
+        await asyncio.sleep(0.1)
+        assert not run_task.done()
+        with session_factory() as db:
+            execution = db.get(Execution, "execution-1")
+            assert execution is not None
+            assert execution.status == "cancel_requested"
+
+        release_tool.set()
+        await asyncio.wait_for(run_task, timeout=1)
+
+    assert tool_finished.is_set()
+    with session_factory() as db:
+        execution = db.get(Execution, "execution-1")
+        assert execution is not None
+        assert execution.status == "cancelled"
+
+
+@pytest.mark.asyncio
+async def test_final_response_cancellation_is_acknowledged(
+    session_factory: sessionmaker[Session],
+):
+    _seed_execution(session_factory)
+
+    class CancellationRequestingModelClient:
+        async def chat(self, **_kwargs):
+            with session_factory() as db:
+                assert transition_execution(
+                    db,
+                    "execution-1",
+                    from_statuses=("running",),
+                    to_status="cancel_requested",
+                    organization_id="org-a",
+                )
+            return _response(content="late response")
+
+    class StubModelRouter:
+        def __init__(self, _db: Session, _organization_id: str):
+            pass
+
+        def route(self, _strategy: str):
+            return CancellationRequestingModelClient()
+
+    with (
+        patch("services.agent_runner.SessionLocal", side_effect=session_factory),
+        patch("services.agent_runner.ModelRouter", StubModelRouter),
+    ):
+        await AgentRunner("execution-1", actor_context=_actor()).run()
+
+    with session_factory() as db:
+        execution = db.get(Execution, "execution-1")
+        assert execution is not None
+        assert execution.status == "cancelled"
+        assert execution.output_data is None
+
+
+@pytest.mark.asyncio
+async def test_provider_exception_text_is_not_printed(
+    session_factory: sessionmaker[Session],
+    capsys: pytest.CaptureFixture[str],
+):
+    _seed_execution(session_factory)
+
+    class FailingModelClient:
+        async def chat(self, **_kwargs):
+            raise RuntimeError("provider-secret-token")
+
+    class StubModelRouter:
+        def __init__(self, _db: Session, _organization_id: str):
+            pass
+
+        def route(self, _strategy: str):
+            return FailingModelClient()
+
+    with (
+        patch("services.agent_runner.SessionLocal", side_effect=session_factory),
+        patch("services.agent_runner.ModelRouter", StubModelRouter),
+    ):
+        await AgentRunner("execution-1", actor_context=_actor()).run()
+
+    output = capsys.readouterr().out
+    assert "provider-secret-token" not in output
+    assert "error_type=RuntimeError" in output
 
 
 def test_terminal_execution_cannot_transition_again(

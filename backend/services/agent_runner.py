@@ -243,6 +243,8 @@ class AgentRunner:
 
             if completed:
                 print(f"[AgentRunner] Finished execution {self.execution_id}")
+            elif self._acknowledge_cancellation():
+                print(f"[AgentRunner] Cancelled execution {self.execution_id}")
             else:
                 print(f"[AgentRunner] Execution {self.execution_id} was no longer running.")
 
@@ -263,6 +265,9 @@ class AgentRunner:
             finally:
                 db4.close()
             if failed:
-                print(f"[AgentRunner] Failed execution {self.execution_id}: {e}")
+                print(
+                    f"[AgentRunner] Failed execution {self.execution_id} "
+                    f"error_type={type(e).__name__}"
+                )
             else:
                 self._acknowledge_cancellation()
