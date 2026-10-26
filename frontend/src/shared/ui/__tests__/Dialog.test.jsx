@@ -68,6 +68,40 @@ describe('Dialog', () => {
     await waitFor(() => expect(opener).toHaveFocus());
   });
 
+  it('keeps focus inside a dialog without enabled focusable descendants', async () => {
+    const user = userEvent.setup();
+
+    function EmptyDialogHarness() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <button type="button" onClick={() => setOpen(true)}>Open status</button>
+          <Dialog open={open} onClose={() => setOpen(false)} {...dialogClasses}>
+            <DialogTitle>Status</DialogTitle>
+            <p>No actions are currently available.</p>
+            <button type="button" disabled>Unavailable</button>
+          </Dialog>
+        </>
+      );
+    }
+
+    render(<EmptyDialogHarness />);
+    const opener = screen.getByRole('button', { name: 'Open status' });
+    await user.click(opener);
+
+    const dialog = screen.getByRole('dialog', { name: 'Status' });
+    await waitFor(() => expect(dialog).toHaveFocus());
+
+    await user.tab();
+    expect(dialog).toHaveFocus();
+    await user.tab({ shift: true });
+    expect(dialog).toHaveFocus();
+
+    await user.keyboard('{Escape}');
+    expect(dialog).not.toBeInTheDocument();
+    await waitFor(() => expect(opener).toHaveFocus());
+  });
+
   it('locks scrolling and closes from the backdrop', async () => {
     const user = userEvent.setup();
     const onClose = vi.fn();

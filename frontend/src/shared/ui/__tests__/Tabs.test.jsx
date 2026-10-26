@@ -109,6 +109,38 @@ describe('Tabs', () => {
     expect(onChange).toHaveBeenCalledWith('history');
   });
 
+  it('restores the selected tab to the tab order when the focused tab is removed', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { rerender } = render(
+      <Tabs
+        aria-label="Project sections"
+        tabs={tabs}
+        activeTab="overview"
+        activationMode="manual"
+        onChange={onChange}
+      />,
+    );
+
+    const overview = screen.getByRole('tab', { name: 'Overview' });
+    overview.focus();
+    await user.keyboard('{ArrowRight}');
+    expect(screen.getByRole('tab', { name: 'Details' })).toHaveAttribute('tabindex', '0');
+    expect(overview).toHaveAttribute('aria-selected', 'true');
+
+    rerender(
+      <Tabs
+        aria-label="Project sections"
+        tabs={[tabs[0], tabs[2]]}
+        activeTab="overview"
+        activationMode="manual"
+        onChange={onChange}
+      />,
+    );
+
+    expect(screen.getByRole('tab', { name: 'Overview' })).toHaveAttribute('tabindex', '0');
+  });
+
   it('has no axe accessibility violations', async () => {
     const { container } = render(<TabsHarness />);
     const results = await axeCore.run(container);

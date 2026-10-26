@@ -55,6 +55,7 @@ export function Dialog({
           aria-modal="true"
           aria-label={ariaLabel}
           aria-labelledby={ariaLabel ? undefined : titleId}
+          tabIndex={-1}
           className={className}
         >
           {children}

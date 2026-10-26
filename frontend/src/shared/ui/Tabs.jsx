@@ -32,6 +32,7 @@ export function Tabs({
   const enabledTabIds = getEnabledTabIds(tabs);
   const selectedTabId = enabledTabIds.includes(activeTab) ? activeTab : enabledTabIds[0];
   const [focusedTabId, setFocusedTabId] = useState(selectedTabId);
+  const rovingTabId = enabledTabIds.includes(focusedTabId) ? focusedTabId : selectedTabId;
 
   useEffect(() => {
     if (selectedTabId !== undefined) {
@@ -108,7 +109,7 @@ export function Tabs({
               aria-selected={selected}
               aria-controls={panelId}
               disabled={tab.disabled}
-              tabIndex={!tab.disabled && focusedTabId === tab.id ? 0 : -1}
+              tabIndex={!tab.disabled && rovingTabId === tab.id ? 0 : -1}
               onClick={() => onChange(tab.id)}
               onFocus={() => setFocusedTabId(tab.id)}
               onKeyDown={(event) => handleKeyDown(event, tab.id)}
