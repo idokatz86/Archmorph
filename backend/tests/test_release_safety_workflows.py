@@ -1234,6 +1234,8 @@ def test_migration_alerts_use_action_group_and_explicit_platform_owner():
 
 
 def test_reviewed_migration_alert_specs_match_terraform_exactly():
+    workflow = _load(CI_WORKFLOW)
+    job = workflow["jobs"]["alembic-migration-smoke"]
     terraform = MONITORING_TERRAFORM.read_text(encoding="utf-8")
     assert 'jsondecode(file("${path.module}/../monitoring/migration-alert-specs.json")).alerts' in terraform
     for name in ("severity", "enabled", "evaluation_frequency", "window_duration"):
@@ -1245,6 +1247,14 @@ def test_reviewed_migration_alert_specs_match_terraform_exactly():
         assert f"each.value.criteria.failing_periods.{name}" in terraform
     assert "action_groups = [local.critical_action_id]" in terraform
     assert "/providers/Microsoft.Insights/actionGroups/${azurerm_monitor_action_group.critical.name}" in terraform
+
+    safety_step = _step_by_name(job["steps"], "Run N-1 migration safety gate")
+    safety_run = safety_step["run"]
+    assert "printf -v MIGRATION_TEST_DATABASE_URL" in safety_run
+    assert '"$DATABASE_SCHEME" "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB"' in safety_run
+    assert "export MIGRATION_TEST_DATABASE_URL" in safety_run
+    assert "python -m pytest -n 0 tests/test_migration_safety.py" in safety_run
+    assert "alembic-migration-smoke" in workflow["jobs"]["deploy-backend"]["needs"]
 
 
 def test_rollback_health_verification_uses_authenticated_api_health():

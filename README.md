@@ -171,6 +171,16 @@ Run the manual `Production Architecture Package Smoke` GitHub Action, or run [do
 **Release rollback and migration smoke:**
 Use [docs/runbooks/rollback.md](docs/runbooks/rollback.md) for backend Container Apps rollback, ACR image pinning, frontend Static Web Apps recovery, health verification, and Alembic downgrade caveats. CI also runs an `alembic-migration-smoke` job against PostgreSQL plus pgvector so broken migration chains fail before release.
 
+Database schema ownership is release-controlled: production runtime code never
+calls SQLAlchemy `create_all` or applies migrations. Apply `alembic upgrade head`
+as a separate release step before shifting traffic. The authenticated
+`/api/health` detailed readiness and the anonymous, probe-safe `/readyz` endpoint
+compare the database revision with the repository Alembic head. `/readyz` returns
+only `ready` or `not_ready` and HTTP 503 when schema authority is not satisfied;
+`/healthz` remains liveness-only.
+`database.init_db()` remains an explicit local/test bootstrap and refuses to run
+when `ENVIRONMENT` is `production`, `prod`, or `staging`.
+
 **Refresh the API contract snapshot after intentional backend route/schema changes:**
 ```bash
 cd backend
@@ -178,7 +188,13 @@ python export_openapi.py > openapi.snapshot.json
 python check_openapi_contract.py
 ```
 
-For PRs, CI also compares `backend/openapi.snapshot.json` to the base branch snapshot and blocks detected breaking changes unless explicit approval metadata is provided in `backend/openapi.breaking-change.json`.
+For PRs, CI compares `backend/openapi.snapshot.json` to the base branch snapshot and blocks breaking changes unless GitHub returns an authenticated `APPROVED` review from an explicitly authorized API owner (`idokatz86`, matching the backend CODEOWNER). The review must apply to the current head commit and include one line whose JSON values exactly match the repository, PR, base/head schema hashes, detected break IDs, and a future UTC expiry:
+
+```text
+OpenAPI-Breaking-Change-Approval:{"version":1,"repository":"idokatz86/Archmorph","pull_request":1234,"base_schema_sha256":"<printed by gate>","head_schema_sha256":"<printed by gate>","break_ids":["openapi-break-v1:<printed by gate>"],"expires_at":"2026-10-30T12:00:00+00:00"}
+```
+
+The gate reads reviews through the authenticated GitHub API and accepts only review URLs on `github.com/idokatz86/Archmorph`. Repository files, review URLs on other domains, self-asserted approver names, approvals for earlier commits, and stale or expired attestations cannot authorize the change.
 
 **Check frontend environment exposure before adding new Vite variables:**
 ```bash
@@ -839,6 +855,7 @@ Before promoting a build, use the release checklist in [docs/RELEASE_CHECKLIST.m
 Production hardening switches:
 
 - `DATABASE_URL` must point to PostgreSQL for production; set `ENFORCE_POSTGRES=true` to fail startup if SQLite is accidentally configured.
+- The production database must already be at the repository Alembic head; runtime readiness is read-only and never runs migrations or creates tables.
 - `REDIS_HOST` or `REDIS_URL` should be configured for horizontal scale; set `REQUIRE_REDIS=true` to fail startup instead of falling back to local file-backed stores.
 - Async analysis, IaC, and HLD `202 Accepted` responses use Redis-backed claim/lease/recovery semantics. See [docs/operations/durable-jobs.md](docs/operations/durable-jobs.md) for the durability guarantee, retry behavior, worker settings, and alert response.
 - `FEATURE_FLAG_LIVE_CLOUD_SCANNER` and `FEATURE_FLAG_DEPLOY_ENGINE` default to disabled and must only be enabled after the admin release gate and tenant validation pass.

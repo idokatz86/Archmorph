@@ -903,7 +903,7 @@ resource "azurerm_container_app" "backend" {
       }
 
       liveness_probe {
-        path                    = var.health_probe_path
+        path                    = var.liveness_probe_path
         port                    = 8000
         transport               = "HTTP"
         initial_delay           = 10
@@ -920,7 +920,7 @@ resource "azurerm_container_app" "backend" {
       }
 
       startup_probe {
-        path                    = var.health_probe_path
+        path                    = var.liveness_probe_path
         port                    = 8000
         transport               = "HTTP"
         interval_seconds        = 5
