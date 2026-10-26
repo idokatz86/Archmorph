@@ -3,6 +3,7 @@ import logging
 import asyncio
 from typing import Callable, Dict, Any, List
 
+from actor_context import ActorContext
 from scanners.aws_scanner import AWSScanner
 from scanners.azure_scanner import AzureScanner
 from scanners.gcp_scanner import GCPScanner
@@ -80,10 +81,18 @@ class ToolRegistry:
 
     # ---- Domain Action Methods ----
 
-    def scan_cloud_infrastructure(self, provider: str, session_token: str = None) -> Dict[str, Any]:
+    def scan_cloud_infrastructure(
+        self,
+        provider: str,
+        session_token: str | None = None,
+        actor_context: ActorContext | None = None,
+    ) -> Dict[str, Any]:
         """
         Implementation of the cloud scanning logic using the existing scanner classes.
         """
+        if actor_context is not None:
+            logger.debug("Executing cloud scan for tenant %s", actor_context.tenant_id)
+
         if not session_token:
             return {"error": "Missing session token. Ensure the user is logged in and context contains session_token."}
 
