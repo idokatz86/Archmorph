@@ -36,6 +36,24 @@ describe('Button', () => {
     expect(screen.getByText('Click me')).toBeInTheDocument()
   })
 
+  it('preserves the default button type through the legacy export', () => {
+    render(<Button>Open settings</Button>)
+    expect(screen.getByRole('button', { name: 'Open settings' })).toHaveAttribute('type', 'button')
+  })
+
+  it('preserves an explicit submit type through the legacy export', async () => {
+    const user = userEvent.setup()
+    const handleSubmit = vi.fn((event) => event.preventDefault())
+    render(
+      <form onSubmit={handleSubmit}>
+        <Button type="submit">Save</Button>
+      </form>,
+    )
+
+    await user.click(screen.getByRole('button', { name: 'Save' }))
+    expect(handleSubmit).toHaveBeenCalledTimes(1)
+  })
+
   it('calls onClick when clicked', async () => {
     const user = userEvent.setup()
     const handleClick = vi.fn()

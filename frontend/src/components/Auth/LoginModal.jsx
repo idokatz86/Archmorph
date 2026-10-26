@@ -5,11 +5,10 @@
  * plus a browsing-only guest dismissal.
  */
 
-import React, { useEffect, useId } from 'react';
-import { createPortal } from 'react-dom';
+import React from 'react';
 import { X } from 'lucide-react';
 import { useAuth } from './AuthProvider';
-import useFocusTrap from '../../hooks/useFocusTrap';
+import { Dialog, DialogTitle } from '../../shared/ui';
 /* Simple inline SVG provider icons — avoids external dependency */
 function MicrosoftIcon({ className }) {
   return (
@@ -75,44 +74,14 @@ export default function LoginModal({
   onBeforeProviderRedirect,
 }) {
   const { loginWithProvider } = useAuth();
-  const titleId = useId();
-  const trapRef = useFocusTrap(isOpen);
-
-  useEffect(() => {
-    if (!isOpen) return undefined;
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') onClose?.();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
-
-  return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto p-4 sm:p-6 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
-      {/* Backdrop */}
-      <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
-        aria-hidden="true"
-        onClick={onClose}
-      />
-      {/* Modal */}
-      <div
-        ref={trapRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="relative z-10 my-auto w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto bg-surface border border-border rounded-2xl shadow-2xl p-6 animate-modal-in"
-      >
+  return (
+    <Dialog
+      open={isOpen}
+      onClose={onClose}
+      containerClassName="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto p-4 sm:p-6 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
+      backdropClassName="fixed inset-0 bg-black/60 backdrop-blur-sm animate-fade-in"
+      className="relative z-10 my-auto w-full max-w-sm max-h-[calc(100dvh-2rem)] overflow-y-auto bg-surface border border-border rounded-2xl shadow-2xl p-6 animate-modal-in"
+    >
         {/* Close button */}
         <button
           onClick={onClose}
@@ -124,8 +93,8 @@ export default function LoginModal({
 
         {/* Header */}
         <div className="text-center mb-6">
-          <h2 id={titleId} className="text-xl font-bold text-text-primary">Sign in to Archmorph</h2>
-          <p className="text-sm text-text-muted mt-1">Save your work across sessions</p>
+          <DialogTitle className="text-xl font-bold text-text-primary">Sign in to Archmorph</DialogTitle>
+          <p className="text-sm text-text-secondary mt-1">Save your work across sessions</p>
         </div>
 
         {/* Provider buttons */}
@@ -165,14 +134,14 @@ export default function LoginModal({
         {/* Divider */}
         <div className="flex items-center gap-3 my-5">
           <div className="flex-1 h-px bg-border" />
-          <span className="text-xs text-text-muted">or</span>
+          <span className="text-xs text-text-secondary">or</span>
           <div className="flex-1 h-px bg-border" />
         </div>
 
         {/* Browsing-only dismissal */}
         <button
           onClick={onClose}
-          className="w-full px-4 py-2.5 text-sm font-medium text-text-secondary hover:text-text-primary rounded-lg hover:bg-secondary transition-colors cursor-pointer"
+          className="w-full px-4 py-2.5 text-sm font-medium text-text-primary rounded-lg hover:bg-secondary transition-colors cursor-pointer"
         >
           Continue Browsing
         </button>
@@ -180,8 +149,6 @@ export default function LoginModal({
         <p className="text-[11px] text-text-muted text-center mt-4">
           Sign in is required to analyze diagrams. You can keep browsing without an account.
         </p>
-      </div>
-    </div>,
-    document.body
+    </Dialog>
   );
 }

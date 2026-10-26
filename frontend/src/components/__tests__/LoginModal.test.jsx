@@ -156,6 +156,8 @@ describe('LoginModal', () => {
 
     expect(dialog.className).toContain('bg-surface');
     expect(dialog.className).toContain('border-border');
+    expect(screen.getByText('Save your work across sessions')).toHaveClass('text-text-secondary');
+    expect(screen.getByText('or')).toHaveClass('text-text-secondary');
     expect(document.body.innerHTML).not.toContain('dark:');
     expect(document.body.innerHTML).not.toContain('bg-gray-');
     expect(document.body.innerHTML).not.toContain('text-gray-');

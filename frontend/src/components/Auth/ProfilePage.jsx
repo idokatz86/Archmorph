@@ -5,14 +5,12 @@
  * IaC format preferences. Includes account deletion with confirmation.
  */
 
-import React, { useState, useEffect, useId } from 'react';
-import { createPortal } from 'react-dom';
+import React, { useState, useEffect } from 'react';
 import { X, Save, Trash2, Loader2, AlertTriangle, CheckCircle } from 'lucide-react';
 import { useAuth } from './AuthProvider';
-import { API_BASE } from '../../constants';
-import useFocusTrap from '../../hooks/useFocusTrap';
-import { TOKEN_KEY } from '../../stores/useAuthStore';
+import api, { ApiError } from '../../services/apiClient';
 import { Input, Select } from '../ui';
+import { Dialog, DialogTitle } from '../../shared/ui';
 
 const ROLES = [
   { value: 'cloud_architect', label: 'Cloud Architect' },
@@ -35,23 +33,8 @@ const IAC_FORMATS = [
 
 const normalizeIacFormat = (format) => (format === 'terraform' || format === 'bicep' ? format : null);
 
-function authHeaders(extra = {}) {
-  let token = null;
-  try {
-    token = localStorage.getItem(TOKEN_KEY);
-  } catch {
-    token = null;
-  }
-  return {
-    ...extra,
-    ...(token ? { Authorization: `Bearer ${token}` } : {}),
-  };
-}
-
 export default function ProfilePage({ isOpen, onClose }) {
   const { user, isAuthenticated, logout } = useAuth();
-  const titleId = useId();
-  const trapRef = useFocusTrap(isOpen);
   const [form, setForm] = useState({
     display_name: '',
     company: '',
@@ -68,62 +51,30 @@ export default function ProfilePage({ isOpen, onClose }) {
   useEffect(() => {
     if (!isOpen || !isAuthenticated) return;
 
-    fetch(`${API_BASE}/me/profile`, {
-      headers: authHeaders(),
-      credentials: 'include',
-    })
-      .then((r) => r.ok ? r.json() : null)
+    api.get('/me/profile')
       .then((data) => {
-        if (data) {
-          setForm({
-            display_name: data.display_name || data.name || '',
-            company: data.company || '',
-            role: data.role || null,
-            preferred_source_cloud: data.preferred_source_cloud || null,
-            preferred_iac_format: normalizeIacFormat(data.preferred_iac_format),
-          });
-        }
+        setForm({
+          display_name: data.display_name || data.name || '',
+          company: data.company || '',
+          role: data.role || null,
+          preferred_source_cloud: data.preferred_source_cloud || null,
+          preferred_iac_format: normalizeIacFormat(data.preferred_iac_format),
+        });
       })
       .catch(() => {});
   }, [isOpen, isAuthenticated]);
-
-  useEffect(() => {
-    if (!isOpen) return;
-
-    const previousOverflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-
-    const handleKeyDown = (event) => {
-      if (event.key === 'Escape') onClose?.();
-    };
-    document.addEventListener('keydown', handleKeyDown);
-
-    return () => {
-      document.body.style.overflow = previousOverflow;
-      document.removeEventListener('keydown', handleKeyDown);
-    };
-  }, [isOpen, onClose]);
-
-  if (!isOpen) return null;
 
   const handleSave = async () => {
     setSaving(true);
     setMessage(null);
     try {
-      const res = await fetch(`${API_BASE}/me/profile`, {
-        method: 'PUT',
-        headers: authHeaders({ 'Content-Type': 'application/json' }),
-        credentials: 'include',
-        body: JSON.stringify(form),
-      });
-      if (res.ok) {
-        setMessage({ type: 'success', text: 'Profile saved successfully' });
-      } else {
-        const data = await res.json().catch(() => null);
-        setMessage({ type: 'error', text: data?.error?.message || 'Failed to save profile' });
-      }
-    } catch {
-      setMessage({ type: 'error', text: 'Network error' });
+      await api.put('/me/profile', form);
+      setMessage({ type: 'success', text: 'Profile saved successfully' });
+    } catch (error) {
+      const text = error instanceof ApiError && error.status !== 0
+        ? error.rawMessage
+        : 'Network error';
+      setMessage({ type: 'error', text: text || 'Failed to save profile' });
     } finally {
       setSaving(false);
     }
@@ -132,38 +83,34 @@ export default function ProfilePage({ isOpen, onClose }) {
   const handleDelete = async () => {
     setDeleting(true);
     try {
-      const res = await fetch(`${API_BASE}/me/account`, {
-        method: 'DELETE',
-        headers: authHeaders(),
-        credentials: 'include',
+      await api.delete('/me/account');
+      logout();
+      onClose();
+    } catch (error) {
+      setMessage({
+        type: 'error',
+        text: error instanceof ApiError && error.status !== 0
+          ? 'Failed to delete account'
+          : 'Network error',
       });
-      if (res.ok) {
-        logout();
-        onClose();
-      } else {
-        setMessage({ type: 'error', text: 'Failed to delete account' });
-      }
-    } catch {
-      setMessage({ type: 'error', text: 'Network error' });
     } finally {
       setDeleting(false);
       setDeleteConfirm(false);
     }
   };
 
-  return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto p-4 sm:p-6 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]">
-      <div className="fixed inset-0 bg-black/60 backdrop-blur-sm" data-testid="profile-backdrop" onClick={onClose} />
-      <div
-        ref={trapRef}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        className="relative z-10 my-auto bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto"
-      >
+  return (
+    <Dialog
+      open={isOpen}
+      onClose={onClose}
+      containerClassName="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto p-4 sm:p-6 pt-[max(1rem,env(safe-area-inset-top))] pb-[max(1rem,env(safe-area-inset-bottom))]"
+      backdropClassName="fixed inset-0 bg-black/60 backdrop-blur-sm"
+      backdropTestId="profile-backdrop"
+      className="relative z-10 my-auto bg-surface border border-border rounded-2xl shadow-2xl w-full max-w-lg max-h-[calc(100dvh-2rem)] overflow-y-auto"
+    >
         {/* Header */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border">
-          <h2 id={titleId} className="text-lg font-semibold text-text-primary">Profile Settings</h2>
+          <DialogTitle className="text-lg font-semibold text-text-primary">Profile Settings</DialogTitle>
           <button onClick={onClose} className="p-1 hover:bg-secondary rounded-lg transition-colors cursor-pointer" aria-label="Close profile settings">
             <X className="w-5 h-5 text-text-muted" />
           </button>
@@ -291,8 +238,6 @@ export default function ProfilePage({ isOpen, onClose }) {
             Save
           </button>
         </div>
-      </div>
-    </div>,
-    document.body
+    </Dialog>
   );
 }
