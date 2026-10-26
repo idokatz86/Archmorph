@@ -204,6 +204,66 @@ class TestHealthContract:
         assert data["checks"]["redis"] == "disabled_optional"
         assert data["checks"]["redis_readiness"]["require_redis"] is False
 
+    def test_schema_mismatch_returns_unhealthy_readiness(self, client, monkeypatch):
+        import routers.health as health_router
+
+        def fake_checks():
+            return {
+                "database_readiness": {
+                    "backend": "postgresql",
+                    "production_like": True,
+                    "schema": {
+                        "enforced": True,
+                        "ready": False,
+                        "status": "mismatch",
+                        "error": "database_schema_not_at_alembic_head",
+                    },
+                    "ready_for_production": False,
+                },
+            }, False, True
+
+        monkeypatch.setattr(health_router, "_run_dependency_checks", fake_checks)
+        response = client.get("/api/health")
+
+        assert response.status_code == 503
+        assert response.json()["status"] == "unhealthy"
+        assert (
+            response.json()["checks"]["database_readiness"]["schema"]["error"]
+            == "database_schema_not_at_alembic_head"
+        )
+
+    def test_schema_mismatch_marks_dependency_checks_unhealthy(self, monkeypatch):
+        import database
+        import openai_client
+        import routers.health as health_router
+        import usage_metrics
+
+        monkeypatch.setattr(health_router, "_dep_checks_cache", None)
+        monkeypatch.setattr(health_router, "_dep_checks_ts", 0)
+        monkeypatch.setattr(openai_client, "AZURE_OPENAI_ENDPOINT", "")
+        monkeypatch.setattr(usage_metrics, "AZURE_STORAGE_ACCOUNT_URL", "")
+        monkeypatch.setattr(usage_metrics, "AZURE_STORAGE_CONNECTION_STRING", "")
+        monkeypatch.setattr(
+            database,
+            "database_readiness",
+            lambda: {
+                "backend": "postgresql",
+                "production_like": True,
+                "schema": {
+                    "enforced": True,
+                    "ready": False,
+                    "status": "mismatch",
+                    "error": "database_schema_not_at_alembic_head",
+                },
+                "ready_for_production": False,
+            },
+        )
+
+        checks, _, unhealthy = health_router._run_dependency_checks()
+
+        assert unhealthy is True
+        assert checks["database_readiness"]["schema"]["status"] == "mismatch"
+
     def test_health_reads_freshness_before_scheduled_jobs(self, client, monkeypatch):
         import routers.health as health_router
 

@@ -1,8 +1,11 @@
+import json
 from pathlib import Path
 import re
+import subprocess
 
 
 ROOT = Path(__file__).resolve().parents[1]
+TEST_INVENTORY = ROOT / "docs/testing/ci-test-inventory.json"
 
 
 def _terraform_resource_block(terraform: str, resource_type: str, name: str) -> str:
@@ -13,6 +16,115 @@ def _terraform_resource_block(terraform: str, resource_type: str, name: str) -> 
     if next_resource == -1:
         return terraform[start:]
     return terraform[start:next_resource]
+
+
+def _tracked_test_directories() -> set[str]:
+    tracked_files = _tracked_files()
+    test_directories = set()
+    for tracked_file in tracked_files:
+        parts = Path(tracked_file).parts
+        for index, part in enumerate(parts[:-1]):
+            if part in {"test", "tests", "__tests__"}:
+                test_directories.add(Path(*parts[: index + 1]).as_posix())
+    return test_directories
+
+
+def _tracked_files() -> set[str]:
+    return set(
+        subprocess.run(
+            ["git", "ls-files"],
+            cwd=ROOT,
+            check=True,
+            capture_output=True,
+            text=True,
+        ).stdout.splitlines()
+    )
+
+
+def _workflow_job_block(workflow: str, job: str) -> str:
+    match = re.search(
+        rf"(?ms)^  {re.escape(job)}:\n(?P<body>.*?)(?=^  [A-Za-z0-9_-]+:\n|\Z)",
+        workflow,
+    )
+    assert match is not None, f"Missing CI job: {job}"
+    return match.group("body")
+
+
+def test_root_pytest_suite_and_inventory_exclusions_are_collected_by_ci():
+    ci_workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    repository_policy_job = _workflow_job_block(ci_workflow, "repository-policy")
+    inventory = json.loads(TEST_INVENTORY.read_text(encoding="utf-8"))
+    root_entry = next(
+        entry for entry in inventory["test_directories"] if entry["directory"] == "tests"
+    )
+    exceptions = root_entry["test_file_exceptions"]
+    exception_files = {entry["file"] for entry in exceptions}
+    tracked_files = _tracked_files()
+    root_pytest_candidates = {
+        path
+        for path in tracked_files
+        if Path(path).is_relative_to(Path("tests"))
+        and (
+            Path(path).name.startswith("test_")
+            or Path(path).name.endswith("_test.py")
+        )
+    }
+    root_test_like_scripts = {
+        path
+        for path in tracked_files
+        if Path(path).is_relative_to(Path("tests"))
+        and Path(path).suffix == ".py"
+        and (
+            Path(path).name.startswith("test_")
+            or Path(path).name.endswith("_test.py")
+            or Path(path).name.startswith("locustfile")
+        )
+    }
+    pytest_excluded_files = exception_files & root_pytest_candidates
+
+    assert "Run root repository-policy tests" in repository_policy_job
+    assert "python -m pytest -q tests \\" in repository_policy_job
+    assert "Validate root Locust workload collection" in repository_policy_job
+    assert "python -m locust -f tests/load_test.py --list" in repository_policy_job
+    assert len(exception_files) == len(exceptions), "Duplicate root test-file exception"
+    assert exception_files <= root_test_like_scripts
+    assert all(entry["reason"].strip() for entry in exceptions)
+    assert set(re.findall(r"--ignore=([^\s\\]+)", repository_policy_job)) == pytest_excluded_files
+    pytest_collected_files = root_pytest_candidates - pytest_excluded_files
+    assert root_test_like_scripts == pytest_collected_files | exception_files
+    assert "tests/test_infra_policy_ci.py" in pytest_collected_files
+    assert "tests/test_source_boundaries.py" not in exception_files
+
+    vision_exception = next(
+        entry for entry in exceptions if entry["file"] == "tests/test_vision_quick.py"
+    )
+    assert vision_exception["classification"] == "manual-local-path"
+    assert "local developer image paths" in vision_exception["reason"]
+
+    for entry in exceptions:
+        if entry["classification"] == "manual-local-path":
+            continue
+        assert entry["classification"] == "separately-collected"
+        workflow_path = ROOT / entry["workflow"]
+        workflow = workflow_path.read_text(encoding="utf-8")
+        job = _workflow_job_block(workflow, entry["job"])
+        assert entry["command"] in job
+
+
+def test_every_tracked_test_directory_has_a_named_ci_job():
+    inventory = json.loads(TEST_INVENTORY.read_text(encoding="utf-8"))
+    entries = inventory["test_directories"]
+    inventoried_directories = {entry["directory"] for entry in entries}
+
+    assert inventory["version"] == 1
+    assert len(inventoried_directories) == len(entries), "Duplicate test directory in CI inventory"
+    assert inventoried_directories == _tracked_test_directories()
+
+    for entry in entries:
+        workflow_path = ROOT / entry["workflow"]
+        assert workflow_path.is_file(), f"Missing workflow for {entry['directory']}: {entry['workflow']}"
+        workflow = workflow_path.read_text(encoding="utf-8")
+        _workflow_job_block(workflow, entry["job"])
 
 
 def test_ci_runs_archmorph_checkov_policy_gate():
@@ -47,6 +159,55 @@ def test_checked_in_postgres_explicitly_disables_public_network_access():
     assert 'resource "azurerm_postgresql_flexible_server" "main"' in infra
     postgres_block = infra.split('resource "azurerm_postgresql_flexible_server" "main"', 1)[1].split('resource "azurerm_postgresql_flexible_server_database"', 1)[0]
     assert "public_network_access_enabled = false" in postgres_block
+
+
+def test_runtime_probes_separate_liveness_from_schema_readiness():
+    infra = (ROOT / "infra/main.tf").read_text(encoding="utf-8")
+    variables = (ROOT / "infra/variables.tf").read_text(encoding="utf-8")
+
+    readiness_variable = variables.split(
+        'variable "readiness_probe_path"', 1
+    )[1].split("}", 1)[0]
+    liveness_variable = variables.split(
+        'variable "liveness_probe_path"', 1
+    )[1].split("}", 1)[0]
+    assert 'default     = "/readyz"' in readiness_variable
+    assert 'default     = "/healthz"' in liveness_variable
+
+    liveness_block = infra.split("liveness_probe {", 1)[1].split("}", 1)[0]
+    readiness_block = infra.split("readiness_probe {", 1)[1].split("}", 1)[0]
+    startup_block = infra.split("startup_probe {", 1)[1].split("}", 1)[0]
+    assert "path                    = var.liveness_probe_path" in liveness_block
+    assert "path                    = var.readiness_probe_path" in readiness_block
+    assert "path                    = var.liveness_probe_path" in startup_block
+
+
+def test_external_health_routes_use_probe_safe_readiness():
+    infra = (ROOT / "infra/main.tf").read_text(encoding="utf-8")
+    dr = (ROOT / "infra/dr/main.tf").read_text(encoding="utf-8")
+    helm_values = (ROOT / "charts/archmorph/values.yaml").read_text(encoding="utf-8")
+
+    availability_block = _terraform_resource_block(
+        infra,
+        "azurerm_application_insights_standard_web_test",
+        "health_check",
+    )
+    front_door_block = _terraform_resource_block(
+        infra,
+        "azurerm_cdn_frontdoor_origin_group",
+        "api",
+    )
+    dr_readiness_variable = dr.split(
+        'variable "readiness_probe_path"', 1
+    )[1].split("}", 1)[0]
+    traffic_manager_monitor = dr.split("monitor_config {", 1)[1].split("}", 1)[0]
+    assert "${var.readiness_probe_path}" in availability_block
+    assert "path                = var.readiness_probe_path" in front_door_block
+    assert 'default     = "/readyz"' in dr_readiness_variable
+    assert "path                         = var.readiness_probe_path" in traffic_manager_monitor
+    assert "readinessProbe:\n  httpGet:\n    path: /readyz" in helm_values
+    assert "livenessProbe:\n  httpGet:\n    path: /healthz" in helm_values
+    assert "startupProbe:\n  httpGet:\n    path: /healthz" in helm_values
 
 
 def test_container_apps_subnet_nsg_blocks_lateral_inbound_probe():
