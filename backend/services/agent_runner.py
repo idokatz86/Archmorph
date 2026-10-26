@@ -1,43 +1,121 @@
 import asyncio
 import json
 import time
+from contextlib import suppress
+from typing import Awaitable, TypeVar
 
+from actor_context import ActorContext
 from models.agent import Agent
 from models.execution import Execution
 from database import SessionLocal
+from services.execution_state import transition_execution
 from services.model_router import ModelRouter
 from services.tool_registry import tool_registry
+
+
+ResultT = TypeVar("ResultT")
+
+
+class ExecutionCancellationRequested(Exception):
+    """Raised when the persisted execution state requests cooperative cancellation."""
 
 
 class AgentRunner:
     """
     Executes an AI Agent run asynchronously.
     """
-    def __init__(self, execution_id: str):
+
+    def __init__(self, execution_id: str, actor_context: ActorContext):
         self.execution_id = execution_id
+        self.actor_context = actor_context
+
+    def _cancellation_requested(self) -> bool:
+        db = SessionLocal()
+        try:
+            status = db.query(Execution.status).filter(
+                Execution.id == self.execution_id,
+                Execution.organization_id == str(self.actor_context.tenant_id),
+            ).scalar()
+            return status in {"cancel_requested", "cancelled"}
+        finally:
+            db.close()
+
+    def _raise_if_cancellation_requested(self) -> None:
+        if self._cancellation_requested():
+            raise ExecutionCancellationRequested
+
+    def _acknowledge_cancellation(self) -> bool:
+        db = SessionLocal()
+        try:
+            return transition_execution(
+                db,
+                self.execution_id,
+                from_statuses=("cancel_requested",),
+                to_status="cancelled",
+                organization_id=str(self.actor_context.tenant_id),
+            )
+        finally:
+            db.close()
+
+    async def _run_cancellable(self, operation: Awaitable[ResultT]) -> ResultT:
+        operation_task = asyncio.ensure_future(operation)
+        try:
+            while True:
+                done, _ = await asyncio.wait({operation_task}, timeout=0.05)
+                if operation_task in done:
+                    return await operation_task
+                if self._cancellation_requested():
+                    operation_task.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await operation_task
+                    raise ExecutionCancellationRequested
+        except asyncio.CancelledError:
+            operation_task.cancel()
+            with suppress(asyncio.CancelledError):
+                await operation_task
+            raise
 
     async def run(self):
+        organization_id = str(self.actor_context.tenant_id)
+
         # ── Phase 1: load execution + agent, then release DB ──
         db = SessionLocal()
         try:
-            execution = db.query(Execution).filter(Execution.id == self.execution_id).first()
-            if not execution:
-                print("[AgentRunner] Execution not found")
+            claimed = transition_execution(
+                db,
+                self.execution_id,
+                from_statuses=("queued",),
+                to_status="running",
+                organization_id=organization_id,
+            )
+            if not claimed:
+                print(f"[AgentRunner] Execution {self.execution_id} is not runnable.")
                 return
 
-            execution.status = "running"
-            db.commit()
+            execution = db.query(Execution).filter(
+                Execution.id == self.execution_id,
+                Execution.organization_id == organization_id,
+            ).one()
 
-            agent = db.query(Agent).filter(Agent.id == execution.agent_id).first()
+            agent = db.query(Agent).filter(
+                Agent.id == execution.agent_id,
+                Agent.organization_id == organization_id,
+            ).first()
             if not agent:
-                execution.status = "failed"
-                execution.error_message = "Agent not found"
-                db.commit()
+                transition_execution(
+                    db,
+                    self.execution_id,
+                    from_statuses=("running",),
+                    to_status="failed",
+                    organization_id=organization_id,
+                    values={"error_message": "Agent not found"},
+                )
                 return
 
             # Snapshot all data needed for model call — then close DB
-            messages = execution.input_data.get("messages", [])
-            session_token = execution.input_data.get("session_token")
+            input_data = execution.input_data or {}
+            messages = input_data.get("messages", [])
+            session_token = input_data.get("session_token")
             sys_msg = (
                 agent.model_config_data.get("system_prompt", "You are a helpful assistant.")
                 if agent.model_config_data
@@ -55,7 +133,7 @@ class AgentRunner:
         # ── Phase 2: model calls (no DB session held) ──
         db2 = SessionLocal()
         try:
-            model_client = ModelRouter(db2, "org").route("default")
+            model_client = ModelRouter(db2, organization_id).route("default")
         finally:
             db2.close()
 
@@ -72,10 +150,13 @@ class AgentRunner:
 
         try:
             # Execute Model via abstracted Client
-            response = await model_client.chat(
-                messages=llm_messages,
-                tools=formatted_tools if formatted_tools else None,
-                temperature=temperature,
+            self._raise_if_cancellation_requested()
+            response = await self._run_cancellable(
+                model_client.chat(
+                    messages=llm_messages,
+                    tools=formatted_tools if formatted_tools else None,
+                    temperature=temperature,
+                )
             )
 
             # Simple tool calling execution loop
@@ -85,16 +166,25 @@ class AgentRunner:
             # Check if it called a tool — execute all tool calls concurrently
             if getattr(message, 'tool_calls', None):
                 async def _run_tool(tool_call):
-                    return await tool_registry.execute(
-                        tool_call.function.name,
-                        tool_call.function.arguments,
-                        session_token=session_token,
+                    self._raise_if_cancellation_requested()
+                    return await self._run_cancellable(
+                        tool_registry.execute(
+                            tool_call.function.name,
+                            tool_call.function.arguments,
+                            actor_context=self.actor_context,
+                            session_token=session_token,
+                        )
                     )
 
                 tool_results = await asyncio.gather(
                     *[_run_tool(tc) for tc in message.tool_calls],
                     return_exceptions=True,
                 )
+                if any(
+                    isinstance(result, ExecutionCancellationRequested)
+                    for result in tool_results
+                ):
+                    raise ExecutionCancellationRequested
 
                 llm_messages.append(message)
                 for tc, result_json in zip(message.tool_calls, tool_results):
@@ -108,9 +198,12 @@ class AgentRunner:
                     })
 
                 # Second call to get final response
-                response = await model_client.chat(
-                    messages=llm_messages,
-                    temperature=temperature,
+                self._raise_if_cancellation_requested()
+                response = await self._run_cancellable(
+                    model_client.chat(
+                        messages=llm_messages,
+                        temperature=temperature,
+                    )
                 )
                 message = response.choices[0].message
                 content = message.content or ""
@@ -124,36 +217,52 @@ class AgentRunner:
             # ── Phase 3: write result back to DB ──
             db3 = SessionLocal()
             try:
-                execution = db3.query(Execution).filter(Execution.id == self.execution_id).first()
-                if execution:
-                    execution.status = "completed"
-                    execution.output_data = {"message": content}
-                    execution.prompt_tokens = prompt_tokens
-                    execution.completion_tokens = completion_tokens
-                    execution.total_tokens = prompt_tokens + completion_tokens
-                    execution.duration_ms = duration_ms
-                    execution.steps = [
-                        {
-                            "type": "llm_call",
-                            "duration": duration_ms,
-                            "tokens": prompt_tokens + completion_tokens,
-                        }
-                    ]
-                    db3.commit()
+                completed = transition_execution(
+                    db3,
+                    self.execution_id,
+                    from_statuses=("running",),
+                    to_status="completed",
+                    organization_id=organization_id,
+                    values={
+                        "output_data": {"message": content},
+                        "prompt_tokens": prompt_tokens,
+                        "completion_tokens": completion_tokens,
+                        "total_tokens": prompt_tokens + completion_tokens,
+                        "duration_ms": duration_ms,
+                        "steps": [
+                            {
+                                "type": "llm_call",
+                                "duration": duration_ms,
+                                "tokens": prompt_tokens + completion_tokens,
+                            }
+                        ],
+                    },
+                )
             finally:
                 db3.close()
 
-            print("[AgentRunner] Finished execution")
+            if completed:
+                print(f"[AgentRunner] Finished execution {self.execution_id}")
+            else:
+                print(f"[AgentRunner] Execution {self.execution_id} was no longer running.")
 
-        except Exception as exc:
-            error_type = type(exc).__name__
+        except ExecutionCancellationRequested:
+            self._acknowledge_cancellation()
+            print(f"[AgentRunner] Cancelled execution {self.execution_id}")
+        except Exception as e:
             db4 = SessionLocal()
             try:
-                execution = db4.query(Execution).filter(Execution.id == self.execution_id).first()
-                if execution:
-                    execution.status = "failed"
-                    execution.error_message = str(exc)
-                    db4.commit()
+                failed = transition_execution(
+                    db4,
+                    self.execution_id,
+                    from_statuses=("running",),
+                    to_status="failed",
+                    organization_id=organization_id,
+                    values={"error_message": str(e)},
+                )
             finally:
                 db4.close()
-            print(f"[AgentRunner] Failed execution error_type={error_type}")
+            if failed:
+                print(f"[AgentRunner] Failed execution {self.execution_id}: {e}")
+            else:
+                self._acknowledge_cancellation()
