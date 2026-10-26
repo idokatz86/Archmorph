@@ -191,7 +191,7 @@ describe('UploadStep', () => {
   it('shows "Sign in to analyze" instead of "Analyze This Diagram" when user is signed out and a file is selected', () => {
     const file = new File(['diagram.png'], 'diagram.png', { type: 'image/png' })
     render(<UploadStep {...defaultProps} selectedFile={file} isAuthenticated={false} onSignIn={vi.fn()} />)
-    expect(screen.getByText('Sign in to analyze')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in to analyze' })).toHaveAttribute('type', 'button')
     expect(screen.queryByText('Analyze This Diagram')).not.toBeInTheDocument()
   })
 

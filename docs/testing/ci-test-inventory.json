@@ -42,6 +42,11 @@
       "job": "frontend-build"
     },
     {
+      "directory": "frontend/src/shared/ui/__tests__",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "frontend-build"
+    },
+    {
       "directory": "frontend/src/stores/__tests__",
       "workflow": ".github/workflows/ci.yml",
       "job": "frontend-build"
