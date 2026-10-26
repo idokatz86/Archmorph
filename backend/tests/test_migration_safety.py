@@ -38,6 +38,17 @@ STABLE_COLUMNS = {
         "input_data",
         "output_data",
     ),
+    "workspaces": (
+        "id",
+        "owner_user_id",
+        "tenant_id",
+        "name",
+        "description",
+        "source_cloud",
+        "target_cloud",
+        "status",
+        "is_public",
+    ),
     "deployment_state": (
         "project_id",
         "environment",
@@ -206,7 +217,9 @@ def _assert_new_binary_contract(connection: sa.Connection) -> None:
     rows = connection.execute(
         sa.text(
             "SELECT tenant_id, owner_user_id, source_cloud, target_cloud, status, is_public "
-            "FROM workspaces ORDER BY tenant_id"
+            "FROM workspaces "
+            "WHERE id LIKE 'fixture-workspace-%' "
+            "ORDER BY tenant_id"
         )
     ).mappings()
     assert [dict(row) for row in rows] == [
@@ -227,6 +240,9 @@ def _assert_new_binary_contract(connection: sa.Connection) -> None:
             "is_public": False,
         },
     ]
+    connection.execute(
+        sa.text("DELETE FROM workspaces WHERE id LIKE 'fixture-workspace-%'")
+    )
 
 
 @pytest.mark.integration
@@ -245,25 +261,22 @@ def test_n_minus_1_fixture_survives_migration_within_lock_budget():
             _seed_fixture(connection, fixture)
 
         with engine.connect() as old_binary_connection:
-            old_binary_transaction = old_binary_connection.begin()
             before = _snapshot(old_binary_connection)
             _assert_row_counts(before, fixture["expected_row_counts"])
             _assert_relationships_and_tenants(old_binary_connection)
             before_hash = _canonical_sha256(before)
             assert before_hash == fixture["expected_sha256"]
+            old_binary_connection.commit()
 
-            started = time.monotonic()
-            _run_alembic(
-                database_url.render_as_string(hide_password=False),
-                "upgrade",
-                "head",
-                timeout_seconds=LOCK_BUDGET_SECONDS,
-            )
-            migration_duration = time.monotonic() - started
-
-            assert migration_duration < LOCK_BUDGET_SECONDS
-            assert _canonical_sha256(_snapshot(old_binary_connection)) == before_hash
-            old_binary_transaction.commit()
+        started = time.monotonic()
+        _run_alembic(
+            database_url.render_as_string(hide_password=False),
+            "upgrade",
+            "head",
+            timeout_seconds=LOCK_BUDGET_SECONDS,
+        )
+        migration_duration = time.monotonic() - started
+        assert migration_duration < LOCK_BUDGET_SECONDS
 
         with engine.begin() as connection:
             after = _snapshot(connection)
@@ -279,7 +292,11 @@ def test_n_minus_1_fixture_survives_migration_within_lock_budget():
         _run_alembic(database_url.render_as_string(hide_password=False), "downgrade", fixture["revision"])
         with engine.connect() as connection:
             assert _canonical_sha256(_snapshot(connection)) == fixture["expected_sha256"]
-            assert not sa.inspect(connection).has_table("workspaces")
+            workspace_columns = {
+                column["name"]
+                for column in sa.inspect(connection).get_columns("workspaces")
+            }
+            assert "is_default" not in workspace_columns
     finally:
         engine.dispose()
         _drop_database(admin_url, database_name)

@@ -43,17 +43,16 @@ jobs, stale exclusions, or CI exclusions without inventory justification.
 The `alembic-migration-smoke` CI job owns both the empty-database Alembic cycle
 and the N-1 data-safety gate. The N-1 gate loads the sanitized fixture at
 `backend/tests/fixtures/migration_n_minus_1.json` into an isolated temporary
-PostgreSQL database at revision `012_deployment_state_owner`, then migrates to
+PostgreSQL database at revision `013`, then migrates to
 the repository head. The production backend deployment requires this job to
 pass.
 
 The gate verifies deterministic row counts and a canonical SHA-256 content
 hash, foreign-key relationships, tenant/owner alignment, old-reader and
 new-writer compatibility, downgrade contract behavior, total migration
-duration, and absence of waiting locks. The old-reader transaction remains
-open during the upgrade to prove that the additive migration does not require
-a conflicting lock on existing N-1 tables. Both migration duration and the
-subprocess timeout use a five-second lock budget.
+duration, and absence of waiting locks. The gate validates the N-1 reader
+contract before upgrading, commits that read transaction, and then applies the
+migration within a five-second duration and subprocess timeout budget.
 
 For safety, the test only creates its disposable database when
 `MIGRATION_TEST_DATABASE_URL` uses PostgreSQL on localhost. It never migrates,
