@@ -42,6 +42,7 @@ test.describe('Shared button accessibility', () => {
     await page.keyboard.press('Enter');
     const dialog = page.getByRole('dialog', { name: /sign in to archmorph/i });
     await expect(dialog).toBeVisible();
+    await expect(dialog.getByRole('button', { name: /^close$/i })).toBeFocused();
     await page.keyboard.press('Escape');
     await expect(dialog).toBeHidden();
     await expect(signInButton).toBeFocused();
