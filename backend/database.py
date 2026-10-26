@@ -5,11 +5,11 @@ Provides a pluggable database backend:
   - SQLite for local dev (zero config, file-based)
   - PostgreSQL for production (set DATABASE_URL env var)
 
-Usage::
+Local/test bootstrap usage::
 
     from database import get_db, init_db
 
-    # In FastAPI lifespan:
+    # Explicit local/test setup only. Production schema changes use Alembic.
     init_db()
 
     # In route handlers:
@@ -24,6 +24,7 @@ from pathlib import Path
 from typing import Generator
 
 from alembic.config import Config
+from alembic.migration import MigrationContext
 from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, event, inspect, text
 from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
@@ -67,6 +68,7 @@ _ENFORCE_POSTGRES = os.getenv(
     "ENFORCE_POSTGRES",
     "true" if _PRODUCTION_LIKE else "false",
 ).lower() in ("1", "true", "yes")
+_ALEMBIC_SCRIPT_LOCATION = Path(__file__).resolve().parent / "alembic"
 
 # Issue #287 — Warn loudly / fail if SQLite is used in production.
 # SQLite DB files are ephemeral in containerized deployments.
@@ -229,6 +231,48 @@ def database_backend() -> str:
     if _IS_POSTGRES:
         return "postgresql"
     return "other"
+
+
+def alembic_schema_readiness(bind=None) -> dict[str, object]:
+    """Compare the connected database revision set with the repository heads."""
+    try:
+        expected_heads = set(ScriptDirectory(str(_ALEMBIC_SCRIPT_LOCATION)).get_heads())
+        with (bind or engine).connect() as connection:
+            current_heads = set(
+                MigrationContext.configure(connection).get_current_heads()
+            )
+    except Exception as exc:  # noqa: BLE001 - readiness must fail closed safely
+        logger.error(
+            "Alembic schema readiness check failed (%s)",
+            type(exc).__name__,
+            exc_info=True,
+        )
+        return {
+            "enforced": True,
+            "ready": False,
+            "status": "unavailable",
+            "error": "database_schema_check_failed",
+        }
+
+    if current_heads != expected_heads:
+        logger.error(
+            "Database schema revision mismatch: expected=%s current=%s",
+            sorted(expected_heads),
+            sorted(current_heads),
+        )
+        return {
+            "enforced": True,
+            "ready": False,
+            "status": "mismatch",
+            "error": "database_schema_not_at_alembic_head",
+        }
+
+    return {
+        "enforced": True,
+        "ready": True,
+        "status": "current",
+        "error": None,
+    }
 
 
 def database_readiness() -> dict[str, object]:
@@ -442,6 +486,33 @@ def database_readiness() -> dict[str, object]:
         schema_compatible = bool(connection_ok and schema_is_supported(current_revision))
     except Exception:
         schema_compatible = False
+    if _PRODUCTION_LIKE:
+        schema = {
+            "enforced": True,
+            "ready": schema_at_head,
+            "status": (
+                "current"
+                if schema_at_head
+                else "unavailable"
+                if not connection_ok
+                else "mismatch"
+            ),
+            "error": (
+                None
+                if schema_at_head
+                else "database_schema_check_failed"
+                if not connection_ok
+                else "database_schema_not_at_alembic_head"
+            ),
+        }
+    else:
+        schema = {
+            "enforced": False,
+            "ready": True,
+            "status": "not_enforced",
+            "error": None,
+        }
+
     return {
         "backend": database_backend(),
         "postgres_configured": _IS_POSTGRES,
@@ -456,6 +527,7 @@ def database_readiness() -> dict[str, object]:
         "schema_compatible": schema_compatible,
         "required_schema_present": required_schema_present,
         "missing_schema_objects": missing_schema_objects,
+        "schema": schema,
         "ready_for_production": (
             _IS_POSTGRES
             and connection_ok

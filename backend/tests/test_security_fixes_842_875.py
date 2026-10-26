@@ -247,7 +247,7 @@ class TestCostRoutesAuth:
 # ======================================================================
 
 class TestHealthEndpointSplit:
-    """Verify /healthz is anonymous and /api/health is auth-gated."""
+    """Verify liveness/readiness are safe and detailed health is auth-gated."""
 
     def test_healthz_returns_200(self):
         """Anonymous liveness probe must succeed without credentials."""
@@ -257,6 +257,7 @@ class TestHealthEndpointSplit:
 
     def test_readyz_is_anonymous_sanitized_and_fails_closed(self, monkeypatch):
         import database
+        import routers.shared
         import session_store
 
         monkeypatch.setattr(
@@ -272,6 +273,11 @@ class TestHealthEndpointSplit:
             session_store,
             "session_store_readiness",
             lambda: {"ready_for_horizontal_scale": True},
+        )
+        monkeypatch.setattr(
+            routers.shared,
+            "rate_limit_readiness",
+            lambda: {"ready": True},
         )
 
         response = client.get("/readyz")
@@ -289,6 +295,7 @@ class TestHealthEndpointSplit:
 
     def test_readyz_requires_both_postgres_and_redis(self, monkeypatch):
         import database
+        import routers.shared
         import session_store
 
         monkeypatch.setattr(
@@ -296,6 +303,7 @@ class TestHealthEndpointSplit:
             "database_readiness",
             lambda: {
                 "ready_for_production": True,
+                "schema_compatible": True,
                 "schema_at_head": True,
                 "required_schema_present": True,
             },
@@ -304,6 +312,11 @@ class TestHealthEndpointSplit:
             session_store,
             "session_store_readiness",
             lambda: {"ready_for_horizontal_scale": True},
+        )
+        monkeypatch.setattr(
+            routers.shared,
+            "rate_limit_readiness",
+            lambda: {"ready": True},
         )
 
         response = client.get("/readyz")
@@ -318,6 +331,140 @@ class TestHealthEndpointSplit:
         assert "checks" not in data
         assert "service_catalog" not in data
         assert "scheduler_running" not in data
+
+    def test_readyz_returns_sanitized_ready_response(self, monkeypatch):
+        import database
+        import routers.shared
+        import session_store
+
+        monkeypatch.setattr(
+            database,
+            "database_readiness",
+            lambda: {
+                "ready_for_production": True,
+                "schema_compatible": True,
+                "schema_at_head": True,
+                "required_schema_present": True,
+            },
+        )
+        monkeypatch.setattr(
+            session_store,
+            "session_store_readiness",
+            lambda: {"ready_for_horizontal_scale": True},
+        )
+        monkeypatch.setattr(
+            routers.shared,
+            "rate_limit_readiness",
+            lambda: {"ready": True},
+        )
+
+        resp = client.get("/readyz")
+
+        assert resp.status_code == 200
+        assert resp.json() == {
+            "status": "ready",
+            "checks": {
+                "database": "ready",
+                "database_schema": "ready",
+                "redis": "ready",
+            },
+        }
+
+    def test_readyz_schema_mismatch_is_safe_and_fails_closed(self, monkeypatch):
+        import database
+        import routers.shared
+        import session_store
+
+        monkeypatch.setattr(
+            database,
+            "database_readiness",
+            lambda: {
+                "production_like": True,
+                "ready_for_production": False,
+                "schema_compatible": False,
+                "schema_at_head": False,
+                "required_schema_present": True,
+                "schema": {
+                    "ready": False,
+                    "status": "mismatch",
+                    "error": "database_schema_not_at_alembic_head",
+                },
+            },
+        )
+        monkeypatch.setattr(
+            session_store,
+            "session_store_readiness",
+            lambda: {"ready_for_horizontal_scale": True},
+        )
+        monkeypatch.setattr(
+            routers.shared,
+            "rate_limit_readiness",
+            lambda: {"ready": True},
+        )
+
+        resp = client.get("/readyz")
+
+        assert resp.status_code == 503
+        assert resp.json() == {
+            "status": "not_ready",
+            "checks": {
+                "database": "unavailable",
+                "database_schema": "unavailable",
+                "redis": "ready",
+            },
+        }
+        assert "database_schema_not_at_alembic_head" not in resp.text
+
+    def test_healthz_remains_live_during_schema_mismatch(self, monkeypatch):
+        import database
+
+        monkeypatch.setattr(
+            database,
+            "database_readiness",
+            lambda: {
+                "production_like": True,
+                "ready_for_production": False,
+                "schema": {"ready": False},
+            },
+        )
+
+        resp = client.get("/healthz")
+
+        assert resp.status_code == 200
+        assert resp.json() == {"status": "alive"}
+
+    def test_readyz_hides_database_check_failures(self, monkeypatch):
+        import database
+        import routers.shared
+        import session_store
+
+        def fail_readiness():
+            raise RuntimeError("sensitive database connection detail")
+
+        monkeypatch.setattr(database, "database_readiness", fail_readiness)
+        monkeypatch.setattr(
+            session_store,
+            "session_store_readiness",
+            lambda: {"ready_for_horizontal_scale": True},
+        )
+        monkeypatch.setattr(
+            routers.shared,
+            "rate_limit_readiness",
+            lambda: {"ready": True},
+        )
+
+        resp = client.get("/readyz")
+
+        assert resp.status_code == 503
+        assert resp.json() == {
+            "status": "not_ready",
+            "checks": {
+                "database": "unavailable",
+                "database_schema": "unavailable",
+                "redis": "ready",
+            },
+        }
+        assert "sensitive" not in resp.text
 
     def test_api_health_accessible_in_test_env(self):
         """In test env auth is disabled — detailed health still reachable."""
@@ -609,10 +756,14 @@ class TestRateLimitHandler:
 # ======================================================================
 
 class TestRouteExistence:
-    """/healthz, /api/health, and /api/cost/* are all registered."""
+    """/healthz, /readyz, /api/health, and /api/cost/* are registered."""
 
     def test_healthz_route_registered(self):
         resp = client.get("/healthz")
+        assert resp.status_code != 404
+
+    def test_readyz_route_registered(self):
+        resp = client.get("/readyz")
         assert resp.status_code != 404
 
     def test_api_health_route_registered(self):

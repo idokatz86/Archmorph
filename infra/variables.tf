@@ -354,7 +354,13 @@ variable "storage_cmk_key_vault_key_id" {
 }
 
 variable "health_probe_path" {
-  description = "Anonymous liveness probe path. Must not depend on PostgreSQL or Redis."
+  description = "Readiness path for Container Apps, Front Door, and availability checks."
+  type        = string
+  default     = "/readyz"
+}
+
+variable "liveness_probe_path" {
+  description = "Liveness and startup path. Must not depend on database readiness."
   type        = string
   default     = "/healthz"
 }

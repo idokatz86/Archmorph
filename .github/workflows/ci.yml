@@ -405,6 +405,14 @@ jobs:
             tests/test_bridge_overlay_postgres.py \
             tests/test_helm_secret_contract.py
 
+      - name: Run N-1 migration safety gate
+        run: |
+          DATABASE_SCHEME="postgresql"
+          printf -v MIGRATION_TEST_DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s' \
+            "$DATABASE_SCHEME" "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB"
+          export MIGRATION_TEST_DATABASE_URL
+          python -m pytest -n 0 tests/test_migration_safety.py
+
   # ============================================
   # GENERATED IAC VALIDATION
   # ============================================
