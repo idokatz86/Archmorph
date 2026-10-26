@@ -11,22 +11,11 @@ import { APP_VERSION } from './constants';
 import useAppStore from './stores/useAppStore';
 import { setErrorHandler } from './services/apiClient';
 
-import { isFeatureEnabled } from './featureFlags';
+import { getEnabledRoute } from './routes';
 
-// Lazy-loaded tab components — only fetched when the user switches tabs (#173)
-const DiagramTranslator = lazy(() => import('./components/DiagramTranslator'));
-const ServicesBrowser = lazy(() => import('./components/ServicesBrowser'));
-const TemplateGallery = lazy(() => import('./components/TemplateGallery'));
-const Roadmap = lazy(() => import('./components/Roadmap'));
 const ChatWidget = lazy(() => import('./components/ChatWidget'));
-const DriftDashboard = lazy(() => import('./components/DriftDashboard'));
 const AdminDashboard = lazy(() => import('./components/AdminDashboard'));
-// PricingPage removed — feature temporarily disabled
 const CommandPalette = lazy(() => import('./components/CommandPalette'));
-const DashboardPage = lazy(() => import('./components/DashboardPage'));
-const ApiDocs = lazy(() => import('./components/ApiDocs'));
-const CollabWorkspace = lazy(() => import('./components/CollabWorkspace'));
-const MigrationReplay = lazy(() => import('./components/MigrationReplay'));
 
 
 function TabFallback() {
@@ -63,6 +52,7 @@ export default function App() {
   // Local-only state (easter egg, no need to share)
   const [tapCount, setTapCount] = useState(0);
   const tapTimer = useRef(null);
+  const ActiveRouteComponent = getEnabledRoute(activeTab)?.component;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -101,16 +91,7 @@ export default function App() {
       <main id="main-content" className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
         <ErrorBoundary resetKey={activeTab}>
           <Suspense fallback={<TabFallback />}>
-            {activeTab === 'dashboard' && <DashboardPage />}
-            {activeTab === 'translator' && <DiagramTranslator />}
-            {activeTab === 'services' && <ServicesBrowser />}
-            {activeTab === 'templates' && <TemplateGallery />}
-            {activeTab === 'roadmap' && <Roadmap />}
-            {activeTab === 'drift' && isFeatureEnabled('livingArchitectureDrift') && <DriftDashboard />}
-            {activeTab === 'api-docs' && <ApiDocs />}
-            {activeTab === 'collab' && <CollabWorkspace />}
-            {activeTab === 'replay' && <MigrationReplay />}
-
+            {ActiveRouteComponent && <ActiveRouteComponent />}
           </Suspense>
         </ErrorBoundary>
       </main>

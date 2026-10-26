@@ -11,37 +11,24 @@
 
 import { create } from 'zustand';
 import api from '../services/apiClient';
-
-const VALID_TABS = new Set([
-  'dashboard',
-  'translator',
-  'services',
-  'templates',
-  'roadmap',
-  'drift',
-  'api-docs',
-  'collab',
-  'replay',
-]);
+import {
+  DEFAULT_ROUTE_ID,
+  getEnabledRouteDefinition,
+  hashFromRouteId,
+  routeIdFromHash,
+} from '../routeConfig';
 
 /** Read initial tab from URL hash, default to the translator. */
 function getInitialTab() {
-  if (typeof window === 'undefined') return 'translator';
-  const hash = window.location.hash.replace('#', '').replace('/', '');
-  if (hash === '') return 'translator';
-  return VALID_TABS.has(hash) ? hash : 'translator';
+  if (typeof window === 'undefined') return DEFAULT_ROUTE_ID;
+  return routeIdFromHash(window.location.hash);
 }
 
 const useAppStore = create((set) => {
   // Listen for browser back/forward navigation (#310)
   if (typeof window !== 'undefined') {
     window.addEventListener('popstate', () => {
-      const hash = window.location.hash.replace('#', '').replace('/', '');
-      if (hash === '') {
-        set({ activeTab: 'translator' });
-      } else if (VALID_TABS.has(hash)) {
-        set({ activeTab: hash });
-      }
+      set({ activeTab: routeIdFromHash(window.location.hash) });
     });
   }
 
@@ -55,10 +42,11 @@ const useAppStore = create((set) => {
 
     // ── Actions ──
     setActiveTab: (tab) => {
+      if (!getEnabledRouteDefinition(tab)) return;
       set({ activeTab: tab });
       // Sync URL hash (#310)
       if (typeof window !== 'undefined') {
-        const newHash = tab === 'translator' ? '' : `#${tab}`;
+        const newHash = hashFromRouteId(tab);
         const currentHash = window.location.hash === '#translator' ? '' : window.location.hash;
         if (currentHash !== newHash) {
           window.history.pushState(null, '', newHash || window.location.pathname);
