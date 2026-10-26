@@ -5,11 +5,12 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from concurrent.futures import ThreadPoolExecutor
 import time
 
 import pytest
 import sqlalchemy as sa
-from sqlalchemy.engine import URL, make_url
+from sqlalchemy.engine import Engine, URL, make_url
 
 
 BACKEND_ROOT = Path(__file__).resolve().parents[1]
@@ -113,6 +114,41 @@ def _run_alembic(
         f"stdout:\n{result.stdout}\n"
         f"stderr:\n{result.stderr}"
     )
+
+
+def _run_alembic_with_lock_monitor(
+    engine: Engine,
+    database_url: str,
+    *arguments: str,
+    timeout_seconds: float,
+) -> tuple[float, list[int]]:
+    waiting_lock_samples: list[int] = []
+    started = time.monotonic()
+    with ThreadPoolExecutor(max_workers=1) as executor:
+        migration = executor.submit(
+            _run_alembic,
+            database_url,
+            *arguments,
+            timeout_seconds=timeout_seconds,
+        )
+        with engine.connect() as connection:
+            while not migration.done():
+                waiting_lock_samples.append(
+                    connection.execute(
+                        sa.text(
+                            "SELECT count(*) FROM pg_locks "
+                            "WHERE NOT granted "
+                            "AND database = ("
+                            "SELECT oid FROM pg_database "
+                            "WHERE datname = current_database()"
+                            ")"
+                        )
+                    ).scalar_one()
+                )
+                connection.commit()
+                time.sleep(0.01)
+        migration.result()
+    return time.monotonic() - started, waiting_lock_samples
 
 
 def _temporary_database_urls(base_url: str) -> tuple[URL, URL, str]:
@@ -268,15 +304,16 @@ def test_n_minus_1_fixture_survives_migration_within_lock_budget():
             assert before_hash == fixture["expected_sha256"]
             old_binary_connection.commit()
 
-        started = time.monotonic()
-        _run_alembic(
+        migration_duration, waiting_lock_samples = _run_alembic_with_lock_monitor(
+            engine,
             database_url.render_as_string(hide_password=False),
             "upgrade",
             "head",
             timeout_seconds=LOCK_BUDGET_SECONDS,
         )
-        migration_duration = time.monotonic() - started
         assert migration_duration < LOCK_BUDGET_SECONDS
+        assert waiting_lock_samples
+        assert max(waiting_lock_samples) == 0
 
         with engine.begin() as connection:
             after = _snapshot(connection)
@@ -284,10 +321,6 @@ def test_n_minus_1_fixture_survives_migration_within_lock_budget():
             assert _canonical_sha256(after) == fixture["expected_sha256"]
             _assert_relationships_and_tenants(connection)
             _assert_new_binary_contract(connection)
-            waiting_locks = connection.execute(
-                sa.text("SELECT count(*) FROM pg_locks WHERE NOT granted")
-            ).scalar_one()
-            assert waiting_locks == 0
 
         _run_alembic(database_url.render_as_string(hide_password=False), "downgrade", fixture["revision"])
         with engine.connect() as connection:

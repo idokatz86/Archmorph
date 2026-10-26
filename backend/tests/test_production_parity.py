@@ -136,6 +136,32 @@ def test_runtime_bootstrap_fails_closed_when_database_is_unreachable():
     assert "unreachable.invalid" not in result.stderr
 
 
+def test_release_status_blocks_incomplete_database_readiness():
+    result = run_backend_snippet(
+        """import asyncio, json
+from unittest.mock import patch
+from routers.admin_core import admin_release_status
+
+database = {
+    'postgres_configured': True,
+    'production_like': True,
+    'schema': {'ready': True},
+    'ready_for_production': False,
+}
+sessions = {'ready_for_horizontal_scale': True}
+with (
+    patch('database.database_readiness', return_value=database),
+    patch('session_store.session_store_readiness', return_value=sessions),
+):
+    payload = asyncio.run(admin_release_status(None, True))
+print(json.dumps(payload['readiness']['release_blockers']))
+""",
+    )
+    assert result.returncode == 0, result.stderr
+    blockers = json.loads(result.stdout)
+    assert "Database readiness checks must pass for production promotion" in blockers
+
+
 def test_redis_readiness_is_horizontal_scale_ready_when_required():
     result = run_backend_snippet(
         "import json, session_store; print(json.dumps(session_store.session_store_readiness()))",

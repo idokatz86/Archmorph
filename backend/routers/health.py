@@ -234,27 +234,6 @@ def _run_dependency_checks() -> tuple[dict[str, str], bool, bool]:
         checks["redis"] = "error"
         unhealthy = True
 
-    # ── Database schema authority ─────────────────────────
-    try:
-        from database import database_readiness
-
-        db_readiness = database_readiness()
-        checks["database_readiness"] = db_readiness
-        if db_readiness["production_like"] and not db_readiness["ready_for_production"]:
-            unhealthy = True
-    except Exception as exc:  # noqa: BLE001
-        logger.error(
-            "Database readiness probe failed (%s)",
-            type(exc).__name__,
-            exc_info=True,
-        )
-        checks["database_readiness"] = {
-            "ready_for_production": False,
-            "error": "database_readiness_check_failed",
-        }
-        if ENVIRONMENT.lower() in ("production", "prod", "staging"):
-            unhealthy = True
-
     # ── Service catalog sanity ────────────────────────────
     catalog_ok = len(AWS_SERVICES) > 0 and len(AZURE_SERVICES) > 0 and len(CROSS_CLOUD_MAPPINGS) > 0
     checks["service_catalog"] = "ok" if catalog_ok else "empty"

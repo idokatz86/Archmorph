@@ -243,10 +243,8 @@ class TestHealthContract:
         monkeypatch.setattr(openai_client, "AZURE_OPENAI_ENDPOINT", "")
         monkeypatch.setattr(usage_metrics, "AZURE_STORAGE_ACCOUNT_URL", "")
         monkeypatch.setattr(usage_metrics, "AZURE_STORAGE_CONNECTION_STRING", "")
-        monkeypatch.setattr(
-            database,
-            "database_readiness",
-            lambda: {
+        database_readiness = MagicMock(
+            return_value={
                 "backend": "postgresql",
                 "production_like": True,
                 "schema": {
@@ -258,10 +256,12 @@ class TestHealthContract:
                 "ready_for_production": False,
             },
         )
+        monkeypatch.setattr(database, "database_readiness", database_readiness)
 
         checks, _, unhealthy = health_router._run_dependency_checks()
 
         assert unhealthy is True
+        database_readiness.assert_called_once_with()
         assert checks["database_readiness"]["schema"]["status"] == "mismatch"
 
     def test_health_reads_freshness_before_scheduled_jobs(self, client, monkeypatch):

@@ -52,7 +52,8 @@ hash, foreign-key relationships, tenant/owner alignment, old-reader and
 new-writer compatibility, downgrade contract behavior, total migration
 duration, and absence of waiting locks. The gate validates the N-1 reader
 contract before upgrading, commits that read transaction, and then applies the
-migration within a five-second duration and subprocess timeout budget.
+migration within a five-second duration and subprocess timeout budget while
+sampling the disposable database for waiting locks.
 
 For safety, the test only creates its disposable database when
 `MIGRATION_TEST_DATABASE_URL` uses PostgreSQL on localhost. It never migrates,
