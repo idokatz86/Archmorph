@@ -11532,6 +11532,7 @@ export interface operations {
     list_agents_agents_get: {
         parameters: {
             query?: {
+                organization_id?: string | null;
                 skip?: number;
                 limit?: number;
             };
