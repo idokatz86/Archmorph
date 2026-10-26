@@ -8,6 +8,7 @@
     "test:frontend": "cd frontend && npx vitest run",
     "test:e2e": "npx playwright test",
     "test": "npm run test:backend && npm run test:frontend",
+    "check:architecture": "python3 scripts/check_source_boundaries.py",
     "lint:backend": "cd backend && ruff check .",
     "lint": "npm run lint:backend",
     "check:metadata": "python3 scripts/sync_version.py --check && python3 scripts/lint_public_metadata.py",
@@ -35,7 +36,7 @@
     "@playwright/test": "^1.58.2",
     "js-yaml": "^4.3.2",
     "playwright": "^1.58.2",
-    "puppeteer": "^25.0.2"
+    "puppeteer": "^25.14.0"
   },
   "overrides": {
     "js-yaml": "$js-yaml",

@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "exceptions": [
+    {
+      "id": "cycle|python|azure_landing_zone,icons.registry",
+      "owner": "@idokatz86",
+      "rationale": "The legacy landing-zone module and icon registry still perform bidirectional registration during import.",
+      "removal_reference": "TARGET_STATE_ARCHITECTURE_BLUEPRINT.md#11-incremental-implementation-backlog (ARC-001 remediation: landing-zone icon registration)",
+      "expires_on": "2027-04-30"
+    },
+    {
+      "id": "cycle|python|database,models,models.agent,models.analytics,models.audit,models.cost,models.deployment_state,models.execution,models.feedback,models.job,models.memory,models.model_registry,models.policy,models.tenant,models.usage,models.user,models.versioning,models.workspace",
+      "owner": "@idokatz86",
+      "rationale": "Legacy model registration imports the database module while the database bootstrap imports the complete model package.",
+      "removal_reference": "TARGET_STATE_ARCHITECTURE_BLUEPRINT.md#11-incremental-implementation-backlog (DB-001)",
+      "expires_on": "2027-04-30"
+    },
+    {
+      "id": "cycle|python|ai_suggestion,export_capabilities,openai_client,routers.api_keys_routes,routers.samples,routers.shared",
+      "owner": "@idokatz86",
+      "rationale": "Export capability storage is currently initialized through router-owned compatibility state.",
+      "removal_reference": "TARGET_STATE_ARCHITECTURE_BLUEPRINT.md#32-dependency-rules (Artifacts bounded context extraction)",
+      "expires_on": "2027-04-30"
+    },
+    {
+      "id": "cycle|python|service_updater,services",
+      "owner": "@idokatz86",
+      "rationale": "The legacy services package re-exports updater behavior that imports the package registry.",
+      "removal_reference": "TARGET_STATE_ARCHITECTURE_BLUEPRINT.md#11-incremental-implementation-backlog (ARC-001 remediation: service registry extraction)",
+      "expires_on": "2027-04-30"
+    },
+    {
+      "id": "direction|python|services.hld_service->routers.diagrams|application must not depend on api",
+      "owner": "@idokatz86",
+      "rationale": "The HLD application service delegates to legacy router functions while compatibility behavior is extracted.",
+      "removal_reference": "TARGET_STATE_ARCHITECTURE_BLUEPRINT.md#32-dependency-rules (Artifacts bounded context extraction)",
+      "expires_on": "2027-04-30"
+    },
+    {
+      "id": "direction|python|services.tenant_service->repositories.tenant|application must not depend on infrastructure",
+      "owner": "@idokatz86",
+      "rationale": "The tenant service directly uses the legacy concrete repository until an application port is introduced.",
+      "removal_reference": "TARGET_STATE_ARCHITECTURE_BLUEPRINT.md#11-incremental-implementation-backlog (IAM-001)",
+      "expires_on": "2027-04-30"
+    }
+  ]
+}

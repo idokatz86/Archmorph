@@ -1,0 +1,98 @@
+{
+  "version": 1,
+  "test_directories": [
+    {
+      "directory": "backend/_archive/tests",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "backend-tests"
+    },
+    {
+      "directory": "backend/tests",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "backend-tests"
+    },
+    {
+      "directory": "cli/tests",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "cli-full-spine-smoke"
+    },
+    {
+      "directory": "frontend/src/__tests__",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "frontend-build"
+    },
+    {
+      "directory": "frontend/src/components/DiagramTranslator/__tests__",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "frontend-build"
+    },
+    {
+      "directory": "frontend/src/components/__tests__",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "frontend-build"
+    },
+    {
+      "directory": "frontend/src/hooks/__tests__",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "frontend-build"
+    },
+    {
+      "directory": "frontend/src/services/__tests__",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "frontend-build"
+    },
+    {
+      "directory": "frontend/src/stores/__tests__",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "frontend-build"
+    },
+    {
+      "directory": "frontend/src/test",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "frontend-build"
+    },
+    {
+      "directory": "frontend/src/utils/__tests__",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "frontend-build"
+    },
+    {
+      "directory": "infra/release-monitoring/tests",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "terraform-config-validate"
+    },
+    {
+      "directory": "tests",
+      "workflow": ".github/workflows/ci.yml",
+      "job": "repository-policy",
+      "test_file_exceptions": [
+        {
+          "file": "tests/e2e_flow_test.py",
+          "classification": "manual-local-path",
+          "reason": "Manual live-environment script with local fixture paths; not a pytest test module."
+        },
+        {
+          "file": "tests/load_test.py",
+          "classification": "separately-collected",
+          "reason": "Locust workload validated independently of pytest.",
+          "workflow": ".github/workflows/ci.yml",
+          "job": "repository-policy",
+          "command": "python -m locust -f tests/load_test.py --list"
+        },
+        {
+          "file": "tests/perf/locustfile_landing_zone.py",
+          "classification": "separately-collected",
+          "reason": "Scheduled and manually dispatched Landing Zone soak workload.",
+          "workflow": ".github/workflows/perf-soak.yml",
+          "job": "landing-zone-soak",
+          "command": "-f tests/perf/locustfile_landing_zone.py"
+        },
+        {
+          "file": "tests/test_vision_quick.py",
+          "classification": "manual-local-path",
+          "reason": "Manual developer diagnostic that performs import-time I/O against local developer image paths."
+        }
+      ]
+    }
+  ]
+}
