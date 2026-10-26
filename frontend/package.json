@@ -44,6 +44,7 @@
     "@types/react-dom": "^19.1.5",
     "@vitejs/plugin-react": "^6.0.3",
     "@vitest/coverage-v8": "^4.1.12",
+    "axe-core": "^4.11.1",
     "brace-expansion": "file:../vendor/brace-expansion-5.0.12-compat.tgz",
     "eslint": "^9.39.5",
     "eslint-config-prettier": "^10.1.8",
