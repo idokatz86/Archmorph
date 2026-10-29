@@ -3,7 +3,6 @@ import os
 import sys
 
 import pytest
-from fastapi.routing import APIRoute
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -25,6 +24,7 @@ from routers.shared import (  # noqa: E402
     verify_api_key,
     verify_api_key_or_user_session,
 )
+from routers.v1 import iter_api_route_contexts  # noqa: E402
 from shareable_reports import _shares  # noqa: E402
 from tests.conftest import SAMPLE_ANALYSIS, assert_cross_tenant_denied  # noqa: E402
 
@@ -350,9 +350,7 @@ def test_diagram_artifact_routes_require_api_key_or_user_session_dependency_and_
     }
 
     missing: list[str] = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
+    for route in iter_api_route_contexts(app.routes):
         if (
             not route.path.startswith("/api/diagrams/{diagram_id}/")
             or route.path in exempt_paths
@@ -388,8 +386,7 @@ def test_share_and_replay_manifests_keep_public_and_private_exceptions_explicit(
             route.path,
             tuple(sorted(set(route.methods or ()) - {"HEAD", "OPTIONS"})),
         ): route
-        for route in app.routes
-        if isinstance(route, APIRoute)
+        for route in iter_api_route_contexts(app.routes)
     }
 
     shared_get = indexed[("/api/shared/{share_id}", ("GET",))]

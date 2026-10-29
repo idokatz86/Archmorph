@@ -21,7 +21,6 @@ import zipfile
 from pathlib import Path
 
 import pytest
-from fastapi.routing import APIRoute
 from fastapi.testclient import TestClient
 
 # Ensure backend is on the path
@@ -1170,12 +1169,13 @@ class TestIconAPI:
 
     def test_icon_pack_mutation_route_inventory_is_admin_protected(self):
         from main import app
+        from routers.v1 import iter_api_route_contexts
 
         schema = self.client.get("/openapi.json").json()
         registered_mutations = {
             (method, route.path_format)
-            for route in app.routes
-            if isinstance(route, APIRoute) and route.path_format.startswith("/api/icon-packs")
+            for route in iter_api_route_contexts(app.routes)
+            if route.path_format.startswith("/api/icon-packs")
             for method in route.methods
             if method in {"POST", "PUT", "PATCH", "DELETE"}
         }
