@@ -11,6 +11,7 @@ os.environ["RATE_LIMIT_ENABLED"] = "false"
 from main import app  # noqa: E402
 from routers import shared as shared_router  # noqa: E402
 from routers.shared import verify_api_key  # noqa: E402
+from routers.v1 import iter_api_route_contexts  # noqa: E402
 
 
 API_KEY = "test-import-key"
@@ -73,7 +74,11 @@ def test_import_routes_share_auth_dependency_and_limits():
         "/api/import/arm",
         "/api/import/infrastructure",
     }
-    matched = {route.path: route for route in app.routes if getattr(route, "path", None) in protected_paths}
+    matched = {
+        route.path: route
+        for route in iter_api_route_contexts(app.routes)
+        if route.path in protected_paths
+    }
 
     assert matched.keys() == protected_paths
     for route in matched.values():
