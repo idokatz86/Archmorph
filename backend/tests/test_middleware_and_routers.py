@@ -332,6 +332,23 @@ class TestV1RouterBuilder:
         paths = [r.path for r in v1.routes]
         assert "/api/v1/test-endpoint" in paths
 
+    def test_build_v1_router_handles_nested_included_routers(self):
+        from fastapi import APIRouter
+        from routers.v1 import build_v1_router
+
+        child = APIRouter()
+
+        @child.get("/api/nested-endpoint")
+        async def nested_endpoint():
+            return {"ok": True}
+
+        parent = APIRouter()
+        parent.include_router(child)
+
+        v1 = build_v1_router([(parent, "")])
+
+        assert [route.path for route in v1.routes] == ["/api/v1/nested-endpoint"]
+
     def test_build_v1_router_skips_non_api(self):
         from routers.v1 import build_v1_router
         from fastapi import APIRouter
