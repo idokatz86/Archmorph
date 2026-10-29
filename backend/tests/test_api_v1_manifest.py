@@ -7,22 +7,20 @@ from collections import Counter
 from pathlib import Path
 
 import pytest
-from fastapi.routing import APIRoute
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
 from main import V1_ROUTE_SPECS, app  # noqa: E402
+from routers.v1 import APIRouteView, iter_api_route_contexts  # noqa: E402
 
 
 MANIFEST_PATH = Path(__file__).resolve().parent.parent / "api_v1_mirror_exemptions.json"
 
 
-def _route_entries() -> list[tuple[str, str, APIRoute]]:
-    indexed: list[tuple[str, str, APIRoute]] = []
-    for route in app.routes:
-        if not isinstance(route, APIRoute):
-            continue
+def _route_entries() -> list[tuple[str, str, APIRouteView]]:
+    indexed: list[tuple[str, str, APIRouteView]] = []
+    for route in iter_api_route_contexts(app.routes):
         methods = set(route.methods or ()) - {"HEAD", "OPTIONS"}
         for method in methods:
             indexed.append((route.path, method, route))

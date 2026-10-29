@@ -5,17 +5,63 @@ stable v1 APIs; legacy, admin, beta, and scaffold routers are temporary
 compatibility aliases and emit deprecation/sunset headers.
 """
 
-from dataclasses import dataclass
-from typing import List, Literal, Tuple, Union
-
-from fastapi import APIRouter, Request
-from fastapi.routing import APIRoute
 import logging
+from collections.abc import Iterator, Sequence
+from dataclasses import dataclass
+from typing import Any, Callable, List, Literal, Protocol, Tuple, Union
+
+from fastapi import APIRouter, Request, routing as fastapi_routing
+from fastapi.routing import APIRoute
 from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.routing import BaseRoute
 
 logger = logging.getLogger(__name__)
 
 V1_COMPATIBILITY_SUNSET = "Thu, 15 Oct 2026 00:00:00 GMT"
+
+
+class APIRouteView(Protocol):
+    """Route attributes exposed by both APIRoute and FastAPI RouteContext."""
+
+    path: str
+    path_format: str
+    path_regex: Any
+    methods: set[str] | None
+    endpoint: Callable[..., Any] | None
+    name: str | None
+    tags: list[Any] | None
+    summary: str | None
+    description: str
+    deprecated: bool | None
+    response_model: Any
+    status_code: int | None
+    dependencies: list[Any]
+    response_description: str
+    responses: dict[int | str, dict[str, Any]]
+    response_class: Any
+    callbacks: list[Any] | None
+    include_in_schema: bool
+    openapi_extra: dict[str, Any] | None
+    dependant: Any
+
+
+def iter_api_route_contexts(routes: Sequence[BaseRoute]) -> Iterator[APIRouteView]:
+    """Iterate effective API routes across eager and lazy FastAPI routers."""
+    route_context_iterator = getattr(fastapi_routing, "iter_route_contexts", None)
+    if route_context_iterator is None:
+        for route in routes:
+            if isinstance(route, APIRoute):
+                yield route
+            elif getattr(route, "original_router", None) is not None:
+                raise RuntimeError(
+                    "FastAPI lazy router contexts are unavailable; update "
+                    "iter_api_route_contexts for this FastAPI version"
+                )
+        return
+
+    for route_context in route_context_iterator(routes):
+        if isinstance(getattr(route_context, "original_route", None), APIRoute):
+            yield route_context
 
 
 @dataclass(frozen=True)
@@ -68,10 +114,7 @@ def build_v1_router(
         # Preserve the small builder's historical tuple API for isolated tests
         # and external callers; the application itself must pass classified specs.
         spec = raw_spec if isinstance(raw_spec, V1RouterSpec) else V1RouterSpec(*raw_spec)
-        for route in spec.router.routes:
-            if not isinstance(route, APIRoute):
-                continue
-
+        for route in iter_api_route_contexts(spec.router.routes):
             # Compute the effective path (router prefix + decorator path)
             effective_path = spec.prefix + route.path
 
@@ -81,6 +124,14 @@ def build_v1_router(
             if effective_path.startswith("/api/v1/"):
                 continue
 
+            if route.endpoint is None:
+                raise RuntimeError(f"API route {route.path} has no endpoint")
+            endpoint_module = getattr(
+                route.endpoint,
+                "__module__",
+                type(route.endpoint).__name__,
+            )
+
             # /api/foo → /api/v1/foo
             v1_path = "/api/v1" + effective_path[4:]
             methods = set(route.methods or ()) - {"HEAD", "OPTIONS"}
@@ -89,12 +140,11 @@ def build_v1_router(
                 if key in seen_method_paths:
                     raise RuntimeError(
                         f"Duplicate v1 route {method} {v1_path} from "
-                        f"{seen_method_paths[key]} and {route.endpoint.__module__}"
+                        f"{seen_method_paths[key]} and {endpoint_module}"
                     )
-                seen_method_paths[key] = route.endpoint.__module__
+                seen_method_paths[key] = endpoint_module
 
             is_compatibility = spec.stability == "compatibility"
-
             v1_router.add_api_route(
                 path=v1_path,
                 endpoint=route.endpoint,
