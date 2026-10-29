@@ -330,6 +330,7 @@ flowchart TB
 |-----------|------------|---------------|
 | Frontend | React 19.2, Vite 8.1, TailwindCSS 4.3, Zustand, Lucide React | Static Web Apps |
 | Backend API | Python 3.12, FastAPI, Gunicorn + Uvicorn | Container Apps |
+| MCP Gateway | Python 3.15, FastAPI, Uvicorn | Container Apps |
 | AI Engine | GPT-4.1 (vision + chat) with GPT-4o fallback | Azure OpenAI |
 | Container Registry | Docker | Azure Container Registry |
 | Database | PostgreSQL (Terraform: 15; migration CI: 16) | Flexible Server |
