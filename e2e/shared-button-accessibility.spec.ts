@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 
-const SAMPLE_PDF_BUFFER = Buffer.from(
-  '%PDF-1.4\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF\n',
+const SAMPLE_IMAGE_BUFFER = Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg" width="1" height="1"></svg>',
 );
 
 test.describe('Shared button accessibility', () => {
@@ -30,11 +30,11 @@ test.describe('Shared button accessibility', () => {
       'button',
     );
     await page.locator('input[type="file"]').setInputFiles({
-      name: 'architecture.pdf',
-      mimeType: 'application/pdf',
-      buffer: SAMPLE_PDF_BUFFER,
+      name: 'architecture.svg',
+      mimeType: 'image/svg+xml',
+      buffer: SAMPLE_IMAGE_BUFFER,
     });
-    await expect(page.getByText('architecture.pdf')).toBeVisible();
+    await expect(page.getByText('architecture.svg')).toBeVisible();
 
     const signInButton = page.getByRole('button', { name: 'Sign in to analyze' });
     await expect(signInButton).toHaveAttribute('type', 'button');
