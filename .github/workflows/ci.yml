@@ -614,7 +614,7 @@ jobs:
             cat /tmp/archmorph-lighthouse.log
             exit 1
           fi
-          npx --yes @lhci/cli@0.15.1 autorun --config=./lighthouserc.json
+          npx --yes --registry=https://registry.npmjs.org/ @lhci/cli@0.15.1 autorun --config=./lighthouserc.json
 
       - name: Upload Lighthouse report
         if: always()
