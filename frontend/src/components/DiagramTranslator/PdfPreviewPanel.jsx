@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { AlertTriangle, Search, ZoomIn, ZoomOut } from 'lucide-react';
-import { Button, Modal } from '../ui';
+import { Modal } from '../ui';
+import { Button } from '../../shared/ui';
 
 const MIN_ZOOM = 75;
 const MAX_ZOOM = 250;

@@ -63,3 +63,46 @@ def test_origin_lock_keeps_healthz_available_for_platform_probes(monkeypatch):
 
     assert response.status_code == 200
     assert response.json()["status"] == "alive"
+
+
+def test_origin_lock_keeps_readyz_available_for_platform_probes(monkeypatch):
+    import database
+    import routers.shared
+    import session_store
+
+    monkeypatch.setenv("ENVIRONMENT", "production")
+    monkeypatch.setenv("REQUIRE_REDIS", "false")
+    monkeypatch.setenv("TRUSTED_FRONT_DOOR_FDID", "fd-guid")
+    monkeypatch.setenv("TRUSTED_FRONT_DOOR_HOSTS", "example.azurefd.net")
+
+    with TestClient(app, raise_server_exceptions=False) as client:
+        monkeypatch.setattr(
+            database,
+            "database_readiness",
+            lambda: {
+                "ready_for_production": True,
+                "schema_compatible": True,
+                "required_schema_present": True,
+            },
+        )
+        monkeypatch.setattr(
+            session_store,
+            "session_store_readiness",
+            lambda: {"ready_for_horizontal_scale": True},
+        )
+        monkeypatch.setattr(
+            routers.shared,
+            "rate_limit_readiness",
+            lambda: {"ready": True},
+        )
+        response = client.get("/readyz")
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "ready",
+        "checks": {
+            "database": "ready",
+            "database_schema": "ready",
+            "redis": "ready",
+        },
+    }

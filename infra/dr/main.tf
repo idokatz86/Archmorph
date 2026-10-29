@@ -47,9 +47,9 @@ variable "frontend_url" {
 }
 
 variable "health_probe_path" {
-  description = "Anonymous process liveness path for DR container probes."
+  description = "Readiness path used by DR traffic manager checks."
   type        = string
-  default     = "/healthz"
+  default     = "/readyz"
 }
 
 variable "readiness_probe_path" {

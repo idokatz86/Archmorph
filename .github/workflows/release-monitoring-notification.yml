@@ -1,0 +1,149 @@
+name: Test existing release monitoring email
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: "Exact reviewed main SHA; no infrastructure apply"
+        required: true
+        type: string
+      confirm_notification_test:
+        description: "Send one test to the existing approved ALERT_EMAIL after live monitoring attestation"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: production-backend-rollout
+  cancel-in-progress: false
+
+jobs:
+  notification-test:
+    runs-on: ${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}
+    timeout-minutes: 15
+    environment: production
+    env:
+      APPROVED_SOURCE_SHA: ${{ inputs.source_sha }}
+      CONFIRM_NOTIFICATION_TEST: ${{ inputs.confirm_notification_test }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      TFSTATE_RESOURCE_GROUP: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      TFSTATE_CONTAINER: ${{ secrets.TFSTATE_CONTAINER }}
+      TFSTATE_KEY: ${{ secrets.TFSTATE_KEY }}
+      MIGRATION_TFSTATE_STORAGE_ACCOUNT: ${{ secrets.MIGRATION_TFSTATE_STORAGE_ACCOUNT }}
+      MIGRATION_TFSTATE_CONTAINER: ${{ secrets.MIGRATION_TFSTATE_CONTAINER }}
+      MIGRATION_TFSTATE_KEY: ${{ secrets.MIGRATION_TFSTATE_KEY }}
+      MONITORING_TFSTATE_KEY: ${{ secrets.MONITORING_TFSTATE_KEY }}
+      MONITORING_APPLICATION_INSIGHTS_NAME: ${{ secrets.MONITORING_APPLICATION_INSIGHTS_NAME }}
+      MONITORING_WORKSPACE_NAME: ${{ secrets.MONITORING_WORKSPACE_NAME }}
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    steps:
+      - name: Confirm monitoring-notification-only authorization
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF" != "refs/heads/main" ] || \
+            [ "$GITHUB_SHA" != "$APPROVED_SOURCE_SHA" ] || \
+            [ "$CONFIRM_NOTIFICATION_TEST" != "true" ]; then
+            echo "::error::Exact protected source and explicit notification approval are required"
+            exit 1
+          fi
+          umask 077
+          E=$(mktemp -d "$RUNNER_TEMP/monitoring-email-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-XXXXXX")
+          echo "MONITORING_EVIDENCE_DIR=$E" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@2dd0bbf4064d5a1812889dc200bb8eed2597f82a # v3
+        with:
+          client-id: ${{ env.ARM_CLIENT_ID }}
+          tenant-id: ${{ env.ARM_TENANT_ID }}
+          subscription-id: ${{ env.ARM_SUBSCRIPTION_ID }}
+
+      - name: Set up Terraform for read-only state outputs
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Attest the existing monitored resources without changing state
+        run: |
+          set -euo pipefail
+          umask 077
+          E="$MONITORING_EVIDENCE_DIR"
+          python3 scripts/verify_release_monitoring.py backend
+          terraform -chdir=infra/release-monitoring init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${MIGRATION_TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}" \
+            -backend-config="key=${MONITORING_TFSTATE_KEY}" > "$E/init.log" 2>&1
+          terraform -chdir=infra/release-monitoring output -json > "$E/applied-outputs.json"
+          az resource show --resource-group "$AZURE_RESOURCE_GROUP" \
+            --resource-type Microsoft.Insights/components --name "$MONITORING_APPLICATION_INSIGHTS_NAME" \
+            --api-version 2020-02-02 \
+            --query '{id:id,location:location,workspaceId:properties.WorkspaceResourceId}' \
+            --output json > "$E/telemetry.json"
+          python3 scripts/release_monitoring_apply.py attest \
+            --outputs "$E/applied-outputs.json" --app "$E/telemetry.json" \
+            --spec infra/monitoring/migration-alert-specs.json --output "$E/live-attestation.json"
+
+      - name: Send one verified existing-recipient test
+        run: |
+          set -euo pipefail
+          E="$MONITORING_EVIDENCE_DIR"
+          python3 scripts/release_monitoring_apply.py test-email --retry-only \
+            --app "$E/telemetry.json" --output "$E/email-test.json"
+          {
+            echo "## Existing monitoring email test"
+            cat "$E/email-test.json"
+            echo "No infrastructure apply or application deployment was run. Inbox receipt is not confirmed."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Encrypt notification-only evidence
+        if: always() && env.MONITORING_EVIDENCE_DIR != ''
+        env:
+          TFPLAN_ARTIFACT_PASSPHRASE: ${{ secrets.TFPLAN_ARTIFACT_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${TFPLAN_ARTIFACT_PASSPHRASE:?Evidence encryption is required}"
+          tar -czf "$RUNNER_TEMP/monitoring-email-evidence.tar.gz" -C "$MONITORING_EVIDENCE_DIR" .
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -in "$RUNNER_TEMP/monitoring-email-evidence.tar.gz" \
+            -out "$RUNNER_TEMP/monitoring-email-evidence.tar.gz.enc" \
+            -pass env:TFPLAN_ARTIFACT_PASSPHRASE
+
+      - name: Retain encrypted notification evidence only
+        if: always() && env.MONITORING_EVIDENCE_DIR != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-monitoring-email-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/monitoring-email-evidence.tar.gz.enc
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove private temporary notification evidence
+        if: always() && env.MONITORING_EVIDENCE_DIR != ''
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+          root = Path(os.environ["RUNNER_TEMP"]).resolve()
+          evidence = Path(os.environ["MONITORING_EVIDENCE_DIR"]).resolve()
+          prefix = f'monitoring-email-{os.environ["GITHUB_RUN_ID"]}-{os.environ["GITHUB_RUN_ATTEMPT"]}-'
+          if evidence.parent != root or not evidence.name.startswith(prefix):
+              raise SystemExit("Refusing cleanup outside the exact notification evidence directory")
+          shutil.rmtree(evidence)
+          for name in ("monitoring-email-evidence.tar.gz", "monitoring-email-evidence.tar.gz.enc"):
+              (root / name).unlink(missing_ok=True)
+          PY

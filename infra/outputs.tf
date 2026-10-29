@@ -112,36 +112,6 @@ output "application_insights_instrumentation_key" {
   sensitive   = true
 }
 
-output "application_insights_resource_id" {
-  description = "Application Insights resource ID required by migration alert attestation."
-  value       = azurerm_application_insights.main.id
-}
-
-output "migration_failure_alert_id" {
-  description = "Applied migration failure alert resource ID."
-  value       = azurerm_monitor_scheduled_query_rules_alert_v2.migration_job_failure.id
-}
-
-output "migration_timeout_alert_id" {
-  description = "Applied migration timeout alert resource ID."
-  value       = azurerm_monitor_scheduled_query_rules_alert_v2.migration_job_timeout.id
-}
-
-output "migration_missing_evidence_alert_id" {
-  description = "Applied migration missing-evidence alert resource ID."
-  value       = azurerm_monitor_scheduled_query_rules_alert_v2.migration_missing_evidence.id
-}
-
-output "bridge_customer_degraded_alert_id" {
-  description = "Applied customer-degraded migration bridge alert resource ID."
-  value       = azurerm_monitor_scheduled_query_rules_alert_v2.bridge_customer_degraded.id
-}
-
-output "critical_action_group_id" {
-  description = "Action group required by migration rollout alerts."
-  value       = azurerm_monitor_action_group.critical.id
-}
-
 output "managed_identity_client_id" {
   description = "Managed Identity client ID for Container App"
   value       = azurerm_user_assigned_identity.container_app.client_id

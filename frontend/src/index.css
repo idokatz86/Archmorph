@@ -153,8 +153,8 @@
   to { opacity: 1; transform: scale(1); }
 }
 @keyframes modalIn {
-  from { opacity: 0; transform: scale(0.95) translateY(8px); }
-  to { opacity: 1; transform: scale(1) translateY(0); }
+  from { transform: scale(0.95) translateY(8px); }
+  to { transform: scale(1) translateY(0); }
 }
 .animate-modal-in {
   animation: modalIn 0.2s ease-out both;
@@ -227,4 +227,3 @@
 
 @keyframes slideDown { from { opacity: 0; transform: translateY(-8px); } to { opacity: 1; transform: translateY(0); } }
 @keyframes pulseOnce { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
-

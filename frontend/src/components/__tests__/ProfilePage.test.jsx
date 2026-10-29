@@ -98,6 +98,7 @@ describe('ProfilePage', () => {
     expect(options.method).toBe('PUT')
     expect(options.credentials).toBe('include')
     expect(options.headers.Authorization).toBeUndefined()
+    expect(fetch.mock.calls[1][0]).toContain('/me/profile')
   })
 
   it('announces save status with themed status styling', async () => {
@@ -110,5 +111,27 @@ describe('ProfilePage', () => {
     expect(status).toHaveTextContent('Profile saved successfully')
     expect(status.className).toContain('bg-cta/10')
     expect(status.className).not.toContain('bg-green-500')
+  })
+
+  it('shows the typed API error detail when saving fails', async () => {
+    const user = userEvent.setup()
+    fetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve({ display_name: 'Ada' }),
+      })
+      .mockResolvedValueOnce({
+        ok: false,
+        status: 400,
+        headers: new Headers({ 'content-type': 'application/json' }),
+        json: () => Promise.resolve({ error: { message: 'Display name is invalid' } }),
+      })
+
+    render(<ProfilePage isOpen onClose={vi.fn()} />)
+    await user.click(screen.getByRole('button', { name: /Save/ }))
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Display name is invalid')
   })
 })

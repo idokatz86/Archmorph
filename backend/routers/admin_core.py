@@ -361,7 +361,9 @@ async def admin_release_status(request: Request, _admin=Depends(verify_admin_key
             "release_blockers": [
                 blocker
                 for blocker, blocked in {
-                    "PostgreSQL DATABASE_URL is required for production promotion": not database["ready_for_production"],
+                    "Database readiness checks must pass for production promotion": not database["ready_for_production"],
+                    "PostgreSQL DATABASE_URL is required for production promotion": not database["postgres_configured"],
+                    "Database schema must match the Alembic head revision": database["production_like"] and not database["schema"]["ready"],
                     "Redis REDIS_HOST or REDIS_URL is required for horizontal scale": not sessions["ready_for_horizontal_scale"],
                 }.items()
                 if blocked

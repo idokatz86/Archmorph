@@ -3,7 +3,8 @@ import {
   Upload, ChevronRight, CheckCircle, XCircle, X,
   Loader2, Eye, Clock, FileCode, FileText, DollarSign, Rocket, Layers3, GitMerge, LogIn,
 } from 'lucide-react';
-import { Button, Card, ErrorCard, Tabs } from '../ui';
+import { Button, Card, ErrorCard } from '../ui';
+import { Tabs } from '../../shared/ui';
 import { buildJobStreamUrl } from '../../utils/jobStreamUrl';
 import api from '../../services/apiClient';
 import {
@@ -1834,6 +1835,7 @@ export default function DiagramTranslator() {
             <Button onClick={() => set({ step: 'results' })} variant="ghost" size="sm" icon={Eye}>Back to Analysis</Button>
           </div>
           <Tabs
+            aria-label="Migration deliverables"
             tabs={deliverableTabs}
             activeTab={activeDeliverable}
             onChange={(tabId) => {

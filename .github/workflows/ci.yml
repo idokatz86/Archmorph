@@ -62,12 +62,56 @@ jobs:
       - name: Guard Docker base image pins
         run: python3 scripts/lint_docker_base_images.py
 
+  source-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Check backend and frontend dependency direction
+        run: python3 scripts/check_source_boundaries.py
+
+  repository-policy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+
+      - name: Install repository-policy test dependencies
+        run: python -m pip install checkov 'locust==2.32.6' pytest
+
+      - name: Run root repository-policy tests
+        run: |
+          python -m pytest -q tests \
+            --ignore=tests/e2e_flow_test.py \
+            --ignore=tests/load_test.py \
+            --ignore=tests/test_vision_quick.py
+
+      - name: Validate CI test inventory
+        run: python scripts/check_ci_test_inventory.py
+
+      - name: Validate root Locust workload collection
+        run: python -m locust -f tests/load_test.py --list
+
   # ============================================
   # BACKEND TESTS (3.12 only — production version)
   # ============================================
   backend-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions:
+      contents: read
+      pull-requests: read
     defaults:
       run:
         working-directory: backend
@@ -159,6 +203,8 @@ jobs:
         run: python check_openapi_contract.py openapi.json
         env:
           ARCHMORPH_OPENAPI_BASE_SNAPSHOT: /tmp/base-openapi.snapshot.json
+          ARCHMORPH_OPENAPI_APPROVERS: ${{ vars.ARCHMORPH_OPENAPI_APPROVERS }}
+          GITHUB_TOKEN: ${{ github.token }}
 
       - name: Upload OpenAPI schema
         uses: actions/upload-artifact@v7
@@ -262,6 +308,8 @@ jobs:
             backend/tests/test_run_migrations.py \
             backend/tests/test_migration_bootstrap_verifier.py \
             backend/tests/test_migration_alert_attestation.py \
+            backend/tests/test_release_monitoring_plan.py \
+            backend/tests/test_release_monitoring_apply.py \
             backend/tests/test_frontend_release.py \
             backend/tests/test_helm_release_contract.py \
             backend/tests/test_helm_secret_contract.py \
@@ -357,6 +405,14 @@ jobs:
             tests/test_bridge_overlay_postgres.py \
             tests/test_helm_secret_contract.py
 
+      - name: Run N-1 migration safety gate
+        run: |
+          DATABASE_SCHEME="postgresql"
+          printf -v MIGRATION_TEST_DATABASE_URL '%s://%s:%s@127.0.0.1:5432/%s' \
+            "$DATABASE_SCHEME" "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB"
+          export MIGRATION_TEST_DATABASE_URL
+          python -m pytest -n 0 tests/test_migration_safety.py
+
   # ============================================
   # GENERATED IAC VALIDATION
   # ============================================
@@ -424,7 +480,7 @@ jobs:
 
       - name: Validate checked-in Terraform roots without remote backends
         run: |
-          for dir in . staging dr observability migration-bootstrap; do
+          for dir in . staging dr observability migration-bootstrap release-monitoring; do
             echo "::group::terraform validate infra/$dir"
             if [[ "$dir" == "." ]]; then
               cache_name="root"
@@ -437,6 +493,9 @@ jobs:
             terraform -chdir="$dir" validate -no-color
             echo "::endgroup::"
           done
+
+      - name: Test isolated monitoring with mocked Azure metadata
+        run: terraform -chdir=release-monitoring test -no-color
 
   # ============================================
   # TERRAFORM POLICY-AS-CODE
@@ -555,7 +614,7 @@ jobs:
             cat /tmp/archmorph-lighthouse.log
             exit 1
           fi
-          npx --yes @lhci/cli@0.15.1 autorun --config=./lighthouserc.json
+          npx --yes --registry=https://registry.npmjs.org/ @lhci/cli@0.15.1 autorun --config=./lighthouserc.json
 
       - name: Upload Lighthouse report
         if: always()
@@ -1193,6 +1252,7 @@ jobs:
       MIGRATION_TFSTATE_STORAGE_ACCOUNT: ${{ secrets.MIGRATION_TFSTATE_STORAGE_ACCOUNT }}
       MIGRATION_TFSTATE_CONTAINER: ${{ secrets.MIGRATION_TFSTATE_CONTAINER }}
       MIGRATION_TFSTATE_KEY: ${{ secrets.MIGRATION_TFSTATE_KEY }}
+      MONITORING_TFSTATE_KEY: ${{ secrets.MONITORING_TFSTATE_KEY }}
       RELEASE_MANIFEST_HMAC_KEY: ${{ secrets.RELEASE_MANIFEST_HMAC_KEY }}
       APPLICATIONINSIGHTS_CONNECTION_STRING: ${{ secrets.APPLICATIONINSIGHTS_CONNECTION_STRING }}
       STATIC_WEB_APP_NAME: ${{ vars.STATIC_WEB_APP_NAME || 'archmorph-frontend' }}
@@ -1260,7 +1320,8 @@ jobs:
             TFSTATE_KEY \
             MIGRATION_TFSTATE_STORAGE_ACCOUNT \
             MIGRATION_TFSTATE_CONTAINER \
-            MIGRATION_TFSTATE_KEY; do
+            MIGRATION_TFSTATE_KEY \
+            MONITORING_TFSTATE_KEY; do
             value="${!name:-}"
             if [ -z "$value" ]; then
               echo "::error::Required backend deploy input ${name} is not set"
@@ -2172,13 +2233,19 @@ jobs:
       - name: Attest applied migration alerts before Job execution
         run: |
           set -euo pipefail
-          terraform -chdir=infra output -json > infra/applied-outputs.json
-          MIGRATION_FAILURE_ALERT_ID=$(jq -er '.migration_failure_alert_id.value' infra/applied-outputs.json)
-          MIGRATION_TIMEOUT_ALERT_ID=$(jq -er '.migration_timeout_alert_id.value' infra/applied-outputs.json)
-          MIGRATION_MISSING_EVIDENCE_ALERT_ID=$(jq -er '.migration_missing_evidence_alert_id.value' infra/applied-outputs.json)
-          BRIDGE_CUSTOMER_DEGRADED_ALERT_ID=$(jq -er '.bridge_customer_degraded_alert_id.value' infra/applied-outputs.json)
-          APPLICATION_INSIGHTS_RESOURCE_ID=$(jq -er '.application_insights_resource_id.value' infra/applied-outputs.json)
-          CRITICAL_ACTION_GROUP_ID=$(jq -er '.critical_action_group_id.value' infra/applied-outputs.json)
+          python scripts/verify_release_monitoring.py backend
+          terraform -chdir=infra/release-monitoring init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${MIGRATION_TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}" \
+            -backend-config="key=${MONITORING_TFSTATE_KEY}"
+          terraform -chdir=infra/release-monitoring output -json > monitoring-applied-outputs.json
+          MIGRATION_FAILURE_ALERT_ID=$(jq -er '.migration_failure_alert_id.value' monitoring-applied-outputs.json)
+          MIGRATION_TIMEOUT_ALERT_ID=$(jq -er '.migration_timeout_alert_id.value' monitoring-applied-outputs.json)
+          MIGRATION_MISSING_EVIDENCE_ALERT_ID=$(jq -er '.migration_missing_evidence_alert_id.value' monitoring-applied-outputs.json)
+          BRIDGE_CUSTOMER_DEGRADED_ALERT_ID=$(jq -er '.bridge_customer_degraded_alert_id.value' monitoring-applied-outputs.json)
+          APPLICATION_INSIGHTS_RESOURCE_ID=$(jq -er '.application_insights_resource_id.value' monitoring-applied-outputs.json)
+          CRITICAL_ACTION_GROUP_ID=$(jq -er '.critical_action_group_id.value' monitoring-applied-outputs.json)
           mapfile -t APPLIED_ALERT_IDS < <(az resource list \
             --resource-group "$AZURE_RESOURCE_GROUP" \
             --resource-type Microsoft.Insights/scheduledQueryRules \

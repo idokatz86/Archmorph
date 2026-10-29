@@ -96,4 +96,22 @@ describe('TemplateGallery', () => {
     })
     expect(fetch).toHaveBeenLastCalledWith(expect.stringContaining('/templates/aws-iaas-web/analyze'), expect.objectContaining({ method: 'POST' }))
   })
+
+  it('announces loading errors and retries from the recovery action', async () => {
+    const user = userEvent.setup()
+    fetch
+      .mockRejectedValueOnce(new Error('Template service unavailable'))
+      .mockResolvedValueOnce(mockJsonResponse(starterResponse))
+
+    render(<TemplateGallery />)
+
+    const alert = await screen.findByRole('alert')
+    expect(alert).toHaveTextContent('Template service unavailable')
+
+    await user.click(screen.getByRole('button', { name: 'Try Again' }))
+
+    expect(await screen.findByText('AWS IaaS Web Stack')).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+    expect(fetch).toHaveBeenCalledTimes(2)
+  })
 })

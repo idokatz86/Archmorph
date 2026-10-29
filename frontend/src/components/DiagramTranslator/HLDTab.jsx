@@ -1,6 +1,7 @@
 import React from 'react';
 import { Loader2, RefreshCw, ArrowLeft, ArrowRight } from 'lucide-react';
-import { Button, Card } from '../ui';
+import { Card } from '../ui';
+import { Button } from '../../shared/ui';
 import HLDPanel from './HLDPanel';
 
 /**

@@ -1,5 +1,6 @@
-import { describe, it, expect } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import CostPanel from '../../DiagramTranslator/CostPanel'
 
 describe('CostPanel', () => {
@@ -98,5 +99,37 @@ describe('CostPanel', () => {
     expect(screen.getAllByText('Azure VM').length).toBeGreaterThan(0)
     expect(screen.getByText(/without pricing data/i)).toBeInTheDocument()
     expect(screen.getByText(/Custom Service/)).toBeInTheDocument()
+  })
+
+  it('requests cost exports as a Blob through the shared client contract', async () => {
+    const user = userEvent.setup()
+    const blob = new Blob(['service,cost'], { type: 'text/csv' })
+    const api = {
+      get: vi.fn().mockResolvedValue(blob),
+      post: vi.fn(),
+    }
+    const createObjectURL = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:cost-export')
+    const revokeObjectURL = vi.spyOn(URL, 'revokeObjectURL').mockImplementation(() => {})
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {})
+    const costEstimate = {
+      total_monthly_estimate: { low: 100, high: 500 },
+      services: [{ service: 'Azure VM', monthly_low: 100, monthly_high: 500 }],
+    }
+
+    render(<CostPanel costEstimate={costEstimate} diagramId="diagram-1" api={api} />)
+    await user.click(screen.getByRole('button', { name: 'Export CSV' }))
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledWith(
+        '/diagrams/diagram-1/cost-estimate/export',
+        { responseType: 'blob' },
+      )
+    })
+    expect(createObjectURL).toHaveBeenCalledWith(blob)
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:cost-export')
+
+    click.mockRestore()
+    createObjectURL.mockRestore()
+    revokeObjectURL.mockRestore()
   })
 })

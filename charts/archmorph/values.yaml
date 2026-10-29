@@ -200,7 +200,7 @@ startupProbe:
   initialDelaySeconds: 5
   periodSeconds: 5
   timeoutSeconds: 5
-  failureThreshold: 30  # 150s window — allows model loading and DB migrations
+  failureThreshold: 30  # 150s window — allows application startup
 
 nodeSelector: {}
 tolerations: []

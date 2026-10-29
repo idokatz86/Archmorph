@@ -33,6 +33,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Migration vault preflight CLI compatibility** — query access-policy-mode
   Key Vaults with the supported name/resource-group selectors rather than the
   unsupported `az keyvault show --ids`, retaining the exact identity Get check.
+- **Monitoring email-test recovery** -- send the explicit verified REST receiver
+  payload and poll accepted requests without resending. A separate manual
+  notification-only workflow can complete delivery verification without repeating
+  an already successful infrastructure apply.
+- **Verified monitoring-only apply** -- correct the canonical queries to the
+  Application Insights schema, validate live and read-only synthetic queries, and
+  require explicit source/run/plan/ciphertext approval for a lease-supervised
+  five-resource apply with live attestation and an existing-recipient email test.
+  Application rollout remains separate and paused.
+- **Isolated release-monitoring planning** -- establish one Terraform owner for
+  the four canonical migration/bridge alerts and critical email group, reuse
+  existing telemetry, and produce encrypted five-create review plans without an
+  apply job. Release attestation reads the isolated six-output contract and stays
+  fail-closed until monitoring is separately approved and provisioned.
 - **Stable migration state integrity** — canonicalize only Terraform's unordered
   check-result collection when hashing state evidence, eliminating false apply
   blocks while retaining exact plan/lock hashes and detection of real state or
