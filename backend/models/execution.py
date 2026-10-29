@@ -11,7 +11,7 @@ class Execution(Base):
     agent_id = Column(String, ForeignKey("agents.id", ondelete="CASCADE"), nullable=False, index=True)
     organization_id = Column(String, ForeignKey("organizations.org_id", ondelete="CASCADE"), nullable=False, index=True)
     thread_id = Column(String, nullable=True, index=True)
-    status = Column(String, default="queued") # queued, running, completed, failed, cancelled, timeout
+    status = Column(String, default="queued") # queued, running, cancel_requested, completed, failed, cancelled, timeout
     
     input_data = Column(JSON, nullable=True)
     output_data = Column(JSON, nullable=True)

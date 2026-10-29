@@ -1,0 +1,294 @@
+name: Apply approved release monitoring
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_sha:
+        description: "Exact reviewed main SHA used by the successful monitoring plan"
+        required: true
+        type: string
+      plan_run_id:
+        description: "Successful Release monitoring plan run ID"
+        required: true
+        type: string
+      plan_run_attempt:
+        description: "Exact successful plan attempt"
+        required: true
+        type: string
+      plan_sha256:
+        description: "Explicitly approved saved Terraform plan SHA-256"
+        required: true
+        type: string
+      bundle_sha256:
+        description: "Explicitly approved encrypted bundle SHA-256"
+        required: true
+        type: string
+      confirm_monitoring_apply:
+        description: "Approve only five monitoring creates and one existing-recipient email test; no application rollout"
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: production-backend-rollout
+  cancel-in-progress: false
+
+jobs:
+  monitoring-apply:
+    runs-on: ${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}
+    timeout-minutes: 30
+    environment: production
+    env:
+      APPROVED_SOURCE_SHA: ${{ inputs.source_sha }}
+      APPROVED_PLAN_RUN_ID: ${{ inputs.plan_run_id }}
+      APPROVED_PLAN_RUN_ATTEMPT: ${{ inputs.plan_run_attempt }}
+      APPROVED_PLAN_SHA256: ${{ inputs.plan_sha256 }}
+      APPROVED_BUNDLE_SHA256: ${{ inputs.bundle_sha256 }}
+      CONFIRM_MONITORING_APPLY: ${{ inputs.confirm_monitoring_apply }}
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      TFSTATE_RESOURCE_GROUP: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      TFSTATE_CONTAINER: ${{ secrets.TFSTATE_CONTAINER }}
+      TFSTATE_KEY: ${{ secrets.TFSTATE_KEY }}
+      MIGRATION_TFSTATE_STORAGE_ACCOUNT: ${{ secrets.MIGRATION_TFSTATE_STORAGE_ACCOUNT }}
+      MIGRATION_TFSTATE_CONTAINER: ${{ secrets.MIGRATION_TFSTATE_CONTAINER }}
+      MIGRATION_TFSTATE_KEY: ${{ secrets.MIGRATION_TFSTATE_KEY }}
+      MONITORING_TFSTATE_KEY: ${{ secrets.MONITORING_TFSTATE_KEY }}
+      MONITORING_APPLICATION_INSIGHTS_NAME: ${{ secrets.MONITORING_APPLICATION_INSIGHTS_NAME }}
+      MONITORING_WORKSPACE_NAME: ${{ secrets.MONITORING_WORKSPACE_NAME }}
+      TF_VAR_subscription_id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_VAR_resource_group_name: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      TF_VAR_application_insights_name: ${{ secrets.MONITORING_APPLICATION_INSIGHTS_NAME }}
+      TF_VAR_workspace_name: ${{ secrets.MONITORING_WORKSPACE_NAME }}
+      TF_VAR_alert_email: ${{ secrets.ALERT_EMAIL }}
+      ROLLOUT_COORDINATION_STORAGE_ACCOUNT: ${{ secrets.ROLLOUT_COORDINATION_STORAGE_ACCOUNT }}
+      ROLLOUT_COORDINATION_CONTAINER: ${{ vars.ROLLOUT_COORDINATION_CONTAINER || 'rollout-coordination' }}
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      TF_IN_AUTOMATION: true
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Require explicit exact-source monitoring-only approval
+        run: |
+          set -euo pipefail
+          python3 scripts/release_monitoring_apply.py approval
+          python3 scripts/verify_release_monitoring.py backend
+          : "${ROLLOUT_COORDINATION_STORAGE_ACCOUNT:?Private rollout coordination is required}"
+          : "${TF_VAR_alert_email:?Approved existing ALERT_EMAIL is required}"
+          umask 077
+          E=$(mktemp -d "$RUNNER_TEMP/monitoring-apply-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-XXXXXX")
+          mkdir "$E/current" "$E/incoming"
+          echo "MONITORING_EVIDENCE_DIR=$E" >> "$GITHUB_ENV"
+
+      - name: Read exact successful plan run identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$APPROVED_PLAN_RUN_ID/attempts/$APPROVED_PLAN_RUN_ATTEMPT" \
+            > "$MONITORING_EVIDENCE_DIR/plan-run.json"
+
+      - name: Download only the approved encrypted plan attempt
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: release-monitoring-plan-${{ inputs.plan_run_id }}-${{ inputs.plan_run_attempt }}
+          run-id: ${{ inputs.plan_run_id }}
+          github-token: ${{ github.token }}
+          path: ${{ env.MONITORING_EVIDENCE_DIR }}/incoming
+
+      - name: Verify ciphertext and safely extract the reviewed plan
+        env:
+          TFPLAN_ARTIFACT_PASSPHRASE: ${{ secrets.TFPLAN_ARTIFACT_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          E="$MONITORING_EVIDENCE_DIR"
+          python3 scripts/release_monitoring_apply.py bundle \
+            --encrypted "$E/incoming/release-monitoring-plan.tar.gz.enc" --run "$E/plan-run.json"
+          : "${TFPLAN_ARTIFACT_PASSPHRASE:?Approved artifact decryption key is required}"
+          openssl enc -d -aes-256-cbc -pbkdf2 \
+            -in "$E/incoming/release-monitoring-plan.tar.gz.enc" \
+            -out "$E/reviewed-plan.tar.gz" -pass env:TFPLAN_ARTIFACT_PASSPHRASE
+          python3 scripts/release_monitoring_apply.py unpack \
+            --archive "$E/reviewed-plan.tar.gz" --destination "$E/reviewed"
+
+      - name: Set up exact Terraform version
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: "1.9.8"
+          terraform_wrapper: false
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@2dd0bbf4064d5a1812889dc200bb8eed2597f82a # v3
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Acquire renewable production mutation ownership
+        id: ownership
+        run: |
+          set -euo pipefail
+          E="$MONITORING_EVIDENCE_DIR"
+          python3 scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            acquire --mode deploy --wait-seconds 300 --retry-seconds 5 --lease-id-output "$E/lease-id"
+          python3 scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            heartbeat --mode deploy --rollout-lease-id-file "$E/lease-id" \
+            --interval-seconds 15 --max-failures 1 --status-file "$E/heartbeat-status" \
+            > "$E/heartbeat.log" 2>&1 &
+          echo "$!" > "$E/heartbeat-pid"
+
+      - name: Re-read exact state and live telemetry under ownership
+        run: |
+          set -euo pipefail
+          umask 077
+          E="$MONITORING_EVIDENCE_DIR"
+          terraform -chdir=infra init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=${TFSTATE_KEY}" > "$E/primary-init.log" 2>&1
+          terraform -chdir=infra/migration-bootstrap init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${MIGRATION_TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}" \
+            -backend-config="key=${MIGRATION_TFSTATE_KEY}" > "$E/migration-init.log" 2>&1
+          terraform -chdir=infra/release-monitoring init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${MIGRATION_TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}" \
+            -backend-config="key=${MONITORING_TFSTATE_KEY}" > "$E/monitoring-init.log" 2>&1
+          terraform -chdir=infra/release-monitoring validate -no-color
+          terraform version -json > "$E/current/terraform-version.json"
+          terraform -chdir=infra/release-monitoring show -json "$E/reviewed/release-monitoring.tfplan" > "$E/current/plan.json"
+          az resource show --resource-group "$AZURE_RESOURCE_GROUP" \
+            --resource-type Microsoft.Insights/components --name "$MONITORING_APPLICATION_INSIGHTS_NAME" \
+            --api-version 2020-02-02 \
+            --query '{id:id,location:location,workspaceId:properties.WorkspaceResourceId}' \
+            --output json > "$E/current/telemetry.json"
+          az resource show --resource-group "$AZURE_RESOURCE_GROUP" \
+            --resource-type Microsoft.OperationalInsights/workspaces --name "$MONITORING_WORKSPACE_NAME" \
+            --api-version 2023-09-01 --query '{id:id,location:location}' \
+            --output json > "$E/current/workspace.json"
+          python3 scripts/release_monitoring_apply.py queries \
+            --app "$E/current/telemetry.json" --workspace "$E/current/workspace.json" \
+            --spec infra/monitoring/migration-alert-specs.json --output "$E/current/query-evidence.json"
+
+      - name: Revalidate and apply only the explicitly approved saved monitoring plan
+        id: apply
+        run: |
+          set -euo pipefail
+          E="$MONITORING_EVIDENCE_DIR"
+          python3 scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            checkpoint --mode deploy --rollout-lease-id-file "$E/lease-id"
+          terraform -chdir=infra state pull > "$E/current/primary-state.json"
+          terraform -chdir=infra/migration-bootstrap state pull > "$E/current/migration-state.json"
+          terraform -chdir=infra/release-monitoring state pull > "$E/current/monitoring-state.json"
+          az resource list --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query '[].{id:id,name:name,type:type}' --output json > "$E/current/live-resource-inventory.json"
+          python3 scripts/release_monitoring_apply.py verify \
+            --evidence "$E/reviewed" --current "$E/current" --root . --output "$E/approval-verification.json"
+          if ! python3 scripts/azure_rollout_lease.py \
+            --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" --container "$ROLLOUT_COORDINATION_CONTAINER" \
+            supervise-command --status-file "$E/heartbeat-status" \
+            --heartbeat-pid "$(cat "$E/heartbeat-pid")" --rollout-lease-id-file "$E/lease-id" \
+            -- terraform -chdir=infra/release-monitoring apply -input=false -lock-timeout=60s \
+            "$E/reviewed/release-monitoring.tfplan" > "$E/apply.log" 2>&1; then
+            echo "::error::Monitoring apply failed; inspect encrypted evidence and state before any retry. No automatic destroy."
+            exit 1
+          fi
+
+      - name: Attest all applied monitoring resources
+        run: |
+          set -euo pipefail
+          E="$MONITORING_EVIDENCE_DIR"
+          terraform -chdir=infra/release-monitoring output -json > "$E/applied-outputs.json"
+          terraform -chdir=infra/release-monitoring state pull > "$E/applied-monitoring-state.json"
+          python3 scripts/release_monitoring_apply.py attest \
+            --outputs "$E/applied-outputs.json" --app "$E/current/telemetry.json" \
+            --spec infra/monitoring/migration-alert-specs.json --output "$E/applied-attestation.json"
+
+      - name: Send the approved existing-recipient email test
+        run: |
+          set -euo pipefail
+          E="$MONITORING_EVIDENCE_DIR"
+          python3 scripts/release_monitoring_apply.py test-email \
+            --app "$E/current/telemetry.json" --output "$E/email-test.json"
+          {
+            echo "## Monitoring-only apply completed"
+            cat "$E/applied-attestation.json"
+            cat "$E/email-test.json"
+            echo "Application rollout was not executed. Azure send completion does not prove inbox receipt."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Release renewable mutation ownership
+        if: always() && env.MONITORING_EVIDENCE_DIR != ''
+        run: |
+          set -euo pipefail
+          E="$MONITORING_EVIDENCE_DIR"
+          if [ -s "$E/heartbeat-pid" ]; then
+            if ! kill "$(cat "$E/heartbeat-pid")" 2>/dev/null; then
+              echo "::warning::Heartbeat process already stopped; verify finite lease release"
+            fi
+          fi
+          if [ -s "$E/lease-id" ]; then
+            python3 scripts/azure_rollout_lease.py \
+              --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" --container "$ROLLOUT_COORDINATION_CONTAINER" \
+              finish --rollout-lease-id-file "$E/lease-id"
+          fi
+
+      - name: Encrypt apply and verification evidence
+        if: always() && env.MONITORING_EVIDENCE_DIR != ''
+        env:
+          TFPLAN_ARTIFACT_PASSPHRASE: ${{ secrets.TFPLAN_ARTIFACT_PASSPHRASE }}
+        run: |
+          set -euo pipefail
+          umask 077
+          : "${TFPLAN_ARTIFACT_PASSPHRASE:?Evidence encryption is required}"
+          tar -czf "$RUNNER_TEMP/monitoring-apply-evidence.tar.gz" -C "$MONITORING_EVIDENCE_DIR" .
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -in "$RUNNER_TEMP/monitoring-apply-evidence.tar.gz" \
+            -out "$RUNNER_TEMP/monitoring-apply-evidence.tar.gz.enc" \
+            -pass env:TFPLAN_ARTIFACT_PASSPHRASE
+          sha256sum "$RUNNER_TEMP/monitoring-apply-evidence.tar.gz.enc" \
+            | awk '{print "Encrypted apply evidence SHA-256: `" $1 "`"}' | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain encrypted apply evidence only
+        if: always() && env.MONITORING_EVIDENCE_DIR != ''
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: release-monitoring-apply-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/monitoring-apply-evidence.tar.gz.enc
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Remove plaintext and temporary protected evidence
+        if: always() && env.MONITORING_EVIDENCE_DIR != ''
+        run: |
+          python3 - <<'PY'
+          import os
+          from pathlib import Path
+          import shutil
+          root = Path(os.environ["RUNNER_TEMP"]).resolve()
+          evidence = Path(os.environ["MONITORING_EVIDENCE_DIR"]).resolve()
+          prefix = f'monitoring-apply-{os.environ["GITHUB_RUN_ID"]}-{os.environ["GITHUB_RUN_ATTEMPT"]}-'
+          if evidence.parent != root or not evidence.name.startswith(prefix):
+              raise SystemExit("Refusing cleanup outside the exact task evidence directory")
+          shutil.rmtree(evidence)
+          for name in ("monitoring-apply-evidence.tar.gz", "monitoring-apply-evidence.tar.gz.enc"):
+              (root / name).unlink(missing_ok=True)
+          PY

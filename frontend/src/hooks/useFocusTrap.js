@@ -41,7 +41,7 @@ export default function useFocusTrap(active = true) {
     // Move focus into the modal
     const focusFirst = () => {
       const first = container.querySelector(FOCUSABLE);
-      if (first) first.focus();
+      (first ?? container).focus({ preventScroll: true });
     };
     // Small delay to ensure the DOM is painted
     const raf = requestAnimationFrame(focusFirst);
@@ -50,7 +50,11 @@ export default function useFocusTrap(active = true) {
       if (e.key !== 'Tab') return;
 
       const focusable = [...container.querySelectorAll(FOCUSABLE)];
-      if (focusable.length === 0) return;
+      if (focusable.length === 0) {
+        e.preventDefault();
+        container.focus({ preventScroll: true });
+        return;
+      }
 
       const first = focusable[0];
       const last = focusable[focusable.length - 1];

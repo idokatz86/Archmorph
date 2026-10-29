@@ -1,4 +1,16 @@
 import { test, expect } from '@playwright/test';
+import AxeBuilder from '@axe-core/playwright';
+
+async function getSeriousOrCriticalViolations(page) {
+  const results = await new AxeBuilder({ page })
+    .include('[role="dialog"]')
+    .withTags(['wcag2a', 'wcag2aa'])
+    .analyze();
+
+  return results.violations.filter(
+    violation => violation.impact === 'serious' || violation.impact === 'critical',
+  );
+}
 
 test.describe('Accessibility: Login modal keyboard focus order', () => {
   test.beforeEach(async ({ page }) => {
@@ -56,5 +68,20 @@ test.describe('Accessibility: Login modal keyboard focus order', () => {
     await expect(dialog).toBeHidden();
     await expect(signInTrigger).toBeFocused();
     await expect(signInTrigger).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  test('has no serious or critical accessibility violations during or after entrance', async ({ page }) => {
+    await page.goto('/');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+
+    await page.getByRole('button', { name: /^sign in$/i }).click();
+    const dialog = page.getByRole('dialog', { name: /sign in to archmorph/i });
+    await expect(dialog).toBeVisible();
+
+    const entranceViolations = await getSeriousOrCriticalViolations(page);
+    await page.waitForTimeout(250);
+    const settledViolations = await getSeriousOrCriticalViolations(page);
+
+    expect([...entranceViolations, ...settledViolations]).toHaveLength(0);
   });
 });

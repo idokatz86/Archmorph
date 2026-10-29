@@ -18,8 +18,8 @@ jobs:
         run: |
           set -euo pipefail
           for package in \
-            archmorph-api-release-build \
-            archmorph-api-bridge-release-build; do
+            archmorph-api-release-staging-v2 \
+            archmorph-api-bridge-release-staging-v2; do
             metadata=$(gh api "/users/${GITHUB_REPOSITORY_OWNER}/packages/container/${package}")
             visibility=$(jq -er '.visibility' <<<"$metadata")
             repository=$(jq -er '.repository.full_name' <<<"$metadata")

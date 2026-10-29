@@ -184,8 +184,7 @@ export default function CostPanel({ costEstimate, diagramId, api }) {
         await api.post(`/diagrams/${diagramId}/cost-estimate/configure`, { overrides: overrideList });
       }
       // Download CSV
-      const resp = await api.get(`/diagrams/${diagramId}/cost-estimate/export`, { responseType: 'blob' });
-      const blob = resp instanceof Blob ? resp : new Blob([resp], { type: 'text/csv' });
+      const blob = await api.get(`/diagrams/${diagramId}/cost-estimate/export`, { responseType: 'blob' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;

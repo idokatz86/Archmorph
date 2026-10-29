@@ -1,8 +1,10 @@
 import json
 import logging
 import asyncio
+from functools import partial
 from typing import Callable, Dict, Any, List
 
+from actor_context import ActorContext
 from scanners.aws_scanner import AWSScanner
 from scanners.azure_scanner import AzureScanner
 from scanners.gcp_scanner import GCPScanner
@@ -66,7 +68,21 @@ class ToolRegistry:
             if asyncio.iscoroutinefunction(func):
                 result = await func(**kwargs)
             else:
-                result = await asyncio.to_thread(func, **kwargs)
+                worker = asyncio.get_running_loop().run_in_executor(
+                    None,
+                    partial(func, **kwargs),
+                )
+                try:
+                    result = await asyncio.shield(worker)
+                except asyncio.CancelledError:
+                    try:
+                        await worker
+                    except Exception as exc:
+                        logger.warning(
+                            "Synchronous tool failed during cancellation error_type=%s",
+                            type(exc).__name__,
+                        )
+                    raise
                 
             return json.dumps({"status": "success", "result": result})
         except json.JSONDecodeError:
@@ -80,10 +96,18 @@ class ToolRegistry:
 
     # ---- Domain Action Methods ----
 
-    def scan_cloud_infrastructure(self, provider: str, session_token: str = None) -> Dict[str, Any]:
+    def scan_cloud_infrastructure(
+        self,
+        provider: str,
+        session_token: str | None = None,
+        actor_context: ActorContext | None = None,
+    ) -> Dict[str, Any]:
         """
         Implementation of the cloud scanning logic using the existing scanner classes.
         """
+        if actor_context is not None:
+            logger.debug("Executing cloud scan for tenant %s", actor_context.tenant_id)
+
         if not session_token:
             return {"error": "Missing session token. Ensure the user is logged in and context contains session_token."}
 

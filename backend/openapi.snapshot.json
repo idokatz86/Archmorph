@@ -4563,6 +4563,22 @@
         "parameters": [
           {
             "in": "query",
+            "name": "organization_id",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Organization Id"
+            }
+          },
+          {
+            "in": "query",
             "name": "skip",
             "required": false,
             "schema": {

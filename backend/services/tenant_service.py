@@ -10,6 +10,7 @@ import re
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from collections.abc import Iterable
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy.orm import Session
@@ -290,6 +291,11 @@ def accept_invitation(
 # ─────────────────────────────────────────────────────────
 # RBAC helpers
 # ─────────────────────────────────────────────────────────
+def roles_have_permission(roles: Iterable[str], permission: str) -> bool:
+    """Return whether any resolved tenant role grants a permission."""
+    return any(permission in ROLE_PERMISSIONS.get(role, set()) for role in roles)
+
+
 def check_permission(
     db: Session,
     org_id: str,
@@ -300,8 +306,7 @@ def check_permission(
     member = TeamMemberRepo(db).get_membership(org_id, user_id)
     if not member or not member.is_active:
         return False
-    allowed = ROLE_PERMISSIONS.get(member.role, set())
-    return permission in allowed
+    return roles_have_permission((member.role,), permission)
 
 
 def get_user_role(db: Session, org_id: str, user_id: str) -> Optional[str]:

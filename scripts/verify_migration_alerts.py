@@ -97,10 +97,14 @@ def _canonical_applied_alert(alert: dict[str, Any]) -> dict[str, Any]:
     enabled = _required(properties, "enabled")
     if not isinstance(enabled, bool):
         raise ValueError("migration alert enabled must be a boolean")
+    auto_mitigation = _required(properties, "autoMitigate", "auto_mitigation_enabled")
+    if not isinstance(auto_mitigation, bool):
+        raise ValueError("migration alert auto_mitigation_enabled must be a boolean")
     return {
         "scopes": normalized_scopes,
         "severity": _integer(_required(properties, "severity"), field="severity"),
         "enabled": enabled,
+        "auto_mitigation_enabled": auto_mitigation,
         "evaluation_frequency": str(
             _required(properties, "evaluationFrequency", "evaluation_frequency")
         ).upper(),
@@ -184,10 +188,14 @@ def _canonical_expected_alert(
     failing_periods = criteria.get("failing_periods")
     if not isinstance(failing_periods, dict):
         raise ValueError("reviewed migration alert failing periods must be an object")
+    auto_mitigation = specification.get("auto_mitigation_enabled")
+    if not isinstance(auto_mitigation, bool):
+        raise ValueError("reviewed migration alert auto_mitigation_enabled must be a boolean")
     return {
         "scopes": _resolve_refs(specification.get("scope_refs"), scope_ids, field="scope"),
         "severity": int(specification["severity"]),
         "enabled": specification.get("enabled"),
+        "auto_mitigation_enabled": auto_mitigation,
         "evaluation_frequency": str(specification["evaluation_frequency"]).upper(),
         "window_duration": str(specification["window_duration"]).upper(),
         "query": _canonical_query(specification.get("query")),

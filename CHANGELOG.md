@@ -30,6 +30,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Infrastructure and security maintenance
 
+- **Monitoring email-test recovery** -- send the explicit verified REST receiver
+  payload and poll accepted requests without resending. A separate manual
+  notification-only workflow can complete delivery verification without repeating
+  an already successful infrastructure apply.
+- **Verified monitoring-only apply** -- correct the canonical queries to the
+  Application Insights schema, validate live and read-only synthetic queries, and
+  require explicit source/run/plan/ciphertext approval for a lease-supervised
+  five-resource apply with live attestation and an existing-recipient email test.
+  Application rollout remains separate and paused.
+- **Isolated release-monitoring planning** -- establish one Terraform owner for
+  the four canonical migration/bridge alerts and critical email group, reuse
+  existing telemetry, and produce encrypted five-create review plans without an
+  apply job. Release attestation reads the isolated six-output contract and stays
+  fail-closed until monitoring is separately approved and provisioned.
+- **Stable migration state integrity** — canonicalize only Terraform's unordered
+  check-result collection when hashing state evidence, eliminating false apply
+  blocks while retaining exact plan/lock hashes and detection of real state or
+  check-result changes. Version the new digest contract explicitly.
+- **Source-map dependency security patch** — vendor verified upstream
+  source-map-js 1.2.2 while registry publication is unavailable, closing
+  GHSA-68fv-2mgg-jv7q across transitive consumers without a major toolchain upgrade.
+- **Migration environment alignment** — reject stale migration environment
+  settings before production mutation, require the live app's private-network
+  environment, and preserve existing migration identity regions without allowing
+  destructive Terraform replacement.
+- **Private release staging preflight** — bootstrap new GHCR staging namespaces
+  using only empty scratch images and verify private visibility/repository binding
+  before application uploads. Retain post-upload verification, image scanning,
+  attestations, immutable ACR imports, and production rollout gates. This repairs
+  the release blocker found after the October dependency-maintenance merge.
+- **October dependency maintenance (#1321)** — patch the open npm dependency
+  alerts, preserve SQLAlchemy asyncio/psycopg2 compatibility, expand dependency
+  monitoring, and retain SHA-512 package integrity through an explicitly approved
+  public feed and non-overwriting maintenance candidates.
+
 - **Python runtime container supply-chain hardening** — required a patched setuptools during image construction and removed `pip`, setuptools, and wheel from both final runtime images so pip's vulnerable vendored MessagePack and setuptools inventories cannot remain in production containers.
 - **Fix production private network reachability for Redis and Blob Storage** — addressed a configuration gap where production Redis and Blob Storage could be deployed with deny-by-default access controls but no guaranteed connectivity path from the Container Apps runtime. Changes: (1) `enable_redis_private_endpoint` now defaults to `true`; `enable_storage_private_endpoint` variable added (defaults to `true`). (2) Storage private endpoint resources added (DNS zone, VNet link, private endpoint). (3) `Microsoft.Storage` service endpoint added to the container_apps subnet; container_apps subnet included in storage `virtual_network_subnet_ids` for prod. (4) Storage `public_network_access_enabled` set to `false` in prod. (5) `lifecycle { precondition {} }` blocks added to both `azurerm_redis_cache.main` and `azurerm_storage_account.main` to fail-fast in `terraform plan` when prod is configured without a private endpoint. (6) New Checkov policies `CKV_ARCHMORPH_4` (Redis no public access) and `CKV_ARCHMORPH_5` (Storage bypass list) prevent future deny-without-path regressions. (7) Health endpoint now performs an actual blob service reachability probe (`get_service_properties`) instead of only checking if the URL is configured, and Redis connection failures are labelled `unreachable` for operator clarity.
 

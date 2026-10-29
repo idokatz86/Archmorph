@@ -12,6 +12,7 @@ This directory contains the checked-in Terraform configuration for the Azure-hos
 | Rollout coordination container | `infra/main.tf` | Private Blob container; finite leases and rollback intents use the reviewed release workload identity only |
 | Terraform remote state | Partial `azurerm` backend blocks | Resource group, account, container, and key come from private CI/operator configuration |
 | Migration Job bootstrap | `infra/migration-bootstrap` | Separate state owns only the dedicated identity, secret-scoped/AcrPull RBAC, propagation wait, and manual Job |
+| Release monitoring | `infra/release-monitoring` | Separate state owns four canonical migration/bridge alerts and one approved critical email group; existing telemetry is read-only |
 
 ## Bridge-first application rollout
 
@@ -58,6 +59,23 @@ CI also reads the primary state and refuses bootstrap when that state still owns
 the Job. Apply the primary root's reviewed `removed { destroy = false }` change
 first; a resource must never be managed by both states.
 
+The six release-monitoring output identities now come only from
+[the isolated monitoring root](release-monitoring/README.md). The primary root
+reads, but does not manage, the shared critical action group; its removed blocks
+never destroy pre-existing monitors. Initial monitoring planning refuses any
+already-owned/live target and requires a reviewed transfer in that case.
+Monitoring remains unapplied until an owner approves an exact saved plan.
+
+Migration integrity metadata version 2 hashes state as canonical JSON, sorting
+only the unordered top-level `check_results` collection. Terraform can reorder
+these records between consecutive pulls without changing state. No record or
+field is removed: changed check status, duplicates, resource values, lineage, and
+serial still fail verification. All other arrays remain order-sensitive. The
+number parser retains exact JSON numeric tokens separately from strings, avoiding
+floating-point rounding collisions; duplicate object keys fail closed. The
+saved binary plan and provider lock remain byte-hashed, and version 1 metadata is
+rejected rather than silently reused with a different digest algorithm.
+
 Private deployment configuration must supply a distinct
 `MIGRATION_TFSTATE_KEY`, migration Job/identity names, Key Vault name, database
 Secret name, and existing prerequisite names. Do not publish their concrete
@@ -68,6 +86,16 @@ reviewed GitHub-hosted runner with private endpoint reachability. Public storage
 network access has no CI cutover override and fails closed. Before traffic shift, failures leave the routed bridge unchanged. After
 shift, any routed verification failure restores and verifies the exact prior
 manifest, captures diagnostics, and fails. No live apply is required locally.
+
+`CONTAINER_APP_ENV` must identify the actual environment of the target live
+Container App, including its existing infrastructure subnet. CI checks the full
+environment resource identity before obtaining rollout ownership; it must never
+place a migration Job in an old default environment that cannot reach private
+Key Vault or database endpoints. Existing migration identities keep their current
+region through the discovered `migration_identity_location` input, independently
+of the Job region. New identities use the runtime region. The existing bootstrap
+plan verifier still rejects any identity deletion/replacement or other destructive
+plan; no ignore-changes or replacement bypass is used.
 
 For the first apply that creates the dedicated coordination container, point the
 private coordination settings at the existing private Terraform backend

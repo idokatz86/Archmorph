@@ -12,8 +12,9 @@ import {
   Shield,
 } from 'lucide-react';
 import api from '../services/apiClient';
+import { ErrorMessage } from '../shared/ui';
 import useAppStore from '../stores/useAppStore';
-import { Badge, Button, Card, ErrorCard, Skeleton } from './ui';
+import { Badge, Button, Card, Skeleton } from './ui';
 
 const CATEGORY_ICONS = {
   web: Globe2,
@@ -132,6 +133,7 @@ export default function TemplateGallery() {
   const [loading, setLoading] = useState(true);
   const [usingId, setUsingId] = useState(null);
   const [error, setError] = useState(null);
+  const [reloadCount, setReloadCount] = useState(0);
 
   useEffect(() => {
     const controller = new AbortController();
@@ -157,7 +159,7 @@ export default function TemplateGallery() {
       active = false;
       controller.abort();
     };
-  }, [category, provider]);
+  }, [category, provider, reloadCount]);
 
   const filteredTemplates = useMemo(() => {
     const normalized = query.trim().toLowerCase();
@@ -186,6 +188,11 @@ export default function TemplateGallery() {
     } finally {
       setUsingId(null);
     }
+  };
+
+  const handleRetry = () => {
+    setCategory('all');
+    setReloadCount(count => count + 1);
   };
 
   return (
@@ -242,7 +249,7 @@ export default function TemplateGallery() {
         ))}
       </div>
 
-      {error && <ErrorCard message={error} onRetry={() => setCategory('all')} />}
+      {error && <ErrorMessage message={error} onAction={handleRetry} />}
       {loading ? (
         <TemplateSkeleton />
       ) : (

@@ -1,8 +1,8 @@
 import React, { useRef, useState, useEffect, useCallback } from 'react';
-import { CloudCog, Layers, Server, Activity, Rocket, MessageSquare, LayoutDashboard, Menu, X, Moon, Sun, ChevronDown, Search, LayoutTemplate } from 'lucide-react';
+import { CloudCog, MessageSquare, Menu, X, Moon, Sun, ChevronDown, Search } from 'lucide-react';
 import FeedbackWidget from './FeedbackWidget';
 import { UserMenu } from './Auth';
-import { isFeatureEnabled } from '../featureFlags';
+import { DEFAULT_ROUTE_ID, getNavigationRoutes } from '../routes';
 
 function useTheme() {
   const [theme, setTheme] = useState(() => {
@@ -21,26 +21,13 @@ function useTheme() {
   return { theme, toggle };
 }
 
-const PRIMARY_ITEMS = [
-  { id: 'translator', label: 'Workbench', icon: Layers },
-  { id: 'templates', label: 'Starters', icon: LayoutTemplate },
-  { id: 'dashboard', label: 'History', icon: LayoutDashboard },
-  { id: 'services', label: 'Reference', icon: Server },
-];
-
-const MORE_ITEMS = [
-  { id: 'drift', label: 'Drift', icon: Activity, feature: 'livingArchitectureDrift' },
-  { id: 'roadmap', label: 'Roadmap', icon: Rocket },
-].filter(item => !item.feature || isFeatureEnabled(item.feature));
-
-const ALL_ITEMS = [...PRIMARY_ITEMS, ...MORE_ITEMS];
-
 function MoreDropdown({ activeTab, setActiveTab }) {
+  const moreItems = getNavigationRoutes('more');
   const [open, setOpen] = useState(false);
   const [focusIdx, setFocusIdx] = useState(-1);
   const containerRef = useRef(null);
   const itemRefs = useRef([]);
-  const hasActiveChild = MORE_ITEMS.some(item => item.id === activeTab);
+  const hasActiveChild = moreItems.some(item => item.id === activeTab);
 
   // Close on click outside
   useEffect(() => {
@@ -75,11 +62,11 @@ function MoreDropdown({ activeTab, setActiveTab }) {
         break;
       case 'ArrowDown':
         e.preventDefault();
-        setFocusIdx(i => (i + 1) % MORE_ITEMS.length);
+        setFocusIdx(i => (i + 1) % moreItems.length);
         break;
       case 'ArrowUp':
         e.preventDefault();
-        setFocusIdx(i => (i - 1 + MORE_ITEMS.length) % MORE_ITEMS.length);
+        setFocusIdx(i => (i - 1 + moreItems.length) % moreItems.length);
         break;
       case 'Home':
         e.preventDefault();
@@ -87,7 +74,7 @@ function MoreDropdown({ activeTab, setActiveTab }) {
         break;
       case 'End':
         e.preventDefault();
-        setFocusIdx(MORE_ITEMS.length - 1);
+        setFocusIdx(moreItems.length - 1);
         break;
       case 'Tab':
         setOpen(false);
@@ -132,7 +119,7 @@ function MoreDropdown({ activeTab, setActiveTab }) {
           onKeyDown={handleKeyDown}
           className="absolute top-full right-0 mt-1.5 w-44 rounded-lg bg-surface border border-border shadow-lg shadow-black/20 py-1 z-50"
         >
-          {MORE_ITEMS.map((item, idx) => (
+          {moreItems.map((item, idx) => (
             <button
               key={item.id}
               ref={el => { itemRefs.current[idx] = el; }}
@@ -146,8 +133,8 @@ function MoreDropdown({ activeTab, setActiveTab }) {
                   : 'text-text-secondary hover:text-text-primary hover:bg-secondary'
               }`}
             >
-              <item.icon className="w-4 h-4" />
-              {item.label}
+              <item.nav.icon className="w-4 h-4" />
+              {item.nav.label}
             </button>
           ))}
         </div>
@@ -157,6 +144,8 @@ function MoreDropdown({ activeTab, setActiveTab }) {
 }
 
 export default function Nav({ activeTab, setActiveTab, updateStatus }) {
+  const primaryItems = getNavigationRoutes('primary');
+  const allItems = [...primaryItems, ...getNavigationRoutes('more')];
   const feedbackRef = useRef(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { theme, toggle: toggleTheme } = useTheme();
@@ -171,7 +160,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
           <div className="flex items-center justify-between h-14">
             {/* Logo — clickable to go Home (#1), catalog dot as tooltip (#10), tagline removed (#2) */}
             <button
-              onClick={() => setActiveTab('translator')}
+              onClick={() => setActiveTab(DEFAULT_ROUTE_ID)}
               className="flex items-center gap-2.5 cursor-pointer group"
               aria-label="Go to home"
               title={catalogLabel}
@@ -196,7 +185,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
 
             {/* Desktop navigation — primary 4 + More dropdown (#3, #8) */}
             <nav aria-label="Main navigation" className="hidden md:flex items-center gap-0.5">
-              {PRIMARY_ITEMS.map(tab => (
+              {primaryItems.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
@@ -207,8 +196,8 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                       : 'text-text-secondary hover:text-text-primary hover:bg-secondary'
                   }`}
                 >
-                  <tab.icon className="w-4 h-4" />
-                  {tab.label}
+                  <tab.nav.icon className="w-4 h-4" />
+                  {tab.nav.label}
                   {activeTab === tab.id && (
                     <span className="absolute -bottom-[7px] left-2 right-2 h-[2px] bg-cta rounded-full" />
                   )}
@@ -267,7 +256,7 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
         {mobileMenuOpen && (
           <nav className="md:hidden border-t border-border bg-surface/95 backdrop-blur-xl" aria-label="Mobile navigation">
             <div className="max-w-7xl mx-auto px-4 py-3 space-y-1">
-              {ALL_ITEMS.map(tab => (
+              {allItems.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => { setActiveTab(tab.id); setMobileMenuOpen(false); }}
@@ -278,8 +267,8 @@ export default function Nav({ activeTab, setActiveTab, updateStatus }) {
                       : 'text-text-secondary hover:text-text-primary hover:bg-secondary'
                   }`}
                 >
-                  <tab.icon className="w-4 h-4" />
-                  {tab.label}
+                  <tab.nav.icon className="w-4 h-4" />
+                  {tab.nav.label}
                 </button>
               ))}
             </div>

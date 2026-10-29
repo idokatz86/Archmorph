@@ -54,7 +54,7 @@ locals {
 resource "azurerm_user_assigned_identity" "database_migration" {
   name                = var.migration_identity_name
   resource_group_name = var.resource_group_name
-  location            = data.azurerm_container_app_environment.runtime.location
+  location            = coalesce(var.migration_identity_location, data.azurerm_container_app_environment.runtime.location)
   tags                = local.tags
 }
 

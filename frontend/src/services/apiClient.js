@@ -87,11 +87,56 @@ class ApiError extends Error {
   }
 }
 
+const RESPONSE_TYPES = new Set(['auto', 'json', 'blob', 'arrayBuffer', 'text', 'response']);
+
+function isAbortSignal(value) {
+  return typeof AbortSignal !== 'undefined' && value instanceof AbortSignal;
+}
+
+function normalizeOptions(optionsOrSignal, legacyTimeout, legacyHeaders) {
+  if (isAbortSignal(optionsOrSignal)) {
+    return {
+      signal: optionsOrSignal,
+      ...(legacyTimeout !== undefined ? { timeout: legacyTimeout } : {}),
+      ...(legacyHeaders ? { headers: legacyHeaders } : {}),
+    };
+  }
+  if (optionsOrSignal == null && (legacyTimeout !== undefined || legacyHeaders)) {
+    return {
+      ...(legacyTimeout !== undefined ? { timeout: legacyTimeout } : {}),
+      ...(legacyHeaders ? { headers: legacyHeaders } : {}),
+    };
+  }
+  return optionsOrSignal || {};
+}
+
 /**
- * Sleep for a given number of milliseconds.
+ * Sleep for a given number of milliseconds, rejecting immediately when the
+ * caller cancels and releasing both the timer and abort listener.
  */
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
+function sleep(ms, signal) {
+  if (!signal) return new Promise(resolve => setTimeout(resolve, ms));
+  if (signal.aborted) {
+    return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+  }
+
+  return new Promise((resolve, reject) => {
+    let timeoutId;
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      signal.removeEventListener('abort', onAbort);
+    };
+    const onAbort = () => {
+      cleanup();
+      reject(new DOMException('The operation was aborted.', 'AbortError'));
+    };
+
+    timeoutId = setTimeout(() => {
+      cleanup();
+      resolve();
+    }, ms);
+    signal.addEventListener('abort', onAbort, { once: true });
+  });
 }
 
 function parseRetryAfterMs(headers) {
@@ -188,24 +233,38 @@ function buildHeaders(optionsHeaders = {}, includeDefaultAuth = true) {
 /**
  * Internal fetch wrapper with timeout, retry, and backoff (#268).
  * @param {string} path - API path (appended to API_BASE)
- * @param {RequestInit} options - fetch options
- * @param {AbortSignal} [signal] - optional abort signal
+ * @param {RequestInit & {
+ *   signal?: AbortSignal,
+ *   timeout?: number,
+ *   responseType?: 'auto' | 'json' | 'blob' | 'arrayBuffer' | 'text' | 'response'
+ * }} options - normalized client and fetch options
  * @returns {Promise<any>} parsed JSON response
  */
-async function request(path, options = {}, signal) {
+async function request(path, options = {}) {
+  const {
+    signal,
+    timeout = DEFAULT_TIMEOUT_MS,
+    responseType = 'auto',
+    rawResponse = false,
+    ...fetchOptions
+  } = options;
+  if (!RESPONSE_TYPES.has(responseType)) {
+    throw new TypeError(`Unsupported responseType: ${responseType}`);
+  }
+
   const url = path.startsWith('http') ? path : `${API_BASE}${path}`;
   const includeDefaultCredentials = isApiRequest(path, url);
-  const rawResponse = options.rawResponse === true;
+  const effectiveResponseType = rawResponse ? 'response' : responseType;
 
-  const headers = buildHeaders(options.headers, includeDefaultCredentials);
+  const headers = buildHeaders(fetchOptions.headers, includeDefaultCredentials);
   // Track whether an Authorization header was included (for context-aware 401 messages).
   // Reuse the existing hasHeader helper to avoid an extra intermediate array allocation.
   const hadToken = hasHeader(headers, 'authorization');
   // Auto-set JSON content type for non-FormData bodies
-  if (options.body && !(options.body instanceof FormData)) {
+  if (fetchOptions.body && !(fetchOptions.body instanceof FormData)) {
     headers['Content-Type'] = headers['Content-Type'] || 'application/json';
   }
-  if (includeDefaultCredentials && isUnsafeMethod(options.method) && !hasHeader(headers, CSRF_HEADER_NAME)) {
+  if (includeDefaultCredentials && isUnsafeMethod(fetchOptions.method) && !hasHeader(headers, CSRF_HEADER_NAME)) {
     headers[CSRF_HEADER_NAME] = ensureCsrfToken();
   }
 
@@ -213,109 +272,109 @@ async function request(path, options = {}, signal) {
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     // Create a timeout controller that chains with the caller's signal
     const timeoutController = new AbortController();
-    const msTimeout = options.timeout !== undefined ? options.timeout : DEFAULT_TIMEOUT_MS;
-    const timeoutId = msTimeout > 0 ? setTimeout(() => timeoutController.abort(), msTimeout) : null;
+    const timeoutId = timeout > 0 ? setTimeout(() => timeoutController.abort(), timeout) : null;
 
     // If the caller provided a signal, abort our controller when it fires
     const onCallerAbort = () => timeoutController.abort();
+    let callerAbortAttached = false;
+    const removeCallerAbort = () => {
+      if (!callerAbortAttached) return;
+      signal.removeEventListener('abort', onCallerAbort);
+      callerAbortAttached = false;
+    };
     if (signal) {
       if (signal.aborted) {
         clearTimeout(timeoutId);
         throw new DOMException('The operation was aborted.', 'AbortError');
       }
       signal.addEventListener('abort', onCallerAbort, { once: true });
+      callerAbortAttached = true;
     }
 
     try {
-      const requestOptions = {
-        ...options,
-        headers,
-        signal: timeoutController.signal,
-      };
-      delete requestOptions.rawResponse;
-      if (options.credentials !== undefined) {
-        requestOptions.credentials = options.credentials;
-      } else if (includeDefaultCredentials) {
-        requestOptions.credentials = 'include';
-      }
+      try {
+        const requestOptions = {
+          ...fetchOptions,
+          headers,
+          signal: timeoutController.signal,
+        };
+        if (fetchOptions.credentials !== undefined) {
+          requestOptions.credentials = fetchOptions.credentials;
+        } else if (includeDefaultCredentials) {
+          requestOptions.credentials = 'include';
+        }
 
-      const res = await fetch(url, requestOptions);
+        const res = await fetch(url, requestOptions);
 
-      clearTimeout(timeoutId);
-      if (signal) signal.removeEventListener('abort', onCallerAbort);
+        // No-content responses
+        if (res.status === 204) return null;
 
-      // No-content responses
-      if (res.status === 204) return null;
+        const contentType = res.headers.get('content-type') || '';
 
-      const contentType = res.headers.get('content-type') || '';
-
-      // Download callers need headers, filename, and capability rotation even
-      // for JSON/text artifacts. Return the untouched successful response.
-      if (rawResponse && res.ok) return res;
-
-      // Non-JSON responses (binary exports)
-      if (!contentType.includes('application/json')) {
         if (!res.ok) {
-          const err = new ApiError(res.status, { detail: res.statusText }, { hadToken, retryAfterMs: parseRetryAfterMs(res.headers) });
-          if (err.retryable && attempt < MAX_RETRIES) {
-            lastError = err;
-            await sleep(retryDelayMs(attempt, err));
-            continue;
+          let body = { detail: res.statusText };
+          if (contentType.includes('application/json')) {
+            try {
+              body = await res.json();
+            } catch (error) {
+              if (error.name === 'AbortError') throw error;
+            }
           }
-          if (err.status >= 500) {
-            reportError(err, 'apiClient', { path, status: err.status, correlationId: err.correlationId });
-            if (_errorHandler) _errorHandler(err.message);
-          }
-          throw err;
+          throw new ApiError(
+            res.status,
+            body,
+            { hadToken, retryAfterMs: parseRetryAfterMs(res.headers) },
+          );
+        }
+
+        if (effectiveResponseType === 'blob') return await res.blob();
+        if (effectiveResponseType === 'arrayBuffer') return await res.arrayBuffer();
+        if (effectiveResponseType === 'text') return await res.text();
+        if (effectiveResponseType === 'response') return res;
+        if (effectiveResponseType === 'json' || contentType.includes('application/json')) {
+          return await res.json();
         }
         return res;
+      } finally {
+        clearTimeout(timeoutId);
+        removeCallerAbort();
       }
-
-      const body = await res.json();
-      if (!res.ok) {
-        const err = new ApiError(res.status, body, { hadToken, retryAfterMs: parseRetryAfterMs(res.headers) });
-        // Only retry on retryable status codes and if we have attempts left
-        if (err.retryable && attempt < MAX_RETRIES) {
-          lastError = err;
-          await sleep(retryDelayMs(attempt, err));
-          continue;
-        }
-        // Report 5xx errors to the optional handler before throwing
-        if (err.status >= 500) {
-          reportError(err, 'apiClient', { path, status: err.status, correlationId: err.correlationId });
-          if (_errorHandler) _errorHandler(err.message);
-        }
-        throw err;
-      }
-      return body;
     } catch (err) {
-      clearTimeout(timeoutId);
-      if (signal) signal.removeEventListener('abort', onCallerAbort);
+      let requestError = err;
 
       // Don't retry user-initiated aborts
       if (err.name === 'AbortError') {
         if (signal?.aborted) throw err; // caller aborted
         // Timeout — wrap as a retryable ApiError
-        const timeoutErr = new ApiError(408, { detail: 'Request timed out' });
-        if (attempt < MAX_RETRIES) {
-          lastError = timeoutErr;
-          await sleep(retryDelayMs(attempt, timeoutErr));
-          continue;
-        }
-        throw timeoutErr;
+        requestError = new ApiError(408, { detail: 'Request timed out' });
       }
 
       // Network errors are retryable
       if (err instanceof TypeError) {
-        lastError = new ApiError(0, { detail: 'Network error \u2014 check your connection.' });
-        if (attempt < MAX_RETRIES) {
-          await sleep(retryDelayMs(attempt, lastError));
-          continue;
-        }
-        throw lastError;
+        requestError = new ApiError(0, { detail: 'Network error \u2014 check your connection.' });
       }
 
-      throw err;
+      if (!(requestError instanceof ApiError)) {
+        throw requestError;
+      }
+
+      const retryable = requestError.retryable || requestError.status === 0;
+      if (retryable && attempt < MAX_RETRIES) {
+        lastError = requestError;
+        await sleep(retryDelayMs(attempt, requestError), signal);
+        continue;
+      }
+
+      if (requestError.status >= 500) {
+        reportError(requestError, 'apiClient', {
+          path,
+          status: requestError.status,
+          correlationId: requestError.correlationId,
+        });
+        if (_errorHandler) _errorHandler(requestError.message);
+      }
+
+      throw requestError;
     }
   }
   // Retryable error that exhausted all attempts — report to error handler
@@ -328,24 +387,35 @@ async function request(path, options = {}, signal) {
 
 /** Convenience methods */
 const api = {
-  get: (path, signal) => request(path, { method: 'GET' }, signal),
+  get: (path, optionsOrSignal) =>
+    request(path, { ...normalizeOptions(optionsOrSignal), method: 'GET' }),
 
-  post: (path, body, signal, timeout, headers = {}) =>
+  post: (path, body, optionsOrSignal, legacyTimeout, legacyHeaders = {}) =>
     request(
       path,
       {
+        ...normalizeOptions(optionsOrSignal, legacyTimeout, legacyHeaders),
         method: 'POST',
         body: body instanceof FormData ? body : JSON.stringify(body),
-        timeout,
-        headers,
       },
-      signal
     ),
 
-  patch: (path, body, signal) =>
-    request(path, { method: 'PATCH', body: JSON.stringify(body) }, signal),
+  put: (path, body, optionsOrSignal) =>
+    request(path, {
+      ...normalizeOptions(optionsOrSignal),
+      method: 'PUT',
+      body: body instanceof FormData ? body : JSON.stringify(body),
+    }),
 
-  delete: (path, signal) => request(path, { method: 'DELETE' }, signal),
+  patch: (path, body, optionsOrSignal) =>
+    request(path, {
+      ...normalizeOptions(optionsOrSignal),
+      method: 'PATCH',
+      body: body instanceof FormData ? body : JSON.stringify(body),
+    }),
+
+  delete: (path, optionsOrSignal) =>
+    request(path, { ...normalizeOptions(optionsOrSignal), method: 'DELETE' }),
 
   /**
    * Download an artifact while preserving response headers and raw bytes.
@@ -366,9 +436,9 @@ const api = {
             : JSON.stringify(body),
         timeout,
         headers,
-        rawResponse: true,
+        responseType: 'response',
+        signal,
       },
-      signal,
     ),
 
   /**
@@ -384,8 +454,8 @@ const api = {
         method,
         headers: { Authorization: `Bearer ${token}` },
         body: body ? JSON.stringify(body) : undefined,
+        signal,
       },
-      signal,
     ),
 };
 
