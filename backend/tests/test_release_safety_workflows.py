@@ -920,7 +920,7 @@ def test_backend_image_and_schema_contract_are_hosted_immutable_and_fail_closed(
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
     assert "actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8" in workflow_text
     assert "push-to-registry: true" not in workflow_text
-    assert "docker/login-action@dbcb813823bdd20940b903addbd779551569679f" in workflow_text
+    assert "docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6" in workflow_text
     assert "ghcr.io/${{ github.repository_owner }}" in workflow_text
     assert "ACR_LOGIN_SERVER" not in build["env"]
     assert "ACR_LOGIN_SERVER" not in scan["env"]
