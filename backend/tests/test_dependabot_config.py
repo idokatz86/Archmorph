@@ -74,20 +74,16 @@ def test_dependabot_covers_every_dependency_manifest_and_runtime_image():
     } <= covered
 
 
-def test_dependabot_uses_public_npmjs_without_changing_install_registry():
-    config = yaml.safe_load(DEPENDABOT_CONFIG.read_text(encoding="utf-8"))
-    assert config["registries"]["npmjs-public"] == {
-        "type": "npm-registry",
-        "url": "https://registry.npmjs.org/",
-        "scope": "@types",
-    }
-    for directory in (REPO_ROOT, REPO_ROOT / "frontend", REPO_ROOT / "frontend/api"):
+def test_frontend_types_use_public_npmjs_without_changing_the_base_registry():
+    for directory in (REPO_ROOT, REPO_ROOT / "frontend/api"):
         assert (directory / ".npmrc").read_text().strip() == (
             f"registry={MICROSOFT_PUBLIC_NPM}"
         )
-    for update in _all_updates():
-        if update["package-ecosystem"] == "npm":
-            assert update["registries"] == ["npmjs-public"]
+    frontend_npmrc = (REPO_ROOT / "frontend" / ".npmrc").read_text().splitlines()
+    assert frontend_npmrc == [
+        "@types:registry=https://registry.npmjs.org/",
+        f"registry={MICROSOFT_PUBLIC_NPM}",
+    ]
 
 
 def test_frontend_dependabot_ignores_only_eslint_10_major_until_react_plugin_supports_it():
