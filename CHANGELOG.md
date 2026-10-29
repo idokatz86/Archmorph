@@ -30,6 +30,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 #### Infrastructure and security maintenance
 
+- **Migration vault preflight CLI compatibility** — query access-policy-mode
+  Key Vaults with the supported name/resource-group selectors rather than the
+  unsupported `az keyvault show --ids`, retaining the exact identity Get check.
 - **Monitoring email-test recovery** -- send the explicit verified REST receiver
   payload and poll accepted requests without resending. A separate manual
   notification-only workflow can complete delivery verification without repeating
