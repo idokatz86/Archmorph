@@ -4,7 +4,7 @@ registries:
   npmjs-public:
     type: npm-registry
     url: https://registry.npmjs.org/
-    replaces-base: true
+    scope: "@types"
 
 updates:
   # Python backend dependencies

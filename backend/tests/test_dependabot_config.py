@@ -79,7 +79,7 @@ def test_dependabot_uses_public_npmjs_without_changing_install_registry():
     assert config["registries"]["npmjs-public"] == {
         "type": "npm-registry",
         "url": "https://registry.npmjs.org/",
-        "replaces-base": True,
+        "scope": "@types",
     }
     for directory in (REPO_ROOT, REPO_ROOT / "frontend", REPO_ROOT / "frontend/api"):
         assert (directory / ".npmrc").read_text().strip() == (
