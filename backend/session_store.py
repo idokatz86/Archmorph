@@ -25,6 +25,7 @@ import threading
 import json as _json
 import time as _time
 import fcntl
+import tempfile
 from pathlib import Path
 from typing import Any, Callable, List, Optional
 
@@ -312,7 +313,6 @@ class FileStore(SessionStore):
     """
 
     def __init__(self, name: str, maxsize: int = 500, ttl: int = 7200):
-        import tempfile
         self._base = Path(os.getenv("SESSION_FILE_DIR", os.path.join(tempfile.gettempdir(), "archmorph_sessions"))) / name
         self._base.mkdir(parents=True, exist_ok=True)
         self._ttl = ttl
@@ -336,10 +336,22 @@ class FileStore(SessionStore):
         return self._confined_path(f"{safe}.lock")
 
     def _write_payload(self, path: Path, payload: dict[str, Any]) -> None:
-        tmp = path.with_suffix(".tmp")
-        with open(tmp, "w") as f:
-            _json.dump(payload, f, default=str)
-        tmp.rename(path)  # Atomic on POSIX
+        tmp: Optional[Path] = None
+        try:
+            with tempfile.NamedTemporaryFile(
+                mode="w",
+                encoding="utf-8",
+                dir=path.parent,
+                prefix=f".{path.name}.",
+                suffix=".tmp",
+                delete=False,
+            ) as f:
+                tmp = Path(f.name)
+                _json.dump(payload, f, default=str)
+            tmp.replace(path)
+        finally:
+            if tmp is not None:
+                tmp.unlink(missing_ok=True)
 
     def _read(self, path: Path) -> Any:
         """Read a file, return value if not expired, else None."""

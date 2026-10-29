@@ -203,6 +203,25 @@ class TestFileStore:
             store.set("lock", {"safe": True})
         assert outside.read_text(encoding="utf-8") == "preserve"
 
+    def test_write_does_not_follow_predictable_temp_symlink(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SESSION_FILE_DIR", str(tmp_path))
+        store = FileStore("file_temp_symlink_confinement")
+        outside = tmp_path / "outside.json"
+        outside.write_text("preserve", encoding="utf-8")
+        store._path("value").with_suffix(".tmp").symlink_to(outside)
+
+        store.set("value", {"version": 1})
+        success, value = store.update_if(
+            "value",
+            lambda current: current["version"] == 1,
+            lambda current: {**current, "version": 2},
+        )
+
+        assert success is True
+        assert value == {"version": 2}
+        assert store.get("value") == {"version": 2}
+        assert outside.read_text(encoding="utf-8") == "preserve"
+
     def test_update_if_success_writes_updated_value_and_refreshes_ttl(self, tmp_path, monkeypatch):
         monkeypatch.setenv("SESSION_FILE_DIR", str(tmp_path))
         store = FileStore("file_update_success", ttl=10)
