@@ -56,6 +56,7 @@ def test_sensitive_artifact_and_session_routes_require_api_key_dependency():
         verify_api_key,
         verify_api_key_or_user_session,
     )
+    from routers.v1 import iter_api_route_contexts
 
     protected_routes = {
         ("/api/diagrams/{diagram_id}/versions", "GET"),
@@ -79,8 +80,8 @@ def test_sensitive_artifact_and_session_routes_require_api_key_dependency():
     }
 
     matched = set()
-    for route in app.routes:
-        path = getattr(route, "path", None)
+    for route in iter_api_route_contexts(app.routes):
+        path = route.path
         methods = getattr(route, "methods", set()) or set()
         route_keys = {
             (path, method) for method in methods if (path, method) in protected_routes
@@ -104,6 +105,7 @@ def test_sensitive_artifact_and_session_routes_require_api_key_dependency():
 def test_admin_execution_routes_require_admin_bearer_dependency():
     from main import app
     from routers.shared import verify_admin_key
+    from routers.v1 import iter_api_route_contexts
 
     admin_routes = {
         ("/api/deploy/execute/{project_id}", "POST"),
@@ -117,8 +119,8 @@ def test_admin_execution_routes_require_admin_bearer_dependency():
     }
 
     matched = set()
-    for route in app.routes:
-        path = getattr(route, "path", None)
+    for route in iter_api_route_contexts(app.routes):
+        path = route.path
         methods = getattr(route, "methods", set()) or set()
         route_keys = {(path, method) for method in methods if (path, method) in admin_routes}
         if not route_keys:

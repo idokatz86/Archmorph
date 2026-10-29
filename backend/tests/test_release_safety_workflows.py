@@ -83,7 +83,7 @@ def test_ci_includes_pgvector_empty_schema_structural_migration_cycle():
         rollout_job["steps"],
         "Verify pinned Azure CLI migration-args parser contract",
     )
-    assert parser_contract["uses"] == "azure/CLI@v2"
+    assert parser_contract["uses"] == "azure/CLI@v3"
     assert parser_contract["with"]["azcliversion"] == "2.86.0"
     assert parser_contract["with"]["inlineScript"] == (
         "python3 scripts/azure_cli_parser_contract.py "
@@ -208,6 +208,11 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert "az role assignment list" in propagation
     assert "key_vault_authorization_mode" in propagation
     assert "az keyvault show" in propagation
+    vault_query = propagation.split("az keyvault show", 1)[1].split(" -o tsv)", 1)[0]
+    assert '--name "$MIGRATION_KEY_VAULT_NAME"' in vault_query
+    assert '--resource-group "$AZURE_RESOURCE_GROUP"' in vault_query
+    assert "--ids" not in vault_query
+    assert "contains(permissions.secrets, 'Get')" in vault_query
     assert "properties.provisioningState" in propagation
     assert "DATABASE_URL" in propagation
     assert "db-connection" in propagation
@@ -918,9 +923,9 @@ def test_backend_image_and_schema_contract_are_hosted_immutable_and_fail_closed(
         "Import verified immutable build digests into production ACR"
     )
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "actions/attest-build-provenance@977bb373ede98d70efdf65b84cb5f73e068dcc2a" in workflow_text
+    assert "actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8" in workflow_text
     assert "push-to-registry: true" not in workflow_text
-    assert "docker/login-action@dbcb813823bdd20940b903addbd779551569679f" in workflow_text
+    assert "docker/login-action@81c6f93d4bc991e510b342a00b419b3bb4efc5c6" in workflow_text
     assert "ghcr.io/${{ github.repository_owner }}" in workflow_text
     assert "ACR_LOGIN_SERVER" not in build["env"]
     assert "ACR_LOGIN_SERVER" not in scan["env"]
