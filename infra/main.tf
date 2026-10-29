@@ -4,7 +4,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 4.60"
+      version = "~> 5.11"
     }
     azapi = {
       source  = "Azure/azapi"
@@ -63,8 +63,7 @@ locals {
     lower(var.location),
     var.dr_location
   ) : var.dr_location
-  backend_image     = var.backend_container_image
-  storage_cmk_parts = var.storage_cmk_key_vault_key_id != "" ? regex("^https://([a-zA-Z0-9-]+)\\.vault\\.azure\\.net/keys/([^/]+)/([^/]+)$", var.storage_cmk_key_vault_key_id) : []
+  backend_image = var.backend_container_image
   tags = {
     project     = "archmorph"
     environment = var.environment
@@ -322,9 +321,7 @@ resource "azurerm_storage_account" "main" {
 resource "azurerm_storage_account_customer_managed_key" "main" {
   count              = var.storage_cmk_key_vault_key_id != "" ? 1 : 0
   storage_account_id = azurerm_storage_account.main.id
-  key_vault_id       = azurerm_key_vault.main.id
-  key_name           = local.storage_cmk_parts[1]
-  key_version        = local.storage_cmk_parts[2]
+  key_vault_key_id   = var.storage_cmk_key_vault_key_id
 
   depends_on = [
     azurerm_key_vault_access_policy.storage_cmk,
@@ -373,10 +370,24 @@ resource "azurerm_container_registry" "main" {
   anonymous_pull_enabled        = false
   data_endpoint_enabled         = local.production_infra_hardening_enabled
 
-  # Enable content trust in production
-  trust_policy_enabled = local.production_infra_hardening_enabled
-
   tags = local.tags
+}
+
+resource "azapi_update_resource" "acr_content_trust_policy" {
+  type        = "Microsoft.ContainerRegistry/registries@2023-07-01"
+  resource_id = azurerm_container_registry.main.id
+  body = {
+    properties = {
+      policies = {
+        trustPolicy = {
+          status = local.production_infra_hardening_enabled ? "enabled" : "disabled"
+          type   = "Notary"
+        }
+      }
+    }
+  }
+
+  depends_on = [azurerm_container_registry.main]
 }
 
 # ─────────────────────────────────────────────────────────────
@@ -1149,7 +1160,7 @@ resource "azurerm_application_insights" "main" {
   sampling_percentage = local.production_infra_hardening_enabled ? var.app_insights_sampling_percentage_prod : 100
 
   # Enable distributed tracing
-  disable_ip_masking = false # GDPR compliance
+  ip_masking_enabled = true # GDPR compliance
 
   tags = local.tags
 }
@@ -2572,13 +2583,12 @@ resource "azurerm_private_dns_zone" "postgresql" {
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "postgresql" {
-  count                 = local.production_infra_hardening_enabled ? 1 : 0
-  name                  = "archmorph-pg-dns-link"
-  resource_group_name   = azurerm_resource_group.main.name
-  private_dns_zone_name = azurerm_private_dns_zone.postgresql[0].name
-  virtual_network_id    = azurerm_virtual_network.main.id
-  registration_enabled  = false
-  tags                  = local.tags
+  count                = local.production_infra_hardening_enabled ? 1 : 0
+  name                 = "archmorph-pg-dns-link"
+  private_dns_zone_id  = azurerm_private_dns_zone.postgresql[0].id
+  virtual_network_id   = azurerm_virtual_network.main.id
+  registration_enabled = false
+  tags                 = local.tags
 }
 
 resource "azurerm_private_endpoint" "postgresql" {
@@ -2610,13 +2620,12 @@ resource "azurerm_private_dns_zone" "redis" {
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "redis" {
-  count                 = local.production_infra_hardening_enabled && var.enable_redis_private_endpoint ? 1 : 0
-  name                  = "archmorph-redis-dns-link"
-  resource_group_name   = azurerm_resource_group.main.name
-  private_dns_zone_name = azurerm_private_dns_zone.redis[0].name
-  virtual_network_id    = azurerm_virtual_network.main.id
-  registration_enabled  = false
-  tags                  = local.tags
+  count                = local.production_infra_hardening_enabled && var.enable_redis_private_endpoint ? 1 : 0
+  name                 = "archmorph-redis-dns-link"
+  private_dns_zone_id  = azurerm_private_dns_zone.redis[0].id
+  virtual_network_id   = azurerm_virtual_network.main.id
+  registration_enabled = false
+  tags                 = local.tags
 }
 
 resource "azurerm_private_endpoint" "redis" {
@@ -2651,13 +2660,12 @@ resource "azurerm_private_dns_zone" "storage" {
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "storage" {
-  count                 = local.production_infra_hardening_enabled && var.enable_storage_private_endpoint ? 1 : 0
-  name                  = "archmorph-storage-dns-link"
-  resource_group_name   = azurerm_resource_group.main.name
-  private_dns_zone_name = azurerm_private_dns_zone.storage[0].name
-  virtual_network_id    = azurerm_virtual_network.main.id
-  registration_enabled  = false
-  tags                  = local.tags
+  count                = local.production_infra_hardening_enabled && var.enable_storage_private_endpoint ? 1 : 0
+  name                 = "archmorph-storage-dns-link"
+  private_dns_zone_id  = azurerm_private_dns_zone.storage[0].id
+  virtual_network_id   = azurerm_virtual_network.main.id
+  registration_enabled = false
+  tags                 = local.tags
 }
 
 resource "azurerm_private_endpoint" "storage" {
@@ -2699,13 +2707,12 @@ resource "azurerm_private_dns_zone" "keyvault" {
 }
 
 resource "azurerm_private_dns_zone_virtual_network_link" "keyvault" {
-  count                 = local.production_infra_hardening_enabled ? 1 : 0
-  name                  = "archmorph-kv-dns-link"
-  resource_group_name   = azurerm_resource_group.main.name
-  private_dns_zone_name = azurerm_private_dns_zone.keyvault[0].name
-  virtual_network_id    = azurerm_virtual_network.main.id
-  registration_enabled  = false
-  tags                  = local.tags
+  count                = local.production_infra_hardening_enabled ? 1 : 0
+  name                 = "archmorph-kv-dns-link"
+  private_dns_zone_id  = azurerm_private_dns_zone.keyvault[0].id
+  virtual_network_id   = azurerm_virtual_network.main.id
+  registration_enabled = false
+  tags                 = local.tags
 }
 
 resource "azurerm_private_endpoint" "keyvault" {
@@ -3012,7 +3019,9 @@ resource "azurerm_subnet" "container_apps" {
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = ["10.0.1.0/24"]
-  service_endpoints    = ["Microsoft.Storage"] # Required for prod storage VNet service endpoint path
+  service_endpoint {
+    service = "Microsoft.Storage" # Required for prod storage VNet service endpoint path
+  }
 
   delegation {
     name = "container-apps-delegation"
@@ -3030,7 +3039,9 @@ resource "azurerm_subnet" "database" {
   resource_group_name  = azurerm_resource_group.main.name
   virtual_network_name = azurerm_virtual_network.main.name
   address_prefixes     = ["10.0.2.0/24"]
-  service_endpoints    = ["Microsoft.Storage"]
+  service_endpoint {
+    service = "Microsoft.Storage"
+  }
 }
 
 # NSG for Container App subnet — Zero Trust network controls
