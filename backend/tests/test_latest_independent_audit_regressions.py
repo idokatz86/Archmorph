@@ -8,7 +8,6 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi import Request
-from fastapi.routing import APIRoute
 from limits.storage import MemoryStorage
 from limits.strategies import FixedWindowRateLimiter
 
@@ -20,6 +19,7 @@ from main import app
 from routers import shared
 from routers.api_keys_routes import _hash_index, _keys, create_api_key
 from routers.shared import route_effect_scope
+from routers.v1 import iter_api_route_contexts
 from route_effects import (
     classify_endpoint_effects,
     runtime_route_effect_scope,
@@ -270,8 +270,8 @@ def test_legacy_orphan_ring_is_quarantined_not_claimed():
 
 def test_runtime_effect_classification_covers_every_base_and_v1_get_both_directions():
     audited = 0
-    for route in app.routes:
-        if not isinstance(route, APIRoute) or not route.path.startswith("/api/"):
+    for route in iter_api_route_contexts(app.routes):
+        if not route.path.startswith("/api/"):
             continue
         for method in sorted(set(route.methods or ()) & {"GET", "HEAD"}):
             audited += 1
@@ -301,8 +301,8 @@ def test_identified_gets_are_runtime_classified_side_effect_free():
     }
     routes = {
         route.path: route
-        for route in app.routes
-        if isinstance(route, APIRoute) and "GET" in (route.methods or set())
+        for route in iter_api_route_contexts(app.routes)
+        if "GET" in (route.methods or set())
     }
     for path in corrected_paths:
         route = routes[path]

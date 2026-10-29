@@ -28,6 +28,7 @@ os.environ.setdefault("ENVIRONMENT", "test")
 os.environ.setdefault("RATE_LIMIT_ENABLED", "false")
 
 from main import SESSION_STORE, app  # noqa: E402
+from routers.v1 import iter_api_route_contexts  # noqa: E402
 
 client = TestClient(app, raise_server_exceptions=False)
 
@@ -675,8 +676,8 @@ class TestMigrationChatAuth:
         from routers.shared import verify_api_key
 
         target_route = None
-        for route in fastapi_app.routes:
-            if hasattr(route, "path") and "migration-chat" in route.path:
+        for route in iter_api_route_contexts(fastapi_app.routes):
+            if "migration-chat" in route.path:
                 target_route = route
                 break
 
