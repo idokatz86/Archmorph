@@ -1,9 +1,9 @@
 version: 2
 
 registries:
-  microsoft-public-npm:
+  npmjs-public:
     type: npm-registry
-    url: https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/
+    url: https://registry.npmjs.org/
 
 updates:
   # Python backend dependencies
@@ -42,7 +42,7 @@ updates:
   - package-ecosystem: npm
     directory: /frontend
     registries:
-      - microsoft-public-npm
+      - npmjs-public
     schedule:
       interval: weekly
       day: monday
@@ -88,7 +88,7 @@ updates:
       - /
       - /frontend/api
     registries:
-      - microsoft-public-npm
+      - npmjs-public
     schedule:
       interval: weekly
       day: monday
