@@ -174,6 +174,35 @@ class TestInMemoryStore:
 
 
 class TestFileStore:
+    @pytest.mark.parametrize("key", ["../outside", "/tmp/outside", "nested/../../outside"])
+    def test_key_paths_stay_under_store_root(self, tmp_path, monkeypatch, key):
+        monkeypatch.setenv("SESSION_FILE_DIR", str(tmp_path))
+        store = FileStore("file_path_confinement")
+        root = store._base.resolve()
+
+        assert store._path(key).parent == root
+        assert store._lock_path(key).parent == root
+
+        store.set(key, {"safe": True})
+        assert store.get(key) == {"safe": True}
+
+    def test_file_paths_reject_symlink_escape(self, tmp_path, monkeypatch):
+        monkeypatch.setenv("SESSION_FILE_DIR", str(tmp_path))
+        store = FileStore("file_symlink_confinement")
+        outside = tmp_path / "outside.json"
+        outside.write_text("preserve", encoding="utf-8")
+
+        value_path = store._path("value")
+        value_path.symlink_to(outside)
+        with pytest.raises(ValueError, match="escapes"):
+            store.get("value")
+
+        lock_path = store._lock_path("lock")
+        lock_path.symlink_to(outside)
+        with pytest.raises(ValueError, match="escapes"):
+            store.set("lock", {"safe": True})
+        assert outside.read_text(encoding="utf-8") == "preserve"
+
     def test_update_if_success_writes_updated_value_and_refreshes_ttl(self, tmp_path, monkeypatch):
         monkeypatch.setenv("SESSION_FILE_DIR", str(tmp_path))
         store = FileStore("file_update_success", ttl=10)

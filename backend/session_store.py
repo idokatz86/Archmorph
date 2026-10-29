@@ -319,14 +319,21 @@ class FileStore(SessionStore):
         self._maxsize = maxsize
         logger.info("File-backed session store: %s (ttl=%ds)", self._base, ttl)
 
+    def _confined_path(self, filename: str) -> Path:
+        base = os.path.realpath(self._base)
+        path = os.path.realpath(os.path.join(base, filename))
+        if not path.startswith(f"{base}{os.sep}"):
+            raise ValueError("FileStore path escapes its configured directory")
+        return Path(path)
+
     def _path(self, key: str) -> Path:
         # Sanitize key to filesystem-safe name
         safe = key.replace("/", "_").replace("..", "_")
-        return self._base / f"{safe}.json"
+        return self._confined_path(f"{safe}.json")
 
     def _lock_path(self, key: str) -> Path:
         safe = key.replace("/", "_").replace("..", "_")
-        return self._base / f"{safe}.lock"
+        return self._confined_path(f"{safe}.lock")
 
     def _write_payload(self, path: Path, payload: dict[str, Any]) -> None:
         tmp = path.with_suffix(".tmp")
