@@ -1,4 +1,3 @@
-import json
 import re
 from pathlib import Path
 
@@ -11,6 +10,7 @@ ROLLBACK_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "rollback.yml"
 MONITORING_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "monitoring.yml"
 MIGRATION_BOOTSTRAP = REPO_ROOT / "infra" / "migration-bootstrap" / "main.tf"
 MAIN_TERRAFORM = REPO_ROOT / "infra" / "main.tf"
+MONITORING_TERRAFORM = REPO_ROOT / "infra" / "release-monitoring" / "main.tf"
 HELM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "helm-release.yml"
 TERRAFORM_WORKFLOW = REPO_ROOT / ".github" / "workflows" / "terraform-prod.yml"
 MIGRATION_ALERT_SPECS = REPO_ROOT / "infra" / "monitoring" / "migration-alert-specs.json"
@@ -141,7 +141,19 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert deploy["env"]["MIGRATION_TFSTATE_KEY"] == "${{ secrets.MIGRATION_TFSTATE_KEY }}"
     assert deploy["outputs"]["initial_schema"] == "${{ steps.current_schema.outputs.revision }}"
 
+    environment_preflight = _step_by_name(
+        deploy["steps"], "Verify migration environment and preserve identity location",
+    )["run"]
+    assert 'az containerapp show' in environment_preflight
+    assert 'az containerapp env show' in environment_preflight
+    assert 'environmentId:properties.managedEnvironmentId' in environment_preflight
+    assert 'subnetId:properties.vnetConfiguration.infrastructureSubnetId' in environment_preflight
+    assert "verify_migration_bootstrap.py environment" in environment_preflight
+    assert "verify_migration_bootstrap.py identity-location" in environment_preflight
+    assert 'az identity list' in environment_preflight
+
     plan = _step_by_name(deploy["steps"], "Plan migration bootstrap (Phase A)")["run"]
+    assert 'export TF_VAR_migration_identity_location="$MIGRATION_IDENTITY_LOCATION"' in plan
     apply = _step_by_name(deploy["steps"], "Apply migration bootstrap (Phase A)")["run"]
     propagation = _step_by_name(
         deploy["steps"],
@@ -249,6 +261,9 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
 
     step_names = [step.get("name") for step in deploy["steps"]]
     assert step_names.index(
+        "Verify migration environment and preserve identity location"
+    ) < step_names.index("Acquire durable production rollout ownership")
+    assert step_names.index(
         "Verify hosted immutable build evidence before Azure mutation"
     ) < step_names.index("Acquire durable production rollout ownership")
     assert step_names.index("Acquire durable production rollout ownership") < step_names.index(
@@ -299,6 +314,7 @@ def test_phase_a_bootstrap_is_separate_state_and_cannot_mutate_live_app():
 
     assert 'resource "azurerm_container_app_job" "database_migration"' in terraform
     assert 'resource "azurerm_user_assigned_identity" "database_migration"' in terraform
+    assert "coalesce(var.migration_identity_location, data.azurerm_container_app_environment.runtime.location)" in terraform
     assert 'resource "azurerm_role_assignment" "acr_pull"' in terraform
     assert 'resource "azurerm_role_assignment" "database_secret_reader"' in terraform
     assert 'resource "azurerm_key_vault_access_policy" "database_secret_reader"' in terraform
@@ -433,7 +449,10 @@ def test_alert_attestation_precedes_every_migration_job_start():
     steps = workflow["jobs"]["deploy-backend"]["steps"]
     names = [step.get("name") for step in steps]
     attest = _step_by_name(steps, "Attest applied migration alerts before Job execution")["run"]
-    assert "terraform -chdir=infra output -json" in attest
+    assert "terraform -chdir=infra/release-monitoring output -json" in attest
+    assert "terraform -chdir=infra output -json" not in attest
+    assert "verify_release_monitoring.py backend" in attest
+    assert '-backend-config="key=${MONITORING_TFSTATE_KEY}"' in attest
     assert "verify_migration_alerts.py" in attest
     assert "migration_failure_alert_id" in attest
     assert "migration_timeout_alert_id" in attest
@@ -750,6 +769,18 @@ def test_backend_image_and_schema_contract_are_hosted_immutable_and_fail_closed(
         build["steps"],
         "Verify private GHCR staging package ownership",
     )["run"]
+    bootstrap = _step_by_name(
+        build["steps"],
+        "Establish private staging before application image upload",
+    )
+    build_names = [step.get("name") for step in build["steps"]]
+    bootstrap_index = build_names.index(bootstrap["name"])
+    assert bootstrap_index < build_names.index("Build and push final staging image")
+    assert bootstrap_index < build_names.index("Build and push schema bridge overlay")
+    assert "ensure_private_release_staging.py" in bootstrap["run"]
+    assert bootstrap["env"]["GH_TOKEN"] == "${{ github.token }}"
+    assert "continue-on-error" not in bootstrap
+    assert "if" not in bootstrap
     scan_resolve = _step_by_name(
         scan["steps"],
         "Resolve immutable staging images for scanning",
@@ -851,8 +882,8 @@ def test_backend_image_and_schema_contract_are_hosted_immutable_and_fail_closed(
     assert 'az rest --method post --uri "$IMPORT_URI"' not in consume
     assert '--provenance "hosted-build-evidence/${role}-build-provenance-unsigned.json"' in consume
     assert "--unsigned-provenance" in consume
-    assert '"${GHCR_BUILD_REGISTRY}/archmorph-api-release-build"' in consume
-    assert '"${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-build"' in consume
+    assert '"${GHCR_BUILD_REGISTRY}/archmorph-api-release-staging-v2"' in consume
+    assert '"${GHCR_BUILD_REGISTRY}/archmorph-api-bridge-release-staging-v2"' in consume
     assert "GHCR_BUILD_REGISTRY=\"ghcr.io/${GITHUB_REPOSITORY_OWNER,,}\"" in consume
     assert 'IMAGE_REF="${ACR_LOGIN_SERVER}/archmorph-api@${FINAL_SOURCE_IMAGE_REF#*@}"' in consume
     assert 'BRIDGE_IMAGE_REF="${ACR_LOGIN_SERVER}/archmorph-api-bridge@${BRIDGE_SOURCE_IMAGE_REF#*@}"' in consume
@@ -1095,10 +1126,10 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert "ROLLBACK_REVISIONS" in retain
     assert "Migration bridge is recovery-only" in retain
     workflow_text = CI_WORKFLOW.read_text(encoding="utf-8")
-    assert "BRIDGE_BASE_IMAGE=${{ env.GHCR_BUILD_REGISTRY }}/archmorph-api-release-build@${{ steps.build_backend.outputs.digest }}" in workflow_text
+    assert "BRIDGE_BASE_IMAGE=${{ env.GHCR_BUILD_REGISTRY }}/archmorph-api-release-staging-v2@${{ steps.build_backend.outputs.digest }}" in workflow_text
     assert "backend/bridge_overlay/Dockerfile" in workflow_text
     assert "context: ./backend" in workflow_text
-    assert "archmorph-api-bridge-release-build@${{ steps.build_bridge.outputs.digest }}" in workflow_text
+    assert "archmorph-api-bridge-release-staging-v2@${{ steps.build_bridge.outputs.digest }}" in workflow_text
     assert 'az rest --method post --uri "$IMPORT_URI"' in workflow_text
     assert 'IMPORTED_BRIDGE_DIGEST' in workflow_text
     detect = _step_by_name(steps, "Discover schema with same-identity database preflight")["run"]
@@ -1182,25 +1213,14 @@ def test_frontend_waits_for_backend_and_has_previous_artifact_rollback():
 
 
 def test_migration_alerts_use_action_group_and_explicit_platform_owner():
-    terraform = MAIN_TERRAFORM.read_text(encoding="utf-8")
-    outputs = (REPO_ROOT / "infra" / "outputs.tf").read_text(encoding="utf-8")
-    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure"' in terraform
-    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_timeout"' in terraform
-    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_missing_evidence"' in terraform
-    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "bridge_customer_degraded"' in terraform
-    migration_alerts = terraform.split(
-        'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "migration_job_failure"',
-        1,
-    )[1].split("# Slow API Response Alert", 1)[0]
-    assert "count =" not in migration_alerts
-    assert "AppEvents" in terraform
-    assert "migration_started" in terraform
-    assert "migration_succeeded" in terraform
-    assert "migration_failed" in terraform
-    assert "migration_timed_out" in terraform
-    assert "bridge_customer_degraded" in terraform
-    assert "azurerm_monitor_action_group.critical.id" in terraform
-    assert 'owner = "platform-engineering"' in terraform
+    terraform = MONITORING_TERRAFORM.read_text(encoding="utf-8")
+    outputs = (MONITORING_TERRAFORM.parent / "outputs.tf").read_text(encoding="utf-8")
+    primary_outputs = (REPO_ROOT / "infra" / "outputs.tf").read_text(encoding="utf-8")
+    assert 'resource "azurerm_monitor_scheduled_query_rules_alert_v2" "release"' in terraform
+    assert "for_each = local.alert_specs" in terraform
+    assert "count =" not in terraform
+    assert "azurerm_monitor_action_group.critical.name" in terraform
+    assert re.search(r'owner\s*=\s*"platform-engineering"', terraform)
     for name in (
         "application_insights_resource_id",
         "migration_failure_alert_id",
@@ -1210,59 +1230,31 @@ def test_migration_alerts_use_action_group_and_explicit_platform_owner():
         "critical_action_group_id",
     ):
         assert f'output "{name}"' in outputs
+        assert f'output "{name}"' not in primary_outputs
 
 
 def test_reviewed_migration_alert_specs_match_terraform_exactly():
-    terraform = MAIN_TERRAFORM.read_text(encoding="utf-8")
-    specifications = json.loads(MIGRATION_ALERT_SPECS.read_text(encoding="utf-8"))[
-        "alerts"
-    ]
-    resources = {
-        "failure": "migration_job_failure",
-        "timeout": "migration_job_timeout",
-        "missing_evidence": "migration_missing_evidence",
-        "customer_degraded": "bridge_customer_degraded",
-    }
+    workflow = _load(CI_WORKFLOW)
+    job = workflow["jobs"]["alembic-migration-smoke"]
+    terraform = MONITORING_TERRAFORM.read_text(encoding="utf-8")
+    assert 'jsondecode(file("${path.module}/../monitoring/migration-alert-specs.json")).alerts' in terraform
+    for name in ("severity", "enabled", "evaluation_frequency", "window_duration"):
+        assert re.search(rf"\b{name}\s*=\s*each.value.{name}\b", terraform)
+    for name in ("query", "time_aggregation_method", "operator", "threshold", "metric_measure_column"):
+        value = "each.value.query" if name == "query" else f"each.value.criteria.{name}"
+        assert re.search(rf"\b{name}\s*=\s*{re.escape(value)}\b", terraform)
+    for name in ("minimum_failing_periods_to_trigger_alert", "number_of_evaluation_periods"):
+        assert f"each.value.criteria.failing_periods.{name}" in terraform
+    assert "action_groups = [local.critical_action_id]" in terraform
+    assert "/providers/Microsoft.Insights/actionGroups/${azurerm_monitor_action_group.critical.name}" in terraform
 
-    for role, resource_name in resources.items():
-        block = _terraform_alert_block(terraform, resource_name)
-        specification = specifications[role]
-        criteria = specification["criteria"]
-        periods = criteria["failing_periods"]
-        query = re.search(r"query\s*=\s*<<-KQL\n(.*?)\n\s*KQL", block, re.DOTALL)
-        assert query is not None
-        assert _canonical_kql(query.group(1)) == _canonical_kql(specification["query"])
-        assert re.search(rf"severity\s*=\s*{specification['severity']}\b", block)
-        assert re.search(
-            rf"enabled\s*=\s*{str(specification['enabled']).lower()}\b", block
-        )
-        assert 'scopes               = [azurerm_application_insights.main.id]' in block
-        assert (
-            f'evaluation_frequency = "{specification["evaluation_frequency"]}"'
-            in block
-        )
-        assert f'window_duration      = "{specification["window_duration"]}"' in block
-        assert (
-            f'time_aggregation_method = "{criteria["time_aggregation_method"]}"'
-            in block
-        )
-        assert f'operator                = "{criteria["operator"]}"' in block
-        assert re.search(rf"threshold\s*=\s*{criteria['threshold']}\b", block)
-        assert (
-            f'metric_measure_column   = "{criteria["metric_measure_column"]}"'
-            in block
-        )
-        assert re.search(
-            rf"minimum_failing_periods_to_trigger_alert\s*=\s*"
-            rf"{periods['minimum_failing_periods_to_trigger_alert']}\b",
-            block,
-        )
-        assert re.search(
-            rf"number_of_evaluation_periods\s*=\s*"
-            rf"{periods['number_of_evaluation_periods']}\b",
-            block,
-        )
-        assert "action_groups = [azurerm_monitor_action_group.critical.id]" in block
+    safety_step = _step_by_name(job["steps"], "Run N-1 migration safety gate")
+    safety_run = safety_step["run"]
+    assert "printf -v MIGRATION_TEST_DATABASE_URL" in safety_run
+    assert '"$DATABASE_SCHEME" "$POSTGRES_USER" "$POSTGRES_PASSWORD" "$POSTGRES_DB"' in safety_run
+    assert "export MIGRATION_TEST_DATABASE_URL" in safety_run
+    assert "python -m pytest -n 0 tests/test_migration_safety.py" in safety_run
+    assert "alembic-migration-smoke" in workflow["jobs"]["deploy-backend"]["needs"]
 
 
 def test_rollback_health_verification_uses_authenticated_api_health():

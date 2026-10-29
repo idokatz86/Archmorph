@@ -55,7 +55,9 @@ describe('UserMenu — Sign In button', () => {
 
   it('renders the Sign In button when unauthenticated', () => {
     render(<UserMenu />);
-    expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+    const button = screen.getByRole('button', { name: /sign in/i });
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveAttribute('type', 'button');
   });
 
   it('Sign In button has aria-haspopup="dialog"', () => {

@@ -23,6 +23,22 @@ def test_frontend_uses_immutable_compatibility_archive_without_install_mutation(
     assert package["overrides"]["brace-expansion"] == "$brace-expansion"
 
 
+def test_source_map_security_patch_is_applied_to_all_transitive_consumers():
+    package = json.loads((REPO_ROOT / "frontend" / "package.json").read_text())
+    lock = json.loads((REPO_ROOT / "frontend" / "package-lock.json").read_text())
+    assert package["devDependencies"]["source-map-js"] == "file:../vendor/source-map-js-1.2.2.tgz"
+    assert package["overrides"]["source-map-js"] == "$source-map-js"
+    copies = [
+        metadata for path, metadata in lock["packages"].items()
+        if path.endswith("node_modules/source-map-js")
+    ]
+    assert copies
+    for metadata in copies:
+        assert metadata["version"] == "1.2.2"
+        assert metadata["resolved"] == "file:../vendor/source-map-js-1.2.2.tgz"
+        assert metadata["integrity"].startswith("sha512-")
+
+
 def test_required_frontend_ci_uses_frozen_installs_and_security_behavior_checks():
     workflow = yaml.safe_load(
         (REPO_ROOT / ".github" / "workflows" / "ci.yml").read_text()

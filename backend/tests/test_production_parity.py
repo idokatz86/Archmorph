@@ -105,6 +105,63 @@ with (
     assert "DDL attempted" not in result.stderr
 
 
+def test_unreachable_schema_check_fails_closed_with_safe_error():
+    result = run_backend_snippet(
+        "import json, database; print(json.dumps(database.database_readiness()))",
+        ENVIRONMENT="production",
+        ENFORCE_POSTGRES="true",
+        DATABASE_URL="postgresql://user:password@postgres:5432/archmorph",
+    )
+    assert result.returncode == 0, result.stderr
+    readiness = json.loads(result.stdout)
+    assert readiness["schema"] == {
+        "enforced": True,
+        "ready": False,
+        "status": "unavailable",
+        "error": "database_schema_check_failed",
+    }
+    assert readiness["ready_for_production"] is False
+    assert "postgres:5432" not in result.stdout
+
+
+def test_runtime_bootstrap_fails_closed_when_database_is_unreachable():
+    result = run_backend_snippet(
+        "import database; database.init_db()",
+        ENVIRONMENT="production",
+        ENFORCE_POSTGRES="true",
+        DATABASE_URL="postgresql://user:password@unreachable.invalid:5432/archmorph",
+    )
+    assert result.returncode != 0
+    assert "Production database is not at the expected Alembic head" in result.stderr
+    assert "unreachable.invalid" not in result.stderr
+
+
+def test_release_status_blocks_incomplete_database_readiness():
+    result = run_backend_snippet(
+        """import asyncio, json
+from unittest.mock import patch
+from routers.admin_core import admin_release_status
+
+database = {
+    'postgres_configured': True,
+    'production_like': True,
+    'schema': {'ready': True},
+    'ready_for_production': False,
+}
+sessions = {'ready_for_horizontal_scale': True}
+with (
+    patch('database.database_readiness', return_value=database),
+    patch('session_store.session_store_readiness', return_value=sessions),
+):
+    payload = asyncio.run(admin_release_status(None, True))
+print(json.dumps(payload['readiness']['release_blockers']))
+""",
+    )
+    assert result.returncode == 0, result.stderr
+    blockers = json.loads(result.stdout)
+    assert "Database readiness checks must pass for production promotion" in blockers
+
+
 def test_redis_readiness_is_horizontal_scale_ready_when_required():
     result = run_backend_snippet(
         "import json, session_store; print(json.dumps(session_store.session_store_readiness()))",
@@ -144,7 +201,7 @@ def test_terraform_and_helm_split_liveness_from_readiness():
     assert 'default     = "/healthz"' in variables
     assert 'default     = "/readyz"' in variables
     assert "readiness_probe {\n        path                    = var.readiness_probe_path" in terraform
-    assert "liveness_probe {\n        path                    = var.health_probe_path" in terraform
+    assert "liveness_probe {\n        path                    = var.liveness_probe_path" in terraform
     assert 'url = "https://${azurerm_container_app.backend.ingress[0].fqdn}${var.readiness_probe_path}"' in terraform
     assert "health_probe {\n    path                = var.readiness_probe_path" in terraform
     assert 'default     = "/readyz"' in dr_terraform

@@ -13,6 +13,8 @@ import os
 import sys
 from pathlib import Path
 
+from sqlalchemy import create_engine, text
+
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
@@ -93,7 +95,48 @@ class TestDatabaseModule:
         from database import database_readiness
         readiness = database_readiness()
         assert readiness["backend"] in {"sqlite", "postgresql", "other"}
+        assert readiness["schema"]["status"] == "not_enforced"
         assert "ready_for_production" in readiness
+
+    def test_alembic_schema_readiness_rejects_missing_revision(self, tmp_path):
+        from database import alembic_schema_readiness
+
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'missing-revision.db'}")
+
+        readiness = alembic_schema_readiness(test_engine)
+
+        assert readiness == {
+            "enforced": True,
+            "ready": False,
+            "status": "mismatch",
+            "error": "database_schema_not_at_alembic_head",
+        }
+
+    def test_alembic_schema_readiness_accepts_repository_head(self, tmp_path):
+        from alembic.script import ScriptDirectory
+        from database import _ALEMBIC_SCRIPT_LOCATION, alembic_schema_readiness
+
+        test_engine = create_engine(f"sqlite:///{tmp_path / 'current-revision.db'}")
+        repository_head = ScriptDirectory(
+            str(_ALEMBIC_SCRIPT_LOCATION)
+        ).get_current_head()
+        with test_engine.begin() as connection:
+            connection.execute(
+                text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)")
+            )
+            connection.execute(
+                text("INSERT INTO alembic_version (version_num) VALUES (:revision)"),
+                {"revision": repository_head},
+            )
+
+        readiness = alembic_schema_readiness(test_engine)
+
+        assert readiness == {
+            "enforced": True,
+            "ready": True,
+            "status": "current",
+            "error": None,
+        }
 
 
 # ─────────────────────────────────────────────────────────────

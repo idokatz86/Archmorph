@@ -33,6 +33,7 @@ Core deployment secrets:
 - `MIGRATION_KEY_VAULT_NAME`
 - `MIGRATION_DATABASE_SECRET_NAME`
 - `MIGRATION_TFSTATE_KEY`
+- `MONITORING_TFSTATE_KEY` -- distinct monitoring state in the existing private migration-state container
 - `RELEASE_MANIFEST_HMAC_KEY` — at least 32 bytes; signs final release evidence
 	and migration recovery state
 - `APPLICATIONINSIGHTS_CONNECTION_STRING` — provides the instrumentation key for secret-free migration lifecycle evidence
@@ -75,16 +76,48 @@ The backend must start with PostgreSQL, Redis, `ENFORCE_POSTGRES=true`, and `REQ
 
 The `CI/CD` workflow must pass before release:
 
+- Release-monitoring resources must already be provisioned by an explicitly
+  approved [isolated monitoring plan](../infra/release-monitoring/README.md).
+  The six output IDs come from that root, not the primary state; absence or drift
+  blocks migration. Planning support does not authorize an infrastructure apply.
+  The separate monitoring apply workflow verifies exact plan/ciphertext hashes,
+  immutable source/provider identity, current states, live query results, and
+  rollout ownership before the saved five-resource apply. Its success and email
+  send evidence do not authorize application deployment.
+- `build-backend-release`: verifies both GHCR staging packages are private
+  and linked to this repository **before** any application-image upload. Existing
+  public/unlinked packages, API permission errors, or metadata timeouts block
+  publication. A 404 is missing **or inaccessible**, never automatic bootstrap
+  authorization. Privacy is rechecked after the application builds. Do not bypass
+  either gate or restore the retired public package names.
 - `backend-tests`: Ruff, pytest, coverage threshold, OpenAPI export, committed OpenAPI contract snapshot check, backend SBOM, Grype.
 - `alembic-migration-smoke`: PostgreSQL plus pgvector structural migration checks covering heads, offline upgrade SQL generation, and an **empty-schema-only** `014 -> 013 -> 014` compatibility cycle. This is not evidence that production data can be downgraded; populated revision `014` is protected by refusal tests and uses fix-forward/bridge recovery.
 - `frontend-build`: ESLint, Vitest, Vite build, frontend SBOM, Grype.
 - `upload-sarif`: SARIF upload attempted for available scans.
 - `deploy-backend`: Terraform validation/policy dependencies; renewable private Azure Blob rollout ownership; rollback-priority checks at schema-safe boundaries; exact traffic capture; GitHub build attestation plus OCI-label/embedded-contract verification; schema `013`/`014` bridge and signed immutable manifest; authorization-mode-aware Key Vault grant; same-identity secret/`SELECT 1`/schema preflight; exact-head migration; zero-traffic final smoke; exact restoration trap; production health verify.
+  Before mutation, the configured migration environment must match the live app's
+  full environment identity and private-network subnet. Any existing dedicated
+  migration identity retains its region; a stale environment setting must not
+  trigger identity replacement or public Key Vault access.
 - `deploy-frontend`: runs only after backend success, deploys the tested artifact, verifies routed pages, and restores the prior successful artifact on failure.
 	On the first bridge rollout only, no previous complete artifact contract may
 	exist; failure remains release-blocking and the bridge keeps the API compatible
 	with the prior frontend instead of attempting an unverified rollback.
 - `post-deploy-smoke`: deployed frontend, routed frontend URLs, API health, and OpenAPI schema checks.
+
+Staging uses `archmorph-api-release-staging-v2` and
+`archmorph-api-bridge-release-staging-v2`. Production ACR repository names,
+immutable digest verification, scan/attestation gates, and rollback contracts are
+unchanged. One-time setup uses the owner-only `Bootstrap private release staging`
+workflow. Before dispatch, the owner must verify absence of both exact names using
+authenticated owner-scoped package inventory with `read:packages` access. Only
+then confirm `owner_verified_absence=true` on protected `main`. The bootstrap
+publishes only empty scratch images from isolated contexts and verifies privacy.
+Normal releases cannot invoke bootstrap from an ambiguous metadata response.
+A failed empty bootstrap must be investigated before retrying; it does
+not authorize uploading application code to a public package. The manually
+dispatched emergency cleanup workflow checks visibility and repository ownership
+before deleting these staging packages; deletion still requires operator approval.
 
 The supporting workflows should also be green or explicitly reviewed:
 

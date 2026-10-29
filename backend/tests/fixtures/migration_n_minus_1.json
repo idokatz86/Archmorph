@@ -1,0 +1,164 @@
+{
+  "revision": "013",
+  "expected_sha256": "d0e21a5fef1de83cbc122b46b756a035fb2c518cf923bb60dfbae5d273f60663",
+  "expected_row_counts": {
+    "agents": 2,
+    "deployment_state": 2,
+    "executions": 2,
+    "organizations": 2,
+    "team_members": 3,
+    "workspaces": 2
+  },
+  "rows": {
+    "organizations": [
+      {
+        "org_id": "fixture-org-01-northwind",
+        "name": "Sanitized Northwind",
+        "slug": "sanitized-northwind",
+        "plan": "team",
+        "is_active": true
+      },
+      {
+        "org_id": "fixture-org-02-contoso",
+        "name": "Sanitized Contoso",
+        "slug": "sanitized-contoso",
+        "plan": "enterprise",
+        "is_active": true
+      }
+    ],
+    "team_members": [
+      {
+        "org_id": "fixture-org-01-northwind",
+        "user_id": "fixture-user-northwind-owner",
+        "email": "owner@northwind.invalid",
+        "display_name": "Northwind Owner",
+        "role": "owner",
+        "is_active": true
+      },
+      {
+        "org_id": "fixture-org-01-northwind",
+        "user_id": "fixture-user-northwind-reader",
+        "email": "reader@northwind.invalid",
+        "display_name": "Northwind Reader",
+        "role": "viewer",
+        "is_active": true
+      },
+      {
+        "org_id": "fixture-org-02-contoso",
+        "user_id": "fixture-user-contoso-owner",
+        "email": "owner@contoso.invalid",
+        "display_name": "Contoso Owner",
+        "role": "owner",
+        "is_active": true
+      }
+    ],
+    "agents": [
+      {
+        "id": "fixture-agent-01-northwind",
+        "organization_id": "fixture-org-01-northwind",
+        "name": "Northwind Migration Analyst",
+        "status": "active",
+        "model_config_data": {
+          "deployment": "fixture-small",
+          "temperature": 0
+        }
+      },
+      {
+        "id": "fixture-agent-02-contoso",
+        "organization_id": "fixture-org-02-contoso",
+        "name": "Contoso Migration Analyst",
+        "status": "draft",
+        "model_config_data": {
+          "deployment": "fixture-medium",
+          "temperature": 0
+        }
+      }
+    ],
+    "executions": [
+      {
+        "id": "fixture-execution-01-northwind",
+        "agent_id": "fixture-agent-01-northwind",
+        "organization_id": "fixture-org-01-northwind",
+        "thread_id": "fixture-thread-northwind",
+        "status": "completed",
+        "input_data": {
+          "diagram": "sanitized-northwind.drawio"
+        },
+        "output_data": {
+          "services_detected": 3
+        }
+      },
+      {
+        "id": "fixture-execution-02-contoso",
+        "agent_id": "fixture-agent-02-contoso",
+        "organization_id": "fixture-org-02-contoso",
+        "thread_id": "fixture-thread-contoso",
+        "status": "queued",
+        "input_data": {
+          "diagram": "sanitized-contoso.drawio"
+        },
+        "output_data": null
+      }
+    ],
+    "workspaces": [
+      {
+        "id": "fixture-project-northwind",
+        "owner_user_id": "fixture-user-northwind-owner",
+        "tenant_id": "fixture-org-01-northwind",
+        "name": "Northwind migration project",
+        "description": "Sanitized N-1 workspace fixture",
+        "source_cloud": "aws",
+        "target_cloud": "azure",
+        "status": "active",
+        "is_public": false
+      },
+      {
+        "id": "fixture-project-contoso",
+        "owner_user_id": "fixture-user-contoso-owner",
+        "tenant_id": "fixture-org-02-contoso",
+        "name": "Contoso migration project",
+        "description": "Sanitized N-1 workspace fixture",
+        "source_cloud": "aws",
+        "target_cloud": "azure",
+        "status": "active",
+        "is_public": false
+      }
+    ],
+    "deployment_state": [
+      {
+        "project_id": "fixture-project-northwind",
+        "environment": "dev",
+        "owner_user_id": "fixture-user-northwind-owner",
+        "tenant_id": "fixture-org-01-northwind",
+        "state_json": {
+          "serial": 7,
+          "resources": [
+            "sanitized-resource-a"
+          ]
+        },
+        "previous_state_json": {
+          "serial": 6,
+          "resources": []
+        }
+      },
+      {
+        "project_id": "fixture-project-contoso",
+        "environment": "staging",
+        "owner_user_id": "fixture-user-contoso-owner",
+        "tenant_id": "fixture-org-02-contoso",
+        "state_json": {
+          "serial": 12,
+          "resources": [
+            "sanitized-resource-b"
+          ]
+        },
+        "previous_state_json": {
+          "serial": 11,
+          "resources": [
+            "sanitized-resource-b"
+          ]
+        }
+      }
+    ]
+  }
+}

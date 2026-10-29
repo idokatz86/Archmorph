@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import {
-  Upload, Code, FileText, DollarSign,
   Download, Image, FileDown, MessageSquare, Moon, Sun,
   Copy, ExternalLink, Trash2, Search, Command,
 } from 'lucide-react';
 import useAppStore from '../stores/useAppStore';
+import { getRouteCommands } from '../routes';
 
 /* ── Fuzzy match: simple substring match on lowercased strings ── */
 function fuzzyMatch(query, text) {
@@ -24,10 +24,7 @@ function fuzzyMatch(query, text) {
 function buildCommands(setActiveTab, toggleTheme, theme) {
   return [
     // Navigation
-    { id: 'nav-workbench', label: 'Go to Workbench', section: 'Navigation', shortcut: '1', icon: Upload, action: () => setActiveTab('translator') },
-    { id: 'nav-iac', label: 'Go to IaC', section: 'Navigation', shortcut: '3', icon: Code, action: () => setActiveTab('translator') },
-    { id: 'nav-hld', label: 'Go to HLD', section: 'Navigation', shortcut: '4', icon: FileText, action: () => setActiveTab('translator') },
-    { id: 'nav-cost', label: 'Go to Cost', section: 'Navigation', shortcut: '5', icon: DollarSign, action: () => setActiveTab('translator') },
+    ...getRouteCommands(setActiveTab),
     // Actions
     { id: 'act-export-tf', label: 'Export Terraform', section: 'Actions', shortcut: '⇧⌘T', icon: Download, action: () => { /* dispatched via custom event */ document.dispatchEvent(new CustomEvent('archmorph:command', { detail: 'export-terraform' })); } },
     { id: 'act-export-diag', label: 'Export Diagram', section: 'Actions', shortcut: '⇧⌘D', icon: Image, action: () => { document.dispatchEvent(new CustomEvent('archmorph:command', { detail: 'export-diagram' })); } },

@@ -1,5 +1,9 @@
 import React, { forwardRef } from 'react';
-import { Loader2, AlertCircle, FileQuestion } from 'lucide-react';
+import { AlertCircle, FileQuestion } from 'lucide-react';
+import { Button } from '../shared/ui/Button';
+import { ErrorMessage } from '../shared/ui';
+
+export { Button };
 
 export function Badge({ children, variant = 'default' }) {
   const styles = {
@@ -15,23 +19,6 @@ export function Badge({ children, variant = 'default' }) {
     <span className={`inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium rounded-md border ${styles[variant] || styles.default}`}>
       {children}
     </span>
-  );
-}
-
-export function Button({ children, onClick, variant = 'primary', size = 'md', disabled, loading, icon: Icon, className = '', ...rest }) {
-  const base = 'inline-flex items-center justify-center gap-2 font-semibold rounded-lg transition-all duration-200 cursor-pointer select-none disabled:opacity-40 disabled:cursor-not-allowed active:scale-[0.97] focus:outline-none focus:ring-2 focus:ring-cta/50';
-  const variants = {
-    primary: 'bg-cta hover:bg-cta-hover text-surface shadow-lg shadow-cta/20',
-    secondary: 'bg-secondary hover:bg-border-light text-text-primary border border-border',
-    ghost: 'hover:bg-secondary text-text-secondary hover:text-text-primary',
-    danger: 'bg-danger/15 hover:bg-danger/25 text-danger border border-danger/30',
-  };
-  const sizes = { sm: 'px-3 py-1.5 text-xs', md: 'px-4 py-2 text-sm', lg: 'px-6 py-3 text-base' };
-  return (
-    <button onClick={onClick} disabled={disabled || loading} className={`${base} ${variants[variant]} ${sizes[size]} ${className}`} {...rest}>
-      {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : Icon && <Icon className="w-4 h-4" />}
-      {children}
-    </button>
   );
 }
 
@@ -123,18 +110,12 @@ export function EmptyState({ icon: Icon = FileQuestion, title, description, acti
 
 export function ErrorCard({ title = 'Something went wrong', message, onRetry, retryLabel = 'Try Again' }) {
   return (
-    <Card className="p-6 border-danger/30 animate-fade-in">
-      <div className="flex flex-col items-center text-center gap-3">
-        <div className="w-10 h-10 rounded-full bg-danger/15 flex items-center justify-center">
-          <AlertCircle className="w-5 h-5 text-danger" />
-        </div>
-        <div>
-          <h3 className="text-sm font-semibold text-text-primary">{title}</h3>
-          {message && <p className="text-xs text-text-muted mt-1">{message}</p>}
-        </div>
-        {onRetry && <Button variant="secondary" size="sm" onClick={onRetry}>{retryLabel}</Button>}
-      </div>
-    </Card>
+    <ErrorMessage
+      title={title}
+      message={message}
+      onAction={onRetry}
+      actionLabel={retryLabel}
+    />
   );
 }
 

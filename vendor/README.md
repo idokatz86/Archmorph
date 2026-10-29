@@ -1,6 +1,6 @@
 # Vendored security packages
 
-The remaining brace-expansion archives preserve the patched expansion bounds and the callable CommonJS API required by legacy Minimatch consumers. Each archive comes from an immutable upstream release tag and is pinned as a direct dependency so npm overrides can safely reference it with `$dependency`.
+The brace-expansion archives preserve patched expansion bounds and the callable CommonJS API required by legacy Minimatch consumers. The source-map-js archive supplies an upstream security patch not yet available in the configured registries. Each archive comes from an immutable upstream release tag and is pinned as a direct dependency so npm overrides can safely reference it with `$dependency`.
 
 ## `brace-expansion-5.0.12.tgz`
 
@@ -34,6 +34,26 @@ Dependency overrides still apply these fixes to transitive consumers.
 The package behavior checks remain mandatory, including the merge-key limit,
 non-positive ID sizes, and source-map path isolation. Do not restore the obsolete
 archives to work around installation or audit failures.
+
+## `source-map-js-1.2.2.tgz`
+
+Packed without lifecycle scripts from upstream release `v1.2.2`, exact commit
+`0a1d334fd1e55a47df97fcd60a7915d46df3b08a`. The release commit is unsigned; the
+referenced security-fix commit `cf7658058ceeaa8619d5ae0ec90be6905209d016`
+has a verified GitHub signature. The archive preserves the BSD-3-Clause license
+and upstream runtime files without source modifications.
+
+- Upstream: `https://github.com/7rulnik/source-map-js/releases/tag/v1.2.2`
+- Fix: CVE-2026-93749 / GHSA-68fv-2mgg-jv7q.
+- SHA-256: `142746d239d522e0b907de3b029520ae8995b76fc6546fbe8847786963062b9f`
+- Packaging: check out the exact commit, then run `npm pack --ignore-scripts`.
+- Registry availability: both npmjs.org and the approved public feed returned
+  404 for 1.2.2 during verification. This temporary vendoring was owner-approved.
+- Regression checks reject invalid/excessive indexed section offsets and bound
+  large-offset/deeply nested conversion in a subprocess with a five-second limit.
+
+Replace this archive with a verified registry release when available, retaining
+the behavioral checks and clean-install security audits.
 
 ## Public registry selection
 

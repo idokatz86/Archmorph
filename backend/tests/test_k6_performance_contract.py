@@ -105,6 +105,7 @@ def test_ci_workflow_enforces_frontend_perf_budgets():
     assert "python3 ../scripts/perf_budget.py bundle --dist dist --budget perf/bundle-budget.json" in workflow
     assert "Run frontend tests with Live coverage gate" in workflow
     assert "npx vitest run --coverage" in workflow
+    assert "--registry=https://registry.npmjs.org/ @lhci/cli@0.15.1" in workflow
     assert '@lhci/cli@0.15.1 autorun --config=./lighthouserc.json' in workflow
     assert 'python3 -m http.server "$LHCI_PORT" -d dist' in workflow
     assert 'kill "$SERVER_PID" 2>/dev/null || true' in workflow

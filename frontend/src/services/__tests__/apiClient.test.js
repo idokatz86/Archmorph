@@ -76,6 +76,33 @@ describe('apiClient', () => {
     expect(fetch).toHaveBeenCalledTimes(2)
   })
 
+  it('aborts immediately and cleans up during Retry-After backoff', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const addEventListener = vi.spyOn(controller.signal, 'addEventListener')
+    const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener')
+    fetch.mockResolvedValueOnce({
+      ok: false,
+      status: 429,
+      headers: new Headers({ 'content-type': 'application/json', 'retry-after': '30' }),
+      json: () => Promise.resolve({ detail: 'rate limited' }),
+    })
+
+    const request = api.get('/retry-after', { signal: controller.signal })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    controller.abort()
+    const error = await request.catch(err => err)
+
+    expect(error).toBeInstanceOf(DOMException)
+    expect(error.name).toBe('AbortError')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(addEventListener).toHaveBeenCalledTimes(2)
+    expect(removeEventListener).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
   it('GET handles 404 status correctly', async () => {
     fetch.mockResolvedValueOnce({
       ok: false,
@@ -150,6 +177,21 @@ describe('apiClient', () => {
     expect(callArgs[1].body).toBeInstanceOf(FormData)
   })
 
+  it('keeps legacy POST timeout and header arguments compatible', async () => {
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ ok: true }),
+    })
+
+    await api.post('/legacy', { value: 1 }, undefined, 0, { 'X-Test': 'legacy' })
+
+    const [, options] = fetch.mock.calls[0]
+    expect(options.headers['X-Test']).toBe('legacy')
+    expect(options).not.toHaveProperty('timeout')
+  })
+
   // ── 204 No Content ──
 
   it('handles 204 No Content response', async () => {
@@ -204,6 +246,24 @@ describe('apiClient', () => {
       }),
     )
     expect(fetch.mock.calls[0][1]).not.toHaveProperty('rawResponse')
+    expect(fetch.mock.calls[0][1]).not.toHaveProperty('responseType')
+  })
+
+  it('returns a Blob for the normalized binary response option', async () => {
+    const blob = new Blob(['file-content'], { type: 'text/csv' })
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'text/csv' }),
+      blob: () => Promise.resolve(blob),
+    })
+
+    const result = await api.get('/diagrams/d1/export', { responseType: 'blob' })
+
+    expect(result).toBe(blob)
+    const [, options] = fetch.mock.calls[0]
+    expect(options).not.toHaveProperty('responseType')
+    expect(options).not.toHaveProperty('timeout')
   })
 
   it('throws ApiError for non-JSON error responses', async () => {
@@ -310,7 +370,7 @@ describe('apiClient', () => {
 
   // ── AbortSignal support ──
 
-  it('passes abort signal to fetch via timeout controller', async () => {
+  it('accepts AbortSignal through the normalized options contract', async () => {
     const controller = new AbortController()
     fetch.mockResolvedValueOnce({
       ok: true,
@@ -319,7 +379,7 @@ describe('apiClient', () => {
       json: () => Promise.resolve({ ok: true }),
     })
 
-    await api.get('/health', controller.signal)
+    await api.get('/health', { signal: controller.signal })
     // apiClient wraps caller signals in a timeout controller — verify an AbortSignal is used
     expect(fetch).toHaveBeenCalledWith(
       expect.any(String),
@@ -332,8 +392,148 @@ describe('apiClient', () => {
     controller.abort()
 
     // apiClient detects pre-aborted signal and throws before calling fetch
-    await expect(api.get('/health', controller.signal)).rejects.toThrow('The operation was aborted.')
+    const error = await api.get('/health', { signal: controller.signal }).catch(err => err)
+    expect(error).toBeInstanceOf(DOMException)
+    expect(error.name).toBe('AbortError')
     expect(fetch).not.toHaveBeenCalled()
+  })
+
+  it('cancels an in-flight request without retrying or wrapping the AbortError', async () => {
+    const controller = new AbortController()
+    fetch.mockImplementationOnce((_, { signal }) => new Promise((_, reject) => {
+      signal.addEventListener(
+        'abort',
+        () => reject(new DOMException('The operation was aborted.', 'AbortError')),
+        { once: true },
+      )
+    }))
+
+    const request = api.get('/slow', { signal: controller.signal })
+    controller.abort()
+
+    const error = await request.catch(err => err)
+    expect(error).toBeInstanceOf(DOMException)
+    expect(error.name).toBe('AbortError')
+    expect(fetch).toHaveBeenCalledTimes(1)
+  })
+
+  it('keeps caller cancellation active while consuming a JSON body', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const addEventListener = vi.spyOn(controller.signal, 'addEventListener')
+    const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener')
+    const json = vi.fn()
+    fetch.mockImplementationOnce((_, { signal }) => Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => {
+        json()
+        return new Promise((_, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => reject(new DOMException('The operation was aborted.', 'AbortError')),
+            { once: true },
+          )
+        })
+      },
+    }))
+
+    const request = api.get('/slow-json', { signal: controller.signal })
+    await vi.advanceTimersByTimeAsync(0)
+    expect(json).toHaveBeenCalledTimes(1)
+
+    controller.abort()
+    const error = await request.catch(err => err)
+
+    expect(error).toBeInstanceOf(DOMException)
+    expect(error.name).toBe('AbortError')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(addEventListener).toHaveBeenCalledTimes(1)
+    expect(removeEventListener).toHaveBeenCalledTimes(1)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps timeout active while consuming a Blob body and preserves timeout retries', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const addEventListener = vi.spyOn(controller.signal, 'addEventListener')
+    const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener')
+    const blob = vi.fn()
+    fetch.mockImplementation((_, { signal }) => Promise.resolve({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/octet-stream' }),
+      blob: () => {
+        blob()
+        return new Promise((_, reject) => {
+          signal.addEventListener(
+            'abort',
+            () => reject(new DOMException('The operation was aborted.', 'AbortError')),
+            { once: true },
+          )
+        })
+      },
+    }))
+
+    const request = api.get('/slow-blob', {
+      signal: controller.signal,
+      timeout: 50,
+      responseType: 'blob',
+    }).then(
+      () => null,
+      error => error,
+    )
+    await vi.runAllTimersAsync()
+    const error = await request
+
+    expect(error).toBeInstanceOf(ApiError)
+    expect(error.status).toBe(408)
+    expect(fetch).toHaveBeenCalledTimes(4)
+    expect(blob).toHaveBeenCalledTimes(4)
+    expect(addEventListener).toHaveBeenCalledTimes(7)
+    expect(removeEventListener).toHaveBeenCalledTimes(7)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('aborts immediately and cleans up during timeout retry backoff', async () => {
+    vi.useFakeTimers()
+    const controller = new AbortController()
+    const addEventListener = vi.spyOn(controller.signal, 'addEventListener')
+    const removeEventListener = vi.spyOn(controller.signal, 'removeEventListener')
+    fetch.mockImplementationOnce((_, { signal }) => new Promise((_, reject) => {
+      signal.addEventListener(
+        'abort',
+        () => reject(new DOMException('The operation was aborted.', 'AbortError')),
+        { once: true },
+      )
+    }))
+
+    const request = api.get('/slow', { signal: controller.signal, timeout: 50 })
+    await vi.advanceTimersByTimeAsync(50)
+    expect(fetch).toHaveBeenCalledTimes(1)
+
+    controller.abort()
+    const error = await request.catch(err => err)
+
+    expect(error).toBeInstanceOf(DOMException)
+    expect(error.name).toBe('AbortError')
+    expect(fetch).toHaveBeenCalledTimes(1)
+    expect(addEventListener).toHaveBeenCalledTimes(2)
+    expect(removeEventListener).toHaveBeenCalledTimes(2)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('keeps legacy positional AbortSignal callers compatible', async () => {
+    const controller = new AbortController()
+    fetch.mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      headers: new Headers({ 'content-type': 'application/json' }),
+      json: () => Promise.resolve({ ok: true }),
+    })
+
+    await expect(api.get('/health', controller.signal)).resolves.toEqual({ ok: true })
   })
 
   // ── Network errors ──
