@@ -251,6 +251,7 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert "terraform -chdir=infra/migration-bootstrap import" not in plan
     assert plan_job["outputs"]["plan_sha256"] == "${{ steps.plan_summary.outputs.plan_sha256 }}"
     assert plan_job["outputs"]["encrypted_plan_sha256"] == "${{ steps.encrypt_plan.outputs.sha256 }}"
+    assert plan_job["outputs"]["run_attempt"] == "${{ steps.plan_summary.outputs.run_attempt }}"
     assert plan_job["outputs"]["terraform_version"] == "${{ steps.terraform_version.outputs.version }}"
     deploy_terraform = _step_by_name(deploy["steps"], "Set up Terraform")["with"]
     assert deploy_terraform["terraform_version"] == (
@@ -259,18 +260,29 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert "review required" in _step_by_name(
         plan_job["steps"], "Publish exact migration plan review summary",
     )["run"]
+    assert 'echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"' in _step_by_name(
+        plan_job["steps"], "Publish exact migration plan review summary",
+    )["run"]
     assert "migration-bootstrap-plan-${{ github.run_id }}-${{ github.run_attempt }}" == _step_by_name(
         plan_job["steps"], "Upload encrypted migration plan for approval",
     )["with"]["name"]
     assert _step_by_name(
         deploy["steps"], "Download reviewed migration bootstrap plan (Phase A)",
-    )["with"]["name"] == "migration-bootstrap-plan-${{ github.run_id }}-${{ github.run_attempt }}"
+    )["with"]["name"] == (
+        "migration-bootstrap-plan-${{ github.run_id }}-"
+        "${{ needs.migration-bootstrap-plan.outputs.run_attempt }}"
+    )
     assert "EXPECTED_PLAN_ARTIFACT_SHA256" in _step_by_name(
         deploy["steps"], "Prepare reviewed migration bootstrap plan (Phase A)",
     )["env"]
     assert "EXPECTED_PLAN_SHA256" in _step_by_name(
         deploy["steps"], "Prepare reviewed migration bootstrap plan (Phase A)",
     )["env"]
+    assert _step_by_name(
+        deploy["steps"], "Prepare reviewed migration bootstrap plan (Phase A)",
+    )["env"]["EXPECTED_PLAN_RUN_ATTEMPT"] == (
+        "${{ needs.migration-bootstrap-plan.outputs.run_attempt }}"
+    )
     assert "EXPECTED_TERRAFORM_VERSION" in _step_by_name(
         deploy["steps"], "Prepare reviewed migration bootstrap plan (Phase A)",
     )["env"]
@@ -551,6 +563,9 @@ def test_phase_a_enforces_backend_tuple_plan_allowlist_and_integrity_before_appl
     assert "--source-sha \"$GITHUB_SHA\"" in plan
     assert "--run-id \"$GITHUB_RUN_ID\"" in plan
     assert "--run-attempt \"$GITHUB_RUN_ATTEMPT\"" in plan
+    assert 'resource_provider_registrations = "none"' in (
+        (REPO_ROOT / "infra/migration-bootstrap/main.tf").read_text()
+    )
     assert "terraform import" not in plan
     assert "Encrypt exact migration plan and state binding" in [
         step.get("name") for step in plan_job["steps"]
@@ -558,6 +573,8 @@ def test_phase_a_enforces_backend_tuple_plan_allowlist_and_integrity_before_appl
     assert "production" == workflow["jobs"]["deploy-backend"]["environment"]
     assert "verify-metadata" in apply
     assert "--imports infra/migration-bootstrap/reviewed-imports.auto.tf" in apply
+    assert '--run-attempt "$EXPECTED_PLAN_RUN_ATTEMPT"' in apply
+    assert '--run-attempt "$GITHUB_RUN_ATTEMPT"' not in apply
     assert apply.index("verify-metadata") < apply.index("terraform -chdir=infra/migration-bootstrap apply")
 
 

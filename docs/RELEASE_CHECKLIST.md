@@ -85,9 +85,10 @@ The `CI/CD` workflow must pass before release:
   deployment job. It validates the isolated backend tuple, uses Terraform import
   blocks (never `terraform import`) for adoption, validates the non-destructive
   allowlisted plan, binds it to both state identities, the provider lockfile,
-  exact Terraform version, source SHA, and workflow run attempt, and uploads
-  only the encrypted saved plan. Review the complete plan summary and exact
-  source SHA before approval.
+  exact Terraform version, source SHA, and producing workflow run attempt, and
+  uploads only the encrypted saved plan. Provider auto-registration is disabled
+  in this Terraform root so planning cannot silently register Azure namespaces.
+  Review the complete plan summary and exact source SHA before approval.
   Its `production` environment approval authorizes read-only planning only.
   `deploy-backend` depends on that job and requires a separate approval after
   the plan is visible before applying the exact saved plan. Configure the
@@ -96,6 +97,9 @@ The `CI/CD` workflow must pass before release:
   gate. Both workflow jobs verify that a required-reviewer rule exists and
   administrator bypass is disabled before Azure OIDC login. If those
   protection rules are absent, do not dispatch a production release.
+  A retry of only failed jobs reuses the successful plan job's recorded attempt
+  for artifact lookup and metadata verification; if that artifact has expired,
+  generate and review a new plan rather than substituting the retry's attempt.
 - Release-monitoring resources must already be provisioned by an explicitly
   approved [isolated monitoring plan](../infra/release-monitoring/README.md).
   The six output IDs come from that root, not the primary state; absence or drift

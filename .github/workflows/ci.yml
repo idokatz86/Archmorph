@@ -1227,6 +1227,7 @@ jobs:
     outputs:
       encrypted_plan_sha256: ${{ steps.encrypt_plan.outputs.sha256 }}
       plan_sha256: ${{ steps.plan_summary.outputs.plan_sha256 }}
+      run_attempt: ${{ steps.plan_summary.outputs.run_attempt }}
       terraform_version: ${{ steps.terraform_version.outputs.version }}
     env:
       AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
@@ -1526,6 +1527,7 @@ jobs:
           PLAN_SHA256=$(jq -er '.plan_sha256' infra/migration-bootstrap/plan-metadata.json)
           {
             echo "plan_sha256=$PLAN_SHA256" >> "$GITHUB_OUTPUT"
+            echo "run_attempt=$GITHUB_RUN_ATTEMPT" >> "$GITHUB_OUTPUT"
             echo "## Migration bootstrap plan (review required)"
             echo
             echo "Source: \`$GITHUB_SHA\`"
@@ -2369,7 +2371,7 @@ jobs:
       - name: Download reviewed migration bootstrap plan (Phase A)
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: migration-bootstrap-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          name: migration-bootstrap-plan-${{ github.run_id }}-${{ needs.migration-bootstrap-plan.outputs.run_attempt }}
           path: ${{ runner.temp }}/migration-bootstrap-plan-artifact
 
       - name: Prepare reviewed migration bootstrap plan (Phase A)
@@ -2377,10 +2379,16 @@ jobs:
           TFPLAN_ARTIFACT_PASSPHRASE: ${{ secrets.TFPLAN_ARTIFACT_PASSPHRASE }}
           EXPECTED_PLAN_ARTIFACT_SHA256: ${{ needs.migration-bootstrap-plan.outputs.encrypted_plan_sha256 }}
           EXPECTED_PLAN_SHA256: ${{ needs.migration-bootstrap-plan.outputs.plan_sha256 }}
+          EXPECTED_PLAN_RUN_ATTEMPT: ${{ needs.migration-bootstrap-plan.outputs.run_attempt }}
           EXPECTED_TERRAFORM_VERSION: ${{ needs.migration-bootstrap-plan.outputs.terraform_version }}
         run: |
           set -euo pipefail
           umask 077
+          : "${EXPECTED_PLAN_RUN_ATTEMPT:?Reviewed plan run attempt is required}"
+          if ! [[ "$EXPECTED_PLAN_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Reviewed plan run attempt is invalid"
+            exit 1
+          fi
           ACTUAL_TERRAFORM_VERSION=$(terraform version -json | jq -er '.terraform_version')
           if [ "$ACTUAL_TERRAFORM_VERSION" != "$EXPECTED_TERRAFORM_VERSION" ]; then
             echo "::error::Apply Terraform version differs from the reviewed plan version"
@@ -2439,8 +2447,14 @@ jobs:
             --rollout-lease-id-file "$RUNNER_TEMP/rollout-lease-id"
 
       - name: Apply migration bootstrap (Phase A)
+        env:
+          EXPECTED_PLAN_RUN_ATTEMPT: ${{ needs.migration-bootstrap-plan.outputs.run_attempt }}
         run: |
           set -euo pipefail
+          if ! [[ "${EXPECTED_PLAN_RUN_ATTEMPT:-}" =~ ^[1-9][0-9]*$ ]]; then
+            echo "::error::Reviewed plan run attempt is invalid"
+            exit 1
+          fi
           python scripts/azure_rollout_lease.py \
             --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
             --container "$ROLLOUT_COORDINATION_CONTAINER" \
@@ -2462,7 +2476,7 @@ jobs:
             --bootstrap-state infra/migration-bootstrap/state-before-apply-current.json \
             --source-sha "$GITHUB_SHA" \
             --run-id "$GITHUB_RUN_ID" \
-            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --run-attempt "$EXPECTED_PLAN_RUN_ATTEMPT" \
             --metadata infra/migration-bootstrap/plan-metadata.json
           python scripts/azure_rollout_lease.py \
             --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
