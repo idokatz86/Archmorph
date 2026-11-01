@@ -128,7 +128,7 @@ def test_backend_requires_separate_account_or_container_not_only_key():
 
 
 def test_write_imports_renders_only_the_reviewed_resource_addresses(tmp_path):
-    subscription = "00000000-0000-0000-0000-000000000001"
+    subscription = "00000000-0000-0000-0000-000000000000"
     resource_group = "migration"
     identity_id = (
         f"/subscriptions/{subscription}/resourceGroups/{resource_group}/providers/"
@@ -136,11 +136,11 @@ def test_write_imports_renders_only_the_reviewed_resource_addresses(tmp_path):
     )
     acr_role_id = (
         f"/subscriptions/{subscription}/resourceGroups/registry/providers/"
-        "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000002"
+        "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000000"
     )
     secret_role_id = (
         f"/subscriptions/{subscription}/resourceGroups/vault/providers/"
-        "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000003"
+        "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000000"
     )
     job_id = (
         f"/subscriptions/{subscription}/resourceGroups/{resource_group}/providers/"
@@ -168,7 +168,7 @@ def test_write_imports_renders_only_the_reviewed_resource_addresses(tmp_path):
 
 
 def test_write_imports_supports_only_the_access_policy_alternative(tmp_path):
-    subscription = "00000000-0000-0000-0000-000000000001"
+    subscription = "00000000-0000-0000-0000-000000000000"
     output = tmp_path / "reviewed-imports.auto.tf"
     count = verifier.write_imports(
         identity_id=(
@@ -177,13 +177,13 @@ def test_write_imports_supports_only_the_access_policy_alternative(tmp_path):
         ),
         acr_role_id=(
             f"/subscriptions/{subscription}/resourceGroups/registry/providers/"
-            "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000002"
+            "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000000"
         ),
         secret_role_id="",
         policy_id=(
             f"/subscriptions/{subscription}/resourceGroups/vault/providers/"
             "Microsoft.KeyVault/vaults/migration-vault/objectId/"
-            "00000000-0000-0000-0000-000000000003"
+            "00000000-0000-0000-0000-000000000000"
         ),
         job_id=(
             f"/subscriptions/{subscription}/resourceGroups/migration/providers/"
@@ -200,16 +200,16 @@ def test_write_imports_supports_only_the_access_policy_alternative(tmp_path):
 @pytest.mark.parametrize(
     ("secret_role_id", "policy_id", "identity_id"),
     [
-        ("", "", "/subscriptions/s/resourceGroups/r/providers/Microsoft.ManagedIdentity/userAssignedIdentities/i"),
+        ("", "", "/subscriptions/<subscription-id>/resourceGroups/r/providers/Microsoft.ManagedIdentity/userAssignedIdentities/i"),
         (
-            "/subscriptions/s/resourceGroups/r/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000003",
-            "/subscriptions/s/resourceGroups/r/providers/Microsoft.KeyVault/vaults/v/objectId/00000000-0000-0000-0000-000000000004",
-            "/subscriptions/s/resourceGroups/r/providers/Microsoft.ManagedIdentity/userAssignedIdentities/i",
+            "/subscriptions/<subscription-id>/resourceGroups/r/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000000",
+            "/subscriptions/<subscription-id>/resourceGroups/r/providers/Microsoft.KeyVault/vaults/v/objectId/00000000-0000-0000-0000-000000000000",
+            "/subscriptions/<subscription-id>/resourceGroups/r/providers/Microsoft.ManagedIdentity/userAssignedIdentities/i",
         ),
         (
             "",
-            "/subscriptions/s/resourceGroups/r/providers/Microsoft.KeyVault/vaults/v/objectId/00000000-0000-0000-0000-000000000004",
-            "/subscriptions/other/resourceGroups/r/providers/Microsoft.ManagedIdentity/userAssignedIdentities/i",
+            "/subscriptions/<subscription-id>/resourceGroups/r/providers/Microsoft.KeyVault/vaults/v/objectId/00000000-0000-0000-0000-000000000000",
+            "/subscriptions/<other-subscription-id>/resourceGroups/r/providers/Microsoft.ManagedIdentity/userAssignedIdentities/i",
         ),
     ],
 )
@@ -220,13 +220,13 @@ def test_write_imports_rejects_ambiguous_or_cross_subscription_ids(
         verifier.write_imports(
             identity_id=identity_id,
             acr_role_id=(
-                "/subscriptions/s/resourceGroups/r/providers/"
-                "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000002"
+                "/subscriptions/<subscription-id>/resourceGroups/r/providers/"
+                "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000000"
             ),
             secret_role_id=secret_role_id,
             policy_id=policy_id,
             job_id=(
-                "/subscriptions/s/resourceGroups/r/providers/"
+                "/subscriptions/<subscription-id>/resourceGroups/r/providers/"
                 "Microsoft.App/jobs/migration-job"
             ),
             output=tmp_path / "imports.tf",
