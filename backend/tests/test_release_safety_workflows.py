@@ -67,6 +67,7 @@ def test_ci_production_deploy_requires_explicit_manual_confirmation():
         "build-backend-release",
         "scan-backend-release",
         "attest-backend-release",
+        "migration-bootstrap-plan",
         "deploy-backend",
         "deploy-frontend",
         "post-deploy-smoke",
@@ -148,15 +149,40 @@ def test_release_docs_call_downgrade_cycle_structural_and_require_fix_forward():
         assert "fix-forward" in document
     assert "not production\nrollback" in runbook
     assert "nonempty-data regression" in runbook
+    assert "migration-bootstrap-plan" in checklist
+    assert "independent named reviewer" in checklist
+    assert "disable" in checklist and "administrator bypass" in checklist
+    assert "never `terraform import`" in checklist
+    assert "exact Terraform version" in checklist
+    assert "Both workflow jobs verify" in checklist
 
 
 def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_green():
     workflow = _load(CI_WORKFLOW)
     deploy = workflow["jobs"]["deploy-backend"]
+    plan_job = workflow["jobs"]["migration-bootstrap-plan"]
 
     assert "alembic-migration-smoke" in deploy["needs"]
     assert "terraform-config-validate" in deploy["needs"]
     assert "terraform-policy-as-code" in deploy["needs"]
+    assert "migration-bootstrap-plan" in deploy["needs"]
+    assert plan_job["if"] == deploy["if"]
+    assert plan_job["runs-on"] == deploy["runs-on"]
+    assert plan_job["environment"] == "production"
+    assert deploy["environment"] == "production"
+    for job in (plan_job, deploy):
+        steps = job["steps"]
+        protection = _step_by_name(
+            steps, "Verify required production review protection",
+        )["run"]
+        assert "gh api" in protection
+        assert ".can_admins_bypass == false" in protection
+        assert 'select(.type == "required_reviewers")' in protection
+        assert ".prevent_self_review == true" in protection
+        assert ".reviewers | length > 0" in protection
+        assert steps.index(_step_by_name(
+            steps, "Verify required production review protection",
+        )) < steps.index(_step_by_name(steps, "Azure Login (OIDC)"))
     assert deploy["concurrency"] == {
         "group": "production-backend-rollout",
         "cancel-in-progress": False,
@@ -175,7 +201,9 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert "verify_migration_bootstrap.py identity-location" in environment_preflight
     assert 'az identity list' in environment_preflight
 
-    plan = _step_by_name(deploy["steps"], "Plan migration bootstrap (Phase A)")["run"]
+    plan = _step_by_name(
+        plan_job["steps"], "Plan and validate migration bootstrap without state mutation",
+    )["run"]
     assert 'export TF_VAR_migration_identity_location="$MIGRATION_IDENTITY_LOCATION"' in plan
     apply = _step_by_name(deploy["steps"], "Apply migration bootstrap (Phase A)")["run"]
     propagation = _step_by_name(
@@ -210,18 +238,48 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert '-backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}"' in plan
     assert "terraform -chdir=infra/migration-bootstrap validate -no-color" in plan
     assert "terraform -chdir=infra/migration-bootstrap plan" in plan
+    assert plan.index("write-imports") < plan.index(
+        "terraform -chdir=infra/migration-bootstrap validate -no-color"
+    ) < plan.index("terraform -chdir=infra/migration-bootstrap plan")
     assert "terraform -chdir=infra/migration-bootstrap show -json" in plan
     assert "verify_migration_bootstrap.py plan" in plan
     assert "-out=migration-bootstrap.tfplan" in plan
     assert "-target" not in plan
+    assert "write-imports" in plan
+    assert "az containerapp job list" in plan
+    assert "Migration Job identity is ambiguous" in plan
+    assert "terraform -chdir=infra/migration-bootstrap import" not in plan
+    assert plan_job["outputs"]["plan_sha256"] == "${{ steps.plan_summary.outputs.plan_sha256 }}"
+    assert plan_job["outputs"]["encrypted_plan_sha256"] == "${{ steps.encrypt_plan.outputs.sha256 }}"
+    assert plan_job["outputs"]["terraform_version"] == "${{ steps.terraform_version.outputs.version }}"
+    deploy_terraform = _step_by_name(deploy["steps"], "Set up Terraform")["with"]
+    assert deploy_terraform["terraform_version"] == (
+        "${{ needs.migration-bootstrap-plan.outputs.terraform_version }}"
+    )
+    assert "review required" in _step_by_name(
+        plan_job["steps"], "Publish exact migration plan review summary",
+    )["run"]
+    assert "migration-bootstrap-plan-${{ github.run_id }}-${{ github.run_attempt }}" == _step_by_name(
+        plan_job["steps"], "Upload encrypted migration plan for approval",
+    )["with"]["name"]
+    assert _step_by_name(
+        deploy["steps"], "Download reviewed migration bootstrap plan (Phase A)",
+    )["with"]["name"] == "migration-bootstrap-plan-${{ github.run_id }}-${{ github.run_attempt }}"
+    assert "EXPECTED_PLAN_ARTIFACT_SHA256" in _step_by_name(
+        deploy["steps"], "Prepare reviewed migration bootstrap plan (Phase A)",
+    )["env"]
+    assert "EXPECTED_PLAN_SHA256" in _step_by_name(
+        deploy["steps"], "Prepare reviewed migration bootstrap plan (Phase A)",
+    )["env"]
+    assert "EXPECTED_TERRAFORM_VERSION" in _step_by_name(
+        deploy["steps"], "Prepare reviewed migration bootstrap plan (Phase A)",
+    )["env"]
+    assert "verify-metadata" in apply
     assert "state list" in plan
-    assert "azurerm_user_assigned_identity.database_migration" in plan
-    assert "azurerm_role_assignment.acr_pull" in plan
-    assert "azurerm_role_assignment.database_secret_reader" in plan
     assert "RBAC-mode vault is missing" in plan
     assert "Access-policy-mode vault is missing" in plan
-    assert "azurerm_key_vault_access_policy.database_secret_reader[0]" in plan
-    assert "Bootstrap state is empty while the migration Job already exists" in plan
+    assert "Existing migration Job resources cannot be adopted safely" in plan
+    assert "terraform import" not in plan
     assert "terraform -chdir=infra/migration-bootstrap apply" in apply
     assert "migration-bootstrap.tfplan" in apply
     assert "-target" not in apply
@@ -308,12 +366,11 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert step_names.index("Acquire durable production rollout ownership") < step_names.index(
         "Import verified immutable build digests into production ACR"
     )
+    assert "migration-bootstrap-plan" in deploy["needs"]
+    assert "Plan migration bootstrap (Phase A)" not in step_names
     assert step_names.index(
         "Acquire durable production rollout ownership"
-    ) < step_names.index("Plan migration bootstrap (Phase A)")
-    assert step_names.index("Plan migration bootstrap (Phase A)") < step_names.index(
-        "Apply migration bootstrap (Phase A)"
-    )
+    ) < step_names.index("Apply migration bootstrap (Phase A)")
     assert step_names.index("Apply migration bootstrap (Phase A)") < step_names.index(
         "Wait for migration identity, RBAC, and secret propagation"
     )
@@ -448,13 +505,21 @@ def test_release_identity_has_least_privilege_acr_import_role():
 def test_phase_a_workflow_rejects_concurrency_and_uses_only_job_control_plane():
     workflow = _load(CI_WORKFLOW)
     steps = workflow["jobs"]["deploy-backend"]["steps"]
+    plan_steps = workflow["jobs"]["migration-bootstrap-plan"]["steps"]
     phase_a_names = {
         "Reject concurrent production migration execution",
-        "Plan migration bootstrap (Phase A)",
         "Apply migration bootstrap (Phase A)",
         "Wait for migration identity, RBAC, and secret propagation",
     }
-    phase_a = "\n".join(step.get("run", "") for step in steps if step.get("name") in phase_a_names)
+    phase_a = "\n".join(
+        step.get("run", "") for step in steps if step.get("name") in phase_a_names
+    )
+    plan = _step_by_name(
+        plan_steps, "Plan and validate migration bootstrap without state mutation",
+    )["run"]
+    assert "write-imports" in plan
+    assert "terraform import" not in plan
+    assert "terraform -chdir=infra/migration-bootstrap apply" not in plan
 
     assert "Unknown" in phase_a
     assert "Succeeded" in phase_a
@@ -468,9 +533,12 @@ def test_phase_a_workflow_rejects_concurrency_and_uses_only_job_control_plane():
 
 def test_phase_a_enforces_backend_tuple_plan_allowlist_and_integrity_before_apply():
     workflow = _load(CI_WORKFLOW)
-    steps = workflow["jobs"]["deploy-backend"]["steps"]
-    plan = _step_by_name(steps, "Plan migration bootstrap (Phase A)")["run"]
-    apply = _step_by_name(steps, "Apply migration bootstrap (Phase A)")["run"]
+    plan_job = workflow["jobs"]["migration-bootstrap-plan"]
+    deploy_steps = workflow["jobs"]["deploy-backend"]["steps"]
+    plan = _step_by_name(
+        plan_job["steps"], "Plan and validate migration bootstrap without state mutation",
+    )["run"]
+    apply = _step_by_name(deploy_steps, "Apply migration bootstrap (Phase A)")["run"]
     assert "verify_migration_bootstrap.py backend" in plan
     assert "MIGRATION_TFSTATE_STORAGE_ACCOUNT" in plan
     assert "MIGRATION_TFSTATE_CONTAINER" in plan
@@ -479,7 +547,17 @@ def test_phase_a_enforces_backend_tuple_plan_allowlist_and_integrity_before_appl
     assert "write-metadata" in plan
     assert "primary-state-before-bootstrap.json" in plan
     assert "state-before-apply.json" in plan
+    assert "--imports infra/migration-bootstrap/reviewed-imports.auto.tf" in plan
+    assert "--source-sha \"$GITHUB_SHA\"" in plan
+    assert "--run-id \"$GITHUB_RUN_ID\"" in plan
+    assert "--run-attempt \"$GITHUB_RUN_ATTEMPT\"" in plan
+    assert "terraform import" not in plan
+    assert "Encrypt exact migration plan and state binding" in [
+        step.get("name") for step in plan_job["steps"]
+    ]
+    assert "production" == workflow["jobs"]["deploy-backend"]["environment"]
     assert "verify-metadata" in apply
+    assert "--imports infra/migration-bootstrap/reviewed-imports.auto.tf" in apply
     assert apply.index("verify-metadata") < apply.index("terraform -chdir=infra/migration-bootstrap apply")
 
 
@@ -1053,7 +1131,6 @@ def test_migration_and_bootstrap_failures_stop_before_live_revision_or_traffic_c
     deploy_steps = workflow["jobs"]["deploy-backend"]["steps"]
     names = [step.get("name") for step in deploy_steps]
     guarded_steps = (
-        "Plan migration bootstrap (Phase A)",
         "Apply migration bootstrap (Phase A)",
         "Wait for migration identity, RBAC, and secret propagation",
         "Discover schema with same-identity database preflight",
@@ -1066,6 +1143,13 @@ def test_migration_and_bootstrap_failures_stop_before_live_revision_or_traffic_c
         assert not step.get("continue-on-error", False)
         assert names.index(name) < names.index("Deploy green revision")
         assert names.index(name) < names.index("Shift traffic to green (100%)")
+    assert "migration-bootstrap-plan" in workflow["jobs"]["deploy-backend"]["needs"]
+    plan_job = workflow["jobs"]["migration-bootstrap-plan"]
+    assert plan_job["if"] == workflow["jobs"]["deploy-backend"]["if"]
+    assert not any(
+        "terraform -chdir=infra/migration-bootstrap apply" in step.get("run", "")
+        for step in plan_job["steps"]
+    )
     preflight_index = names.index("Discover schema with same-identity database preflight")
     resolve_index = names.index("Resolve verified bridge for discovered schema")
     assert preflight_index < resolve_index
@@ -1114,9 +1198,8 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     assert "--all" in capture
     assert "--revisions revisions-before-rollout.json" in capture
     assert "eval " not in capture
-    assert names.index("Capture exact original production traffic") < names.index(
-        "Plan migration bootstrap (Phase A)"
-    )
+    assert "migration-bootstrap-plan" in workflow["jobs"]["deploy-backend"]["needs"]
+    assert "Plan migration bootstrap (Phase A)" not in names
     assert "create-release-state" in state
     assert "--original-traffic" not in state
     assert "--baseline-traffic blue-traffic-manifest.json" in state

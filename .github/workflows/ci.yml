@@ -1213,8 +1213,360 @@ jobs:
   # ============================================
   # BACKEND DEPLOY (Blue-Green)
   # ============================================
-  deploy-backend:
+  migration-bootstrap-plan:
     needs: [backend-tests, rollout-contracts, frontend-build, openapi-client-drift, iac-validate, alembic-migration-smoke, terraform-config-validate, terraform-policy-as-code, attest-backend-release]
+    runs-on: ${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}
+    timeout-minutes: 30
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_production_deploy
+    environment: production
+    permissions:
+      actions: read
+      attestations: read
+      contents: read
+      id-token: write
+    outputs:
+      encrypted_plan_sha256: ${{ steps.encrypt_plan.outputs.sha256 }}
+      plan_sha256: ${{ steps.plan_summary.outputs.plan_sha256 }}
+      terraform_version: ${{ steps.terraform_version.outputs.version }}
+    env:
+      AZURE_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP }}
+      ACR_NAME: ${{ secrets.ACR_NAME }}
+      ACR_LOGIN_SERVER: ${{ secrets.ACR_LOGIN_SERVER }}
+      CONTAINER_APP_NAME: ${{ secrets.CONTAINER_APP_NAME }}
+      CONTAINER_APP_ENV: ${{ secrets.CONTAINER_APP_ENV }}
+      MIGRATION_JOB_NAME: ${{ secrets.MIGRATION_JOB_NAME }}
+      MIGRATION_IDENTITY_NAME: ${{ secrets.MIGRATION_IDENTITY_NAME }}
+      MIGRATION_KEY_VAULT_NAME: ${{ secrets.MIGRATION_KEY_VAULT_NAME }}
+      MIGRATION_DATABASE_SECRET_NAME: ${{ secrets.MIGRATION_DATABASE_SECRET_NAME }}
+      TFSTATE_RESOURCE_GROUP: ${{ secrets.TFSTATE_RESOURCE_GROUP }}
+      TFSTATE_STORAGE_ACCOUNT: ${{ secrets.TFSTATE_STORAGE_ACCOUNT }}
+      TFSTATE_CONTAINER: ${{ secrets.TFSTATE_CONTAINER }}
+      TFSTATE_KEY: ${{ secrets.TFSTATE_KEY }}
+      MIGRATION_TFSTATE_STORAGE_ACCOUNT: ${{ secrets.MIGRATION_TFSTATE_STORAGE_ACCOUNT }}
+      MIGRATION_TFSTATE_CONTAINER: ${{ secrets.MIGRATION_TFSTATE_CONTAINER }}
+      MIGRATION_TFSTATE_KEY: ${{ secrets.MIGRATION_TFSTATE_KEY }}
+      TFPLAN_ARTIFACT_PASSPHRASE: ${{ secrets.TFPLAN_ARTIFACT_PASSPHRASE }}
+      ARM_USE_OIDC: true
+      ARM_CLIENT_ID: ${{ secrets.AZURE_CLIENT_ID }}
+      ARM_TENANT_ID: ${{ secrets.AZURE_TENANT_ID }}
+      ARM_SUBSCRIPTION_ID: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Verify required production review protection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/environments/production" \
+            > "$RUNNER_TEMP/production-environment.json"
+          if ! jq -e '
+            .can_admins_bypass == false
+            and .deployment_branch_policy.protected_branches == true
+            and ([.protection_rules[]? | select(.type == "required_reviewers")] as $rules
+              | ($rules | length > 0)
+              and all($rules[]; .prevent_self_review == true and (.reviewers | length > 0)))
+          ' "$RUNNER_TEMP/production-environment.json" >/dev/null; then
+            echo "::error::Production environment must require a non-self reviewer, restrict deployments to protected branches, and disallow administrator bypass"
+            exit 1
+          fi
+
+      - name: Azure Login (OIDC)
+        uses: azure/login@2dd0bbf4064d5a1812889dc200bb8eed2597f82a # v3
+        with:
+          client-id: ${{ env.AZURE_CLIENT_ID }}
+          tenant-id: ${{ env.AZURE_TENANT_ID }}
+          subscription-id: ${{ env.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Set up Terraform
+        uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
+        with:
+          terraform_version: "1.9.x"
+          terraform_wrapper: false
+
+      - name: Record exact Terraform version for reviewed plan
+        id: terraform_version
+        run: |
+          set -euo pipefail
+          echo "version=$(terraform version -json | jq -er '.terraform_version')" >> "$GITHUB_OUTPUT"
+
+      - name: Validate migration plan inputs
+        run: |
+          set -euo pipefail
+          for name in \
+            AZURE_SUBSCRIPTION_ID AZURE_TENANT_ID AZURE_CLIENT_ID AZURE_RESOURCE_GROUP \
+            ACR_NAME ACR_LOGIN_SERVER CONTAINER_APP_NAME CONTAINER_APP_ENV \
+            MIGRATION_JOB_NAME MIGRATION_IDENTITY_NAME MIGRATION_KEY_VAULT_NAME \
+            MIGRATION_DATABASE_SECRET_NAME TFSTATE_RESOURCE_GROUP TFSTATE_STORAGE_ACCOUNT \
+            TFSTATE_CONTAINER TFSTATE_KEY MIGRATION_TFSTATE_STORAGE_ACCOUNT \
+            MIGRATION_TFSTATE_CONTAINER MIGRATION_TFSTATE_KEY; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Required migration plan input ${name} is not set"
+              exit 1
+            fi
+          done
+          : "${TFPLAN_ARTIFACT_PASSPHRASE:?Encrypted migration plan passphrase is required}"
+
+      - name: Verify migration environment and preserve identity location
+        run: |
+          set -euo pipefail
+          az containerapp show \
+            --name "$CONTAINER_APP_NAME" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query '{environmentId:properties.managedEnvironmentId}' \
+            --output json > migration-runtime-app.json
+          az containerapp env show \
+            --name "$CONTAINER_APP_ENV" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query '{id:id,location:location,subnetId:properties.vnetConfiguration.infrastructureSubnetId,provisioningState:properties.provisioningState}' \
+            --output json > migration-runtime-environment.json
+          python scripts/verify_migration_bootstrap.py environment \
+            --app migration-runtime-app.json \
+            --environment migration-runtime-environment.json
+          az identity list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query '[].{name:name,location:location}' \
+            --output json > migration-identity-locations.json
+          MIGRATION_IDENTITY_LOCATION=$(python scripts/verify_migration_bootstrap.py identity-location \
+            --input migration-identity-locations.json \
+            --name "$MIGRATION_IDENTITY_NAME" \
+            --environment migration-runtime-environment.json)
+          echo "MIGRATION_IDENTITY_LOCATION=$MIGRATION_IDENTITY_LOCATION" >> "$GITHUB_ENV"
+
+      - name: Download hosted immutable backend build evidence
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: hosted-backend-build-evidence-${{ github.run_id }}
+          path: hosted-build-evidence
+
+      - name: Resolve image digest for exact migration plan
+        id: migration_image
+        run: |
+          set -euo pipefail
+          FINAL_BUILD_RUN_ATTEMPT=$(python scripts/release_provenance.py \
+            verify-unsigned-build-provenance \
+            --input hosted-build-evidence/final-build-provenance-unsigned.json \
+            --field run_attempt)
+          if ! [[ "$FINAL_BUILD_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]] \
+            || [ "$FINAL_BUILD_RUN_ATTEMPT" -gt "$GITHUB_RUN_ATTEMPT" ]; then
+            echo "::error::Hosted build attempt is invalid for this release attempt"
+            exit 1
+          fi
+          FINAL_SOURCE_IMAGE_REF=$(python scripts/release_provenance.py \
+            verify-unsigned-build-provenance \
+            --input hosted-build-evidence/final-build-provenance-unsigned.json \
+            --expected-role final \
+            --expected-source-sha "$GITHUB_SHA" \
+            --expected-repository "$GITHUB_REPOSITORY" \
+            --expected-workflow "$GITHUB_WORKFLOW" \
+            --expected-workflow-path .github/workflows/ci.yml \
+            --expected-run-id "$GITHUB_RUN_ID" \
+            --expected-run-attempt "$FINAL_BUILD_RUN_ATTEMPT" \
+            --expected-platform linux/amd64 \
+            --expected-contract backend/schema-contract.json \
+            --field image)
+          GHCR_BUILD_REGISTRY="ghcr.io/${GITHUB_REPOSITORY_OWNER,,}"
+          if [ "${FINAL_SOURCE_IMAGE_REF%@*}" != \
+            "${GHCR_BUILD_REGISTRY}/archmorph-api-release-staging-v2" ]; then
+            echo "::error::Migration plan evidence targets an unexpected image repository"
+            exit 1
+          fi
+          IMAGE_REF="${ACR_LOGIN_SERVER}/archmorph-api@${FINAL_SOURCE_IMAGE_REF#*@}"
+          EXPECTED_ALEMBIC_HEAD=$(jq -er '.migration_target_revision' backend/schema-contract.json)
+          {
+            echo "IMAGE_REF=$IMAGE_REF" >> "$GITHUB_ENV"
+            echo "EXPECTED_ALEMBIC_HEAD=$EXPECTED_ALEMBIC_HEAD" >> "$GITHUB_ENV"
+          }
+
+      - name: Plan and validate migration bootstrap without state mutation
+        run: |
+          set -euo pipefail
+          umask 077
+          export TF_VAR_subscription_id="$AZURE_SUBSCRIPTION_ID"
+          export TF_VAR_resource_group_name="$AZURE_RESOURCE_GROUP"
+          export TF_VAR_container_app_environment_name="$CONTAINER_APP_ENV"
+          export TF_VAR_container_registry_name="$ACR_NAME"
+          export TF_VAR_key_vault_name="$MIGRATION_KEY_VAULT_NAME"
+          export TF_VAR_database_secret_name="$MIGRATION_DATABASE_SECRET_NAME"
+          export TF_VAR_migration_job_name="$MIGRATION_JOB_NAME"
+          export TF_VAR_migration_identity_name="$MIGRATION_IDENTITY_NAME"
+          export TF_VAR_migration_identity_location="$MIGRATION_IDENTITY_LOCATION"
+          export TF_VAR_migration_image="$IMAGE_REF"
+          export TF_VAR_expected_alembic_head="$EXPECTED_ALEMBIC_HEAD"
+          export TF_VAR_environment="prod"
+
+          python scripts/verify_migration_bootstrap.py backend \
+            --primary-account "$TFSTATE_STORAGE_ACCOUNT" \
+            --primary-container "$TFSTATE_CONTAINER" \
+            --primary-key "$TFSTATE_KEY" \
+            --bootstrap-account "$MIGRATION_TFSTATE_STORAGE_ACCOUNT" \
+            --bootstrap-container "$MIGRATION_TFSTATE_CONTAINER" \
+            --bootstrap-key "$MIGRATION_TFSTATE_KEY"
+          terraform -chdir=infra init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${TFSTATE_CONTAINER}" \
+            -backend-config="key=${TFSTATE_KEY}"
+          if terraform -chdir=infra state list \
+            | grep -qx 'azurerm_container_app_job.database_migration'; then
+            echo "::error::Legacy application state still owns the migration Job. Apply the reviewed non-destructive removed block before bootstrap adoption."
+            exit 1
+          fi
+          terraform -chdir=infra/migration-bootstrap init -input=false -lockfile=readonly \
+            -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
+            -backend-config="storage_account_name=${MIGRATION_TFSTATE_STORAGE_ACCOUNT}" \
+            -backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}" \
+            -backend-config="key=${MIGRATION_TFSTATE_KEY}"
+          : > infra/migration-bootstrap/reviewed-imports.auto.tf
+
+          az containerapp job list \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --output json > migration-jobs-before-plan.json
+          JOB_COUNT=$(jq --arg name "$MIGRATION_JOB_NAME" \
+            '[.[] | select(.name == $name)] | length' migration-jobs-before-plan.json)
+          if [ "$JOB_COUNT" -gt 1 ]; then
+            echo "::error::Migration Job identity is ambiguous; refusing to create a bootstrap plan"
+            exit 1
+          fi
+          if [ "$JOB_COUNT" -eq 1 ]; then
+            BOOTSTRAP_STATE_LIST=$(terraform -chdir=infra/migration-bootstrap state list)
+            if ! printf '%s\n' "$BOOTSTRAP_STATE_LIST" \
+              | grep -qx 'azurerm_container_app_job.database_migration'; then
+              if [ -n "$BOOTSTRAP_STATE_LIST" ]; then
+                echo "::error::Migration Job exists but bootstrap state is incomplete; reconcile the isolated state before deploy"
+                exit 1
+              fi
+              JOB_ID=$(az containerapp job show \
+                --name "$MIGRATION_JOB_NAME" --resource-group "$AZURE_RESOURCE_GROUP" --query id -o tsv)
+              MIGRATION_IDENTITY_ID=$(az identity show \
+                --name "$MIGRATION_IDENTITY_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query id -o tsv 2>/dev/null || true)
+              MIGRATION_PRINCIPAL_ID=$(az identity show \
+                --name "$MIGRATION_IDENTITY_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query principalId -o tsv 2>/dev/null || true)
+              ACR_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv)
+              KEY_VAULT_ID=$(az keyvault show \
+                --name "$MIGRATION_KEY_VAULT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query id -o tsv)
+              DATABASE_SECRET_SCOPE_ID="${KEY_VAULT_ID}/secrets/${MIGRATION_DATABASE_SECRET_NAME}"
+              ACR_ROLE_ID=$(az role assignment list \
+                --assignee-object-id "$MIGRATION_PRINCIPAL_ID" --scope "$ACR_ID" \
+                --query "[?roleDefinitionName=='AcrPull'].id | [0]" -o tsv 2>/dev/null || true)
+              KEY_VAULT_RBAC_MODE=$(az keyvault show \
+                --name "$MIGRATION_KEY_VAULT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query properties.enableRbacAuthorization -o tsv | tr '[:upper:]' '[:lower:]')
+              SECRET_ROLE_ID=$(az role assignment list \
+                --assignee-object-id "$MIGRATION_PRINCIPAL_ID" --scope "$DATABASE_SECRET_SCOPE_ID" \
+                --query "[?roleDefinitionName=='Key Vault Secrets User'].id | [0]" -o tsv 2>/dev/null || true)
+              POLICY_OBJECT_ID=$(az keyvault show \
+                --name "$MIGRATION_KEY_VAULT_NAME" --resource-group "$AZURE_RESOURCE_GROUP" \
+                --query "properties.accessPolicies[?objectId=='$MIGRATION_PRINCIPAL_ID'].objectId | [0]" -o tsv)
+              POLICY_ID=""
+              if [ -n "$POLICY_OBJECT_ID" ]; then
+                POLICY_ID="${KEY_VAULT_ID}/objectId/${MIGRATION_PRINCIPAL_ID}"
+              fi
+              if [ "$KEY_VAULT_RBAC_MODE" = "true" ]; then
+                if [ -z "$SECRET_ROLE_ID" ]; then
+                  echo "::error::RBAC-mode vault is missing the migration identity's secret-scoped role"
+                  exit 1
+                fi
+                POLICY_ID=""
+              else
+                if [ -z "$POLICY_ID" ]; then
+                  echo "::error::Access-policy-mode vault is missing the migration identity's Get policy"
+                  exit 1
+                fi
+                SECRET_ROLE_ID=""
+              fi
+              if [ -z "$MIGRATION_IDENTITY_ID" ] || [ -z "$MIGRATION_PRINCIPAL_ID" ] \
+                || [ -z "$ACR_ROLE_ID" ] || [ -z "$JOB_ID" ]; then
+                echo "::error::Existing migration Job resources cannot be adopted safely"
+                exit 1
+              fi
+              python scripts/verify_migration_bootstrap.py write-imports \
+                --identity-id "$MIGRATION_IDENTITY_ID" \
+                --acr-role-id "$ACR_ROLE_ID" \
+                --secret-role-id "$SECRET_ROLE_ID" \
+                --policy-id "$POLICY_ID" \
+                --job-id "$JOB_ID" \
+                --output infra/migration-bootstrap/reviewed-imports.auto.tf
+            fi
+          fi
+
+          terraform -chdir=infra/migration-bootstrap validate -no-color
+          terraform -chdir=infra/migration-bootstrap plan -input=false -lock-timeout=60s \
+            -out=migration-bootstrap.tfplan
+          terraform -chdir=infra/migration-bootstrap show -json migration-bootstrap.tfplan \
+            > infra/migration-bootstrap/migration-bootstrap-plan.json
+          python scripts/verify_migration_bootstrap.py plan \
+            --input infra/migration-bootstrap/migration-bootstrap-plan.json
+          terraform -chdir=infra state pull > infra/primary-state-before-bootstrap.json
+          terraform -chdir=infra/migration-bootstrap state pull \
+            > infra/migration-bootstrap/state-before-apply.json
+          python scripts/verify_migration_bootstrap.py write-metadata \
+            --plan infra/migration-bootstrap/migration-bootstrap.tfplan \
+            --lock infra/migration-bootstrap/.terraform.lock.hcl \
+            --imports infra/migration-bootstrap/reviewed-imports.auto.tf \
+            --primary-state infra/primary-state-before-bootstrap.json \
+            --bootstrap-state infra/migration-bootstrap/state-before-apply.json \
+            --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
+            --metadata infra/migration-bootstrap/plan-metadata.json
+          terraform -chdir=infra/migration-bootstrap show -no-color \
+            migration-bootstrap.tfplan > "$RUNNER_TEMP/migration-bootstrap-plan.txt"
+
+      - name: Publish exact migration plan review summary
+        id: plan_summary
+        run: |
+          set -euo pipefail
+          PLAN_SHA256=$(jq -er '.plan_sha256' infra/migration-bootstrap/plan-metadata.json)
+          {
+            echo "plan_sha256=$PLAN_SHA256" >> "$GITHUB_OUTPUT"
+            echo "## Migration bootstrap plan (review required)"
+            echo
+            echo "Source: \`$GITHUB_SHA\`"
+            echo "Run attempt: \`$GITHUB_RUN_ID/$GITHUB_RUN_ATTEMPT\`"
+            echo "Saved plan SHA-256: \`$PLAN_SHA256\`"
+            echo
+            echo "Planning made no Terraform state or Azure resource changes. The next job applies this exact encrypted plan only after the \`production\` environment gate."
+            echo
+            echo '```text'
+            cat "$RUNNER_TEMP/migration-bootstrap-plan.txt"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Encrypt exact migration plan and state binding
+        id: encrypt_plan
+        run: |
+          set -euo pipefail
+          umask 077
+          tar -czf "$RUNNER_TEMP/migration-bootstrap-plan.tar.gz" \
+            -C infra/migration-bootstrap \
+            migration-bootstrap.tfplan .terraform.lock.hcl \
+            reviewed-imports.auto.tf plan-metadata.json
+          openssl enc -aes-256-cbc -pbkdf2 -salt \
+            -in "$RUNNER_TEMP/migration-bootstrap-plan.tar.gz" \
+            -out "$RUNNER_TEMP/migration-bootstrap-plan.tar.gz.enc" \
+            -pass env:TFPLAN_ARTIFACT_PASSPHRASE
+          PLAN_ARTIFACT_SHA256=$(sha256sum \
+            "$RUNNER_TEMP/migration-bootstrap-plan.tar.gz.enc" | awk '{print $1}')
+          echo "Encrypted artifact SHA-256: \`$PLAN_ARTIFACT_SHA256\`" >> "$GITHUB_STEP_SUMMARY"
+          echo "sha256=$PLAN_ARTIFACT_SHA256" >> "$GITHUB_OUTPUT"
+
+      - name: Upload encrypted migration plan for approval
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+        with:
+          name: migration-bootstrap-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/migration-bootstrap-plan.tar.gz.enc
+          if-no-files-found: error
+          retention-days: 7
+
+  deploy-backend:
+    needs: [backend-tests, rollout-contracts, frontend-build, openapi-client-drift, iac-validate, alembic-migration-smoke, terraform-config-validate, terraform-policy-as-code, attest-backend-release, migration-bootstrap-plan]
     runs-on: ${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}
     timeout-minutes: 45
     if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_production_deploy
@@ -1284,6 +1636,24 @@ jobs:
           : "${ROLLOUT_COORDINATION_STORAGE_ACCOUNT:?ROLLOUT_COORDINATION_STORAGE_ACCOUNT is required}"
           : "${ROLLOUT_COORDINATION_CONTAINER:?ROLLOUT_COORDINATION_CONTAINER is required}"
 
+      - name: Verify required production review protection
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api "repos/$GITHUB_REPOSITORY/environments/production" \
+            > "$RUNNER_TEMP/production-environment.json"
+          if ! jq -e '
+            .can_admins_bypass == false
+            and .deployment_branch_policy.protected_branches == true
+            and ([.protection_rules[]? | select(.type == "required_reviewers")] as $rules
+              | ($rules | length > 0)
+              and all($rules[]; .prevent_self_review == true and (.reviewers | length > 0)))
+          ' "$RUNNER_TEMP/production-environment.json" >/dev/null; then
+            echo "::error::Production environment must require a non-self reviewer, restrict deployments to protected branches, and disallow administrator bypass"
+            exit 1
+          fi
+
       - name: Azure Login (OIDC)
         uses: azure/login@2dd0bbf4064d5a1812889dc200bb8eed2597f82a # v3
         with:
@@ -1294,7 +1664,7 @@ jobs:
       - name: Set up Terraform
         uses: hashicorp/setup-terraform@dfe3c3f87815947d99a8997f908cb6525fc44e9e # v4
         with:
-          terraform_version: "1.9.x"
+          terraform_version: ${{ needs.migration-bootstrap-plan.outputs.terraform_version }}
           terraform_wrapper: false
 
       - name: Validate backend deploy secret inputs
@@ -1996,145 +2366,69 @@ jobs:
             fi
           fi
 
-      - name: Plan migration bootstrap (Phase A)
+      - name: Download reviewed migration bootstrap plan (Phase A)
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          name: migration-bootstrap-plan-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/migration-bootstrap-plan-artifact
+
+      - name: Prepare reviewed migration bootstrap plan (Phase A)
+        env:
+          TFPLAN_ARTIFACT_PASSPHRASE: ${{ secrets.TFPLAN_ARTIFACT_PASSPHRASE }}
+          EXPECTED_PLAN_ARTIFACT_SHA256: ${{ needs.migration-bootstrap-plan.outputs.encrypted_plan_sha256 }}
+          EXPECTED_PLAN_SHA256: ${{ needs.migration-bootstrap-plan.outputs.plan_sha256 }}
+          EXPECTED_TERRAFORM_VERSION: ${{ needs.migration-bootstrap-plan.outputs.terraform_version }}
         run: |
           set -euo pipefail
-          export TF_VAR_subscription_id="$AZURE_SUBSCRIPTION_ID"
-          export TF_VAR_resource_group_name="$AZURE_RESOURCE_GROUP"
-          export TF_VAR_container_app_environment_name="$CONTAINER_APP_ENV"
-          export TF_VAR_container_registry_name="$ACR_NAME"
-          export TF_VAR_key_vault_name="$MIGRATION_KEY_VAULT_NAME"
-          export TF_VAR_database_secret_name="$MIGRATION_DATABASE_SECRET_NAME"
-          export TF_VAR_migration_job_name="$MIGRATION_JOB_NAME"
-          export TF_VAR_migration_identity_name="$MIGRATION_IDENTITY_NAME"
-          export TF_VAR_migration_identity_location="$MIGRATION_IDENTITY_LOCATION"
-          export TF_VAR_migration_image="$IMAGE_REF"
-          export TF_VAR_expected_alembic_head="$EXPECTED_ALEMBIC_HEAD"
-          export TF_VAR_environment="prod"
-
-          python scripts/verify_migration_bootstrap.py backend \
-            --primary-account "$TFSTATE_STORAGE_ACCOUNT" \
-            --primary-container "$TFSTATE_CONTAINER" \
-            --primary-key "$TFSTATE_KEY" \
-            --bootstrap-account "$MIGRATION_TFSTATE_STORAGE_ACCOUNT" \
-            --bootstrap-container "$MIGRATION_TFSTATE_CONTAINER" \
-            --bootstrap-key "$MIGRATION_TFSTATE_KEY"
-
+          umask 077
+          ACTUAL_TERRAFORM_VERSION=$(terraform version -json | jq -er '.terraform_version')
+          if [ "$ACTUAL_TERRAFORM_VERSION" != "$EXPECTED_TERRAFORM_VERSION" ]; then
+            echo "::error::Apply Terraform version differs from the reviewed plan version"
+            exit 1
+          fi
+          ENCRYPTED_PLAN="$RUNNER_TEMP/migration-bootstrap-plan-artifact/migration-bootstrap-plan.tar.gz.enc"
+          ACTUAL_PLAN_ARTIFACT_SHA256=$(sha256sum "$ENCRYPTED_PLAN" | awk '{print $1}')
+          if [ "$ACTUAL_PLAN_ARTIFACT_SHA256" != "$EXPECTED_PLAN_ARTIFACT_SHA256" ]; then
+            echo "::error::Downloaded migration plan artifact differs from the reviewed plan job output"
+            exit 1
+          fi
+          : "${TFPLAN_ARTIFACT_PASSPHRASE:?Reviewed plan decryption passphrase is required}"
+          : "${EXPECTED_PLAN_SHA256:?Reviewed plan SHA-256 output is required}"
+          openssl enc -d -aes-256-cbc -pbkdf2 \
+            -in "$ENCRYPTED_PLAN" \
+            -out "$RUNNER_TEMP/migration-bootstrap-plan.tar.gz" \
+            -pass env:TFPLAN_ARTIFACT_PASSPHRASE
+          EXPECTED_FILES=$(printf '%s\n' \
+            .terraform.lock.hcl migration-bootstrap.tfplan \
+            plan-metadata.json reviewed-imports.auto.tf | LC_ALL=C sort)
+          ACTUAL_FILES=$(tar -tzf "$RUNNER_TEMP/migration-bootstrap-plan.tar.gz" | LC_ALL=C sort)
+          if [ "$ACTUAL_FILES" != "$EXPECTED_FILES" ]; then
+            echo "::error::Encrypted migration plan bundle has an unexpected file set"
+            exit 1
+          fi
+          tar -xzf "$RUNNER_TEMP/migration-bootstrap-plan.tar.gz" \
+            -C infra/migration-bootstrap --no-same-owner --no-same-permissions
+          ACTUAL_PLAN_SHA256=$(sha256sum \
+            infra/migration-bootstrap/migration-bootstrap.tfplan | awk '{print $1}')
+          if [ "$ACTUAL_PLAN_SHA256" != "$EXPECTED_PLAN_SHA256" ]; then
+            echo "::error::Downloaded saved plan differs from the plan hash shown for review"
+            exit 1
+          fi
           terraform -chdir=infra init -input=false -lockfile=readonly \
             -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
             -backend-config="storage_account_name=${TFSTATE_STORAGE_ACCOUNT}" \
             -backend-config="container_name=${TFSTATE_CONTAINER}" \
             -backend-config="key=${TFSTATE_KEY}"
-          if terraform -chdir=infra state list \
-            | grep -qx 'azurerm_container_app_job.database_migration'; then
-            echo "::error::Legacy application state still owns the migration Job. Apply the reviewed non-destructive removed block before bootstrap adoption."
-            exit 1
-          fi
-
           terraform -chdir=infra/migration-bootstrap init -input=false -lockfile=readonly \
             -backend-config="resource_group_name=${TFSTATE_RESOURCE_GROUP}" \
             -backend-config="storage_account_name=${MIGRATION_TFSTATE_STORAGE_ACCOUNT}" \
             -backend-config="container_name=${MIGRATION_TFSTATE_CONTAINER}" \
             -backend-config="key=${MIGRATION_TFSTATE_KEY}"
-          terraform -chdir=infra/migration-bootstrap validate -no-color
-
-          if az containerapp job show \
-            --name "$MIGRATION_JOB_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --only-show-errors \
-            --output none 2>/dev/null; then
-            BOOTSTRAP_STATE_LIST=$(terraform -chdir=infra/migration-bootstrap state list)
-            if ! printf '%s\n' "$BOOTSTRAP_STATE_LIST" \
-              | grep -qx 'azurerm_container_app_job.database_migration'; then
-              if [ -n "$BOOTSTRAP_STATE_LIST" ]; then
-                echo "::error::Migration Job exists but bootstrap state is incomplete; reconcile the isolated state before deploy"
-                exit 1
-              fi
-              JOB_ID=$(az containerapp job show \
-                --name "$MIGRATION_JOB_NAME" \
-                --resource-group "$AZURE_RESOURCE_GROUP" \
-                --query id -o tsv)
-              MIGRATION_IDENTITY_ID=$(az identity show \
-                --name "$MIGRATION_IDENTITY_NAME" \
-                --resource-group "$AZURE_RESOURCE_GROUP" \
-                --query id -o tsv 2>/dev/null || true)
-              MIGRATION_PRINCIPAL_ID=$(az identity show \
-                --name "$MIGRATION_IDENTITY_NAME" \
-                --resource-group "$AZURE_RESOURCE_GROUP" \
-                --query principalId -o tsv 2>/dev/null || true)
-              ACR_ID=$(az acr show --name "$ACR_NAME" --query id -o tsv)
-              KEY_VAULT_ID=$(az keyvault show \
-                --name "$MIGRATION_KEY_VAULT_NAME" \
-                --resource-group "$AZURE_RESOURCE_GROUP" \
-                --query id -o tsv)
-              DATABASE_SECRET_SCOPE_ID="${KEY_VAULT_ID}/secrets/${MIGRATION_DATABASE_SECRET_NAME}"
-              ACR_ROLE_ID=$(az role assignment list \
-                --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
-                --scope "$ACR_ID" \
-                --query "[?roleDefinitionName=='AcrPull'].id | [0]" -o tsv 2>/dev/null || true)
-              KEY_VAULT_RBAC_MODE=$(az keyvault show \
-                --name "$MIGRATION_KEY_VAULT_NAME" \
-                --resource-group "$AZURE_RESOURCE_GROUP" \
-                --query properties.enableRbacAuthorization -o tsv | tr '[:upper:]' '[:lower:]')
-              SECRET_ROLE_ID=$(az role assignment list \
-                --assignee-object-id "$MIGRATION_PRINCIPAL_ID" \
-                --scope "$DATABASE_SECRET_SCOPE_ID" \
-                --query "[?roleDefinitionName=='Key Vault Secrets User'].id | [0]" -o tsv 2>/dev/null || true)
-              POLICY_OBJECT_ID=$(az keyvault show \
-                --name "$MIGRATION_KEY_VAULT_NAME" \
-                --resource-group "$AZURE_RESOURCE_GROUP" \
-                --query "properties.accessPolicies[?objectId=='$MIGRATION_PRINCIPAL_ID'].objectId | [0]" -o tsv)
-              POLICY_ID=""
-              if [ -n "$POLICY_OBJECT_ID" ]; then
-                POLICY_ID="${KEY_VAULT_ID}/objectId/${MIGRATION_PRINCIPAL_ID}"
-              fi
-              if [ "$KEY_VAULT_RBAC_MODE" = "true" ]; then
-                if [ -z "$SECRET_ROLE_ID" ]; then
-                  echo "::error::RBAC-mode vault is missing the migration identity's secret-scoped role"
-                  exit 1
-                fi
-              else
-                if [ -z "$POLICY_ID" ]; then
-                  echo "::error::Access-policy-mode vault is missing the migration identity's Get policy"
-                  exit 1
-                fi
-              fi
-              if [ -z "$MIGRATION_IDENTITY_ID" ] || [ -z "$ACR_ROLE_ID" ]; then
-                echo "::error::Bootstrap state is empty while the migration Job already exists, but its dedicated identity or least-privilege RBAC resources cannot be adopted safely"
-                exit 1
-              fi
-              terraform -chdir=infra/migration-bootstrap import \
-                azurerm_user_assigned_identity.database_migration "$MIGRATION_IDENTITY_ID"
-              terraform -chdir=infra/migration-bootstrap import \
-                azurerm_role_assignment.acr_pull "$ACR_ROLE_ID"
-              if [ -n "$SECRET_ROLE_ID" ]; then
-                terraform -chdir=infra/migration-bootstrap import \
-                  'azurerm_role_assignment.database_secret_reader[0]' "$SECRET_ROLE_ID"
-              fi
-              if [ -n "$POLICY_ID" ]; then
-                terraform -chdir=infra/migration-bootstrap import \
-                  'azurerm_key_vault_access_policy.database_secret_reader[0]' "$POLICY_ID"
-              fi
-              terraform -chdir=infra/migration-bootstrap import \
-                azurerm_container_app_job.database_migration "$JOB_ID"
-            fi
+          if terraform -chdir=infra state list \
+            | grep -qx 'azurerm_container_app_job.database_migration'; then
+            echo "::error::Legacy application state still owns the migration Job; refusing the reviewed bootstrap plan"
+            exit 1
           fi
-
-          terraform -chdir=infra/migration-bootstrap plan -input=false \
-            -out=migration-bootstrap.tfplan
-          terraform -chdir=infra/migration-bootstrap show -json migration-bootstrap.tfplan \
-            > infra/migration-bootstrap/migration-bootstrap-plan.json
-          python scripts/verify_migration_bootstrap.py plan \
-            --input infra/migration-bootstrap/migration-bootstrap-plan.json
-          terraform -chdir=infra state pull > infra/primary-state-before-bootstrap.json
-          terraform -chdir=infra/migration-bootstrap state pull \
-            > infra/migration-bootstrap/state-before-apply.json
-          python scripts/verify_migration_bootstrap.py write-metadata \
-            --plan infra/migration-bootstrap/migration-bootstrap.tfplan \
-            --lock infra/migration-bootstrap/.terraform.lock.hcl \
-            --primary-state infra/primary-state-before-bootstrap.json \
-            --bootstrap-state infra/migration-bootstrap/state-before-apply.json \
-            --metadata infra/migration-bootstrap/plan-metadata.json
 
       - name: Yield to emergency rollback before bootstrap mutation
         run: |
@@ -2163,8 +2457,12 @@ jobs:
           python scripts/verify_migration_bootstrap.py verify-metadata \
             --plan infra/migration-bootstrap/migration-bootstrap.tfplan \
             --lock infra/migration-bootstrap/.terraform.lock.hcl \
+            --imports infra/migration-bootstrap/reviewed-imports.auto.tf \
             --primary-state infra/primary-state-before-apply.json \
             --bootstrap-state infra/migration-bootstrap/state-before-apply-current.json \
+            --source-sha "$GITHUB_SHA" \
+            --run-id "$GITHUB_RUN_ID" \
+            --run-attempt "$GITHUB_RUN_ATTEMPT" \
             --metadata infra/migration-bootstrap/plan-metadata.json
           python scripts/azure_rollout_lease.py \
             --account "$ROLLOUT_COORDINATION_STORAGE_ACCOUNT" \
