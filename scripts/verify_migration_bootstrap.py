@@ -34,6 +34,7 @@ _FORBIDDEN_TYPES = {
     "azurerm_subnet",
     "azurerm_virtual_network",
 }
+_GUID_PATTERN = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
 
 
 def validate_environment(app: dict[str, Any], environment: dict[str, Any]) -> None:
@@ -95,6 +96,96 @@ def validate_backend_separation(*, primary: tuple[str, str, str], bootstrap: tup
         raise ValueError(
             "migration bootstrap must use a separate storage account or container, not only a key"
         )
+
+
+def write_imports(
+    *,
+    identity_id: str,
+    acr_role_id: str,
+    secret_role_id: str,
+    policy_id: str,
+    job_id: str,
+    output: Path,
+) -> int:
+    """Render validated import blocks so adoption is part of the reviewed plan."""
+    identifiers = {
+        "identity": identity_id,
+        "ACR role assignment": acr_role_id,
+        "migration Job": job_id,
+    }
+    if not re.fullmatch(
+        r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/"
+        r"Microsoft\.ManagedIdentity/userAssignedIdentities/[^/]+",
+        identity_id,
+        re.IGNORECASE,
+    ):
+        raise ValueError("Migration identity import ID is invalid")
+    if not re.fullmatch(
+        rf"/subscriptions/[^/]+/.+/providers/Microsoft\.Authorization/roleAssignments/{_GUID_PATTERN}",
+        acr_role_id,
+        re.IGNORECASE,
+    ):
+        raise ValueError("ACR role assignment import ID is invalid")
+    if not re.fullmatch(
+        r"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/Microsoft\.App/jobs/[^/]+",
+        job_id,
+        re.IGNORECASE,
+    ):
+        raise ValueError("Migration Job import ID is invalid")
+    if bool(secret_role_id) == bool(policy_id):
+        raise ValueError("Exactly one Key Vault secret access import ID is required")
+    if secret_role_id:
+        if not re.fullmatch(
+            rf"/subscriptions/[^/]+/.+/providers/Microsoft\.Authorization/roleAssignments/{_GUID_PATTERN}",
+            secret_role_id,
+            re.IGNORECASE,
+        ):
+            raise ValueError("Key Vault secret role assignment import ID is invalid")
+        identifiers["Key Vault secret role assignment"] = secret_role_id
+    if policy_id:
+        if not re.fullmatch(
+            rf"/subscriptions/[^/]+/resourceGroups/[^/]+/providers/"
+            rf"Microsoft\.KeyVault/vaults/[^/]+/objectId/{_GUID_PATTERN}",
+            policy_id,
+            re.IGNORECASE,
+        ):
+            raise ValueError("Key Vault access policy import ID is invalid")
+        identifiers["Key Vault access policy"] = policy_id
+    if any(not identifier for identifier in identifiers.values()):
+        raise ValueError("Required migration bootstrap import ID is missing")
+
+    subscription_ids = set()
+    for label, identifier in identifiers.items():
+        match = re.match(r"^/subscriptions/([^/]+)/", identifier, re.IGNORECASE)
+        if match is None:
+            raise ValueError(f"{label} import ID has no Azure subscription")
+        subscription_ids.add(match.group(1).casefold())
+    if len(subscription_ids) != 1:
+        raise ValueError("Migration bootstrap import IDs must use one Azure subscription")
+
+    blocks = [
+        ("azurerm_user_assigned_identity.database_migration", identity_id),
+        ("azurerm_role_assignment.acr_pull", acr_role_id),
+    ]
+    if secret_role_id:
+        blocks.append(("azurerm_role_assignment.database_secret_reader[0]", secret_role_id))
+    if policy_id:
+        blocks.append((
+            "azurerm_key_vault_access_policy.database_secret_reader[0]",
+            policy_id,
+        ))
+    blocks.append(("azurerm_container_app_job.database_migration", job_id))
+    output.write_text(
+        "".join(
+            "import {\n"
+            f"  to = {address}\n"
+            f"  id = {json.dumps(identifier)}\n"
+            "}\n\n"
+            for address, identifier in blocks
+        ),
+        encoding="utf-8",
+    )
+    return len(blocks)
 
 
 def _actions(change: dict[str, Any]) -> list[str]:
@@ -202,16 +293,30 @@ def write_metadata(
     *,
     plan: Path,
     lock: Path,
+    imports: Path,
     primary_state: Path,
     bootstrap_state: Path,
+    source_sha: str,
+    run_id: str,
+    run_attempt: str,
     output: Path,
 ) -> dict[str, Any]:
+    if not re.fullmatch(r"[0-9a-f]{40,64}", source_sha):
+        raise ValueError("Migration bootstrap source SHA is invalid")
+    if not re.fullmatch(r"[1-9][0-9]*", run_id) or not re.fullmatch(
+        r"[1-9][0-9]*", run_attempt
+    ):
+        raise ValueError("Migration bootstrap workflow run identity is invalid")
     metadata = {
-        "schema_version": 2,
+        "schema_version": 3,
         "plan_sha256": _sha256(plan),
         "provider_lock_sha256": _sha256(lock),
+        "imports_sha256": _sha256(imports),
         "primary_state": _state_identity(primary_state),
         "bootstrap_state": _state_identity(bootstrap_state),
+        "source_sha": source_sha,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
     }
     output.write_text(json.dumps(metadata, indent=2, sort_keys=True) + "\n", encoding="utf-8")
     return metadata
@@ -222,16 +327,24 @@ def verify_metadata(
     metadata_path: Path,
     plan: Path,
     lock: Path,
+    imports: Path,
     primary_state: Path,
     bootstrap_state: Path,
+    source_sha: str,
+    run_id: str,
+    run_attempt: str,
 ) -> None:
     expected = json.loads(metadata_path.read_text(encoding="utf-8"))
     actual = {
-        "schema_version": 2,
+        "schema_version": 3,
         "plan_sha256": _sha256(plan),
         "provider_lock_sha256": _sha256(lock),
+        "imports_sha256": _sha256(imports),
         "primary_state": _state_identity(primary_state),
         "bootstrap_state": _state_identity(bootstrap_state),
+        "source_sha": source_sha,
+        "run_id": run_id,
+        "run_attempt": run_attempt,
     }
     if actual != expected:
         raise ValueError("migration bootstrap plan/state integrity changed before apply")
@@ -257,14 +370,25 @@ def _parser() -> argparse.ArgumentParser:
         "bootstrap-key",
     ):
         backend.add_argument(f"--{name}", required=True)
+    imports = subparsers.add_parser("write-imports")
+    imports.add_argument("--identity-id", required=True)
+    imports.add_argument("--acr-role-id", required=True)
+    imports.add_argument("--secret-role-id", default="")
+    imports.add_argument("--policy-id", default="")
+    imports.add_argument("--job-id", required=True)
+    imports.add_argument("--output", required=True, type=Path)
     plan = subparsers.add_parser("plan")
     plan.add_argument("--input", required=True, type=Path)
     for command in ("write-metadata", "verify-metadata"):
         metadata = subparsers.add_parser(command)
         metadata.add_argument("--plan", required=True, type=Path)
         metadata.add_argument("--lock", required=True, type=Path)
+        metadata.add_argument("--imports", required=True, type=Path)
         metadata.add_argument("--primary-state", required=True, type=Path)
         metadata.add_argument("--bootstrap-state", required=True, type=Path)
+        metadata.add_argument("--source-sha", required=True)
+        metadata.add_argument("--run-id", required=True)
+        metadata.add_argument("--run-attempt", required=True)
         metadata.add_argument("--metadata", required=True, type=Path)
     return parser
 
@@ -289,6 +413,16 @@ def main() -> int:
             bootstrap=(args.bootstrap_account, args.bootstrap_container, args.bootstrap_key),
         )
         print("Migration bootstrap backend is isolated from the primary state.")
+    elif args.command == "write-imports":
+        count = write_imports(
+            identity_id=args.identity_id,
+            acr_role_id=args.acr_role_id,
+            secret_role_id=args.secret_role_id,
+            policy_id=args.policy_id,
+            job_id=args.job_id,
+            output=args.output,
+        )
+        print(f"Generated {count} reviewed Terraform import blocks.")
     elif args.command == "plan":
         plan = json.loads(args.input.read_text(encoding="utf-8"))
         print(json.dumps(validate_plan(plan), sort_keys=True))
@@ -296,8 +430,12 @@ def main() -> int:
         write_metadata(
             plan=args.plan,
             lock=args.lock,
+            imports=args.imports,
             primary_state=args.primary_state,
             bootstrap_state=args.bootstrap_state,
+            source_sha=args.source_sha,
+            run_id=args.run_id,
+            run_attempt=args.run_attempt,
             output=args.metadata,
         )
     else:
@@ -305,8 +443,12 @@ def main() -> int:
             metadata_path=args.metadata,
             plan=args.plan,
             lock=args.lock,
+            imports=args.imports,
             primary_state=args.primary_state,
             bootstrap_state=args.bootstrap_state,
+            source_sha=args.source_sha,
+            run_id=args.run_id,
+            run_attempt=args.run_attempt,
         )
         print("Migration bootstrap plan and both state identities remain unchanged.")
     return 0

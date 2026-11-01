@@ -127,6 +127,112 @@ def test_backend_requires_separate_account_or_container_not_only_key():
     )
 
 
+def test_write_imports_renders_only_the_reviewed_resource_addresses(tmp_path):
+    subscription = "00000000-0000-0000-0000-000000000000"
+    resource_group = "migration"
+    identity_id = (
+        f"/subscriptions/{subscription}/resourceGroups/{resource_group}/providers/"
+        "Microsoft.ManagedIdentity/userAssignedIdentities/migration-identity"
+    )
+    acr_role_id = (
+        f"/subscriptions/{subscription}/resourceGroups/registry/providers/"
+        "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000000"
+    )
+    secret_role_id = (
+        f"/subscriptions/{subscription}/resourceGroups/vault/providers/"
+        "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000000"
+    )
+    job_id = (
+        f"/subscriptions/{subscription}/resourceGroups/{resource_group}/providers/"
+        "Microsoft.App/jobs/migration-job"
+    )
+    output = tmp_path / "reviewed-imports.auto.tf"
+
+    count = verifier.write_imports(
+        identity_id=identity_id,
+        acr_role_id=acr_role_id,
+        secret_role_id=secret_role_id,
+        policy_id="",
+        job_id=job_id,
+        output=output,
+    )
+
+    content = output.read_text()
+    assert count == 4
+    assert "to = azurerm_user_assigned_identity.database_migration" in content
+    assert "to = azurerm_role_assignment.acr_pull" in content
+    assert "to = azurerm_role_assignment.database_secret_reader[0]" in content
+    assert "to = azurerm_container_app_job.database_migration" in content
+    assert "terraform import" not in content
+    assert identity_id in content
+
+
+def test_write_imports_supports_only_the_access_policy_alternative(tmp_path):
+    subscription = "00000000-0000-0000-0000-000000000000"
+    output = tmp_path / "reviewed-imports.auto.tf"
+    count = verifier.write_imports(
+        identity_id=(
+            f"/subscriptions/{subscription}/resourceGroups/migration/providers/"
+            "Microsoft.ManagedIdentity/userAssignedIdentities/migration-identity"
+        ),
+        acr_role_id=(
+            f"/subscriptions/{subscription}/resourceGroups/registry/providers/"
+            "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000000"
+        ),
+        secret_role_id="",
+        policy_id=(
+            f"/subscriptions/{subscription}/resourceGroups/vault/providers/"
+            "Microsoft.KeyVault/vaults/migration-vault/objectId/"
+            "00000000-0000-0000-0000-000000000000"
+        ),
+        job_id=(
+            f"/subscriptions/{subscription}/resourceGroups/migration/providers/"
+            "Microsoft.App/jobs/migration-job"
+        ),
+        output=output,
+    )
+
+    assert count == 4
+    assert "azurerm_key_vault_access_policy.database_secret_reader[0]" in output.read_text()
+    assert "azurerm_role_assignment.database_secret_reader[0]" not in output.read_text()
+
+
+@pytest.mark.parametrize(
+    ("secret_role_id", "policy_id", "identity_id"),
+    [
+        ("", "", "/subscriptions/<subscription-id>/resourceGroups/r/providers/Microsoft.ManagedIdentity/userAssignedIdentities/i"),
+        (
+            "/subscriptions/<subscription-id>/resourceGroups/r/providers/Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000000",
+            "/subscriptions/<subscription-id>/resourceGroups/r/providers/Microsoft.KeyVault/vaults/v/objectId/00000000-0000-0000-0000-000000000000",
+            "/subscriptions/<subscription-id>/resourceGroups/r/providers/Microsoft.ManagedIdentity/userAssignedIdentities/i",
+        ),
+        (
+            "",
+            "/subscriptions/<subscription-id>/resourceGroups/r/providers/Microsoft.KeyVault/vaults/v/objectId/00000000-0000-0000-0000-000000000000",
+            "/subscriptions/<other-subscription-id>/resourceGroups/r/providers/Microsoft.ManagedIdentity/userAssignedIdentities/i",
+        ),
+    ],
+)
+def test_write_imports_rejects_ambiguous_or_cross_subscription_ids(
+    tmp_path, secret_role_id, policy_id, identity_id,
+):
+    with pytest.raises(ValueError, match="Exactly one|one Azure subscription"):
+        verifier.write_imports(
+            identity_id=identity_id,
+            acr_role_id=(
+                "/subscriptions/<subscription-id>/resourceGroups/r/providers/"
+                "Microsoft.Authorization/roleAssignments/00000000-0000-0000-0000-000000000000"
+            ),
+            secret_role_id=secret_role_id,
+            policy_id=policy_id,
+            job_id=(
+                "/subscriptions/<subscription-id>/resourceGroups/r/providers/"
+                "Microsoft.App/jobs/migration-job"
+            ),
+            output=tmp_path / "imports.tf",
+        )
+
+
 @pytest.mark.parametrize("actions", [["delete"], ["delete", "create"], ["create", "delete"]])
 def test_plan_rejects_delete_and_replace(actions):
     plan = {
@@ -232,26 +338,36 @@ def test_plan_rejects_both_key_vault_authorization_modes():
 def test_plan_metadata_detects_plan_lock_lineage_serial_or_state_hash_change(tmp_path):
     plan = tmp_path / "plan"
     lock = tmp_path / "lock"
+    imports = tmp_path / "imports"
     primary = tmp_path / "primary.json"
     bootstrap = tmp_path / "bootstrap.json"
     metadata = tmp_path / "metadata.json"
     plan.write_bytes(b"plan")
     lock.write_bytes(b"lock")
+    imports.write_text("reviewed imports")
     primary.write_text(json.dumps({"lineage": "primary", "serial": 4}))
     bootstrap.write_text(json.dumps({"lineage": "bootstrap", "serial": 7}))
     verifier.write_metadata(
         plan=plan,
         lock=lock,
+        imports=imports,
         primary_state=primary,
         bootstrap_state=bootstrap,
+        source_sha="a" * 40,
+        run_id="1234",
+        run_attempt="1",
         output=metadata,
     )
     verifier.verify_metadata(
         metadata_path=metadata,
         plan=plan,
         lock=lock,
+        imports=imports,
         primary_state=primary,
         bootstrap_state=bootstrap,
+        source_sha="a" * 40,
+        run_id="1234",
+        run_attempt="1",
     )
 
     bootstrap.write_text(json.dumps({"lineage": "bootstrap", "serial": 8}))
@@ -260,8 +376,12 @@ def test_plan_metadata_detects_plan_lock_lineage_serial_or_state_hash_change(tmp
             metadata_path=metadata,
             plan=plan,
             lock=lock,
+            imports=imports,
             primary_state=primary,
             bootstrap_state=bootstrap,
+            source_sha="a" * 40,
+            run_id="1234",
+            run_attempt="1",
         )
 
 
@@ -273,6 +393,11 @@ def integrity_files(tmp_path):
     }
     files["plan"].write_bytes(b"reviewed binary plan")
     files["lock"].write_bytes(b"reviewed provider lock")
+    files["imports"] = tmp_path / "imports"
+    files["imports"].write_text("reviewed imports")
+    files["source_sha"] = "a" * 40
+    files["run_id"] = "1234"
+    files["run_attempt"] = "1"
     for name in ("primary_state", "bootstrap_state"):
         files[name].write_text(json.dumps({
             "lineage": name,
@@ -288,7 +413,11 @@ def integrity_files(tmp_path):
         }))
     verifier.write_metadata(
         plan=files["plan"], lock=files["lock"],
+        imports=files["imports"],
         primary_state=files["primary_state"], bootstrap_state=files["bootstrap_state"],
+        source_sha=files["source_sha"],
+        run_id=files["run_id"],
+        run_attempt=files["run_attempt"],
         output=files["metadata_path"],
     )
     return files
@@ -330,19 +459,30 @@ def test_canonical_state_digest_still_rejects_real_changes(integrity_files, name
         verifier.verify_metadata(**integrity_files)
 
 
-@pytest.mark.parametrize("name", ["plan", "lock"])
-def test_plan_and_provider_lock_still_use_exact_byte_hashes(integrity_files, name):
+@pytest.mark.parametrize("name", ["plan", "lock", "imports"])
+def test_plan_lock_and_imports_still_use_exact_byte_hashes(integrity_files, name):
     path = integrity_files[name]
     path.write_bytes(path.read_bytes() + b"\n")
     with pytest.raises(ValueError, match="integrity changed"):
         verifier.verify_metadata(**integrity_files)
 
 
+@pytest.mark.parametrize(
+    ("field", "value"),
+    [("source_sha", "b" * 40), ("run_id", "5678"), ("run_attempt", "2")],
+)
+def test_plan_metadata_is_bound_to_exact_workflow_run(integrity_files, field, value):
+    verification = dict(integrity_files)
+    verification[field] = value
+    with pytest.raises(ValueError, match="integrity changed"):
+        verifier.verify_metadata(**verification)
+
+
 def test_canonical_state_metadata_has_distinct_schema_and_rejects_legacy(integrity_files):
     path = integrity_files["metadata_path"]
     metadata = json.loads(path.read_text())
-    assert metadata["schema_version"] == 2
-    metadata["schema_version"] = 1
+    assert metadata["schema_version"] == 3
+    metadata["schema_version"] = 2
     path.write_text(json.dumps(metadata))
     with pytest.raises(ValueError, match="integrity changed"):
         verifier.verify_metadata(**integrity_files)
@@ -366,7 +506,11 @@ def test_raw_json_number_changes_cannot_be_lost_or_collide_with_strings(
     path.write_text(original.replace('"before"', before, 1))
     verifier.write_metadata(
         plan=integrity_files["plan"], lock=integrity_files["lock"],
+        imports=integrity_files["imports"],
         primary_state=path, bootstrap_state=integrity_files["bootstrap_state"],
+        source_sha=integrity_files["source_sha"],
+        run_id=integrity_files["run_id"],
+        run_attempt=integrity_files["run_attempt"],
         output=integrity_files["metadata_path"],
     )
     path.write_text(original.replace('"before"', after, 1))
