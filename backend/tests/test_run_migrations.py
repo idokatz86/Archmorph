@@ -470,6 +470,28 @@ def test_runtime_envelope_dispatches_preflight_as_one_typed_request(monkeypatch)
     )
 
 
+def test_legacy_preflight_dispatches_without_envelope_metadata(monkeypatch):
+    with patch.object(
+        run_migrations,
+        "preflight",
+        return_value={"status": "preflight_succeeded"},
+    ) as preflight:
+        result = run_migrations._execute(
+            run_migrations._parse_args(
+                ["--preflight-only", "--accept-current", "013", "--accept-current", "014"]
+            )
+        )
+
+    assert result == {"status": "preflight_succeeded"}
+    preflight.assert_called_once_with(
+        expected_current="",
+        accepted_current=("013", "014"),
+        bootstrap=False,
+        execution_marker="",
+        image_digest="",
+    )
+
+
 def test_runtime_envelope_dispatches_migration_and_binds_trusted_evidence(monkeypatch):
     digest = "sha256:" + "b" * 64
     envelope = runtime_contract.build_runtime_envelope(

@@ -2333,23 +2333,40 @@ jobs:
             --expected-bootstrap false \
             --execution-marker "$PREFLIGHT_EXECUTION_MARKER" \
             --image-digest "$IMAGE_DIGEST" >/dev/null
-          mapfile -t PREFLIGHT_REPLICAS < <(az containerapp job replica list \
-            --name "$MIGRATION_JOB_NAME" \
+          PREFLIGHT_LOG_ANALYTICS_WORKSPACE_ID=$(az containerapp env show \
+            --name "$CONTAINER_APP_ENV" \
             --resource-group "$AZURE_RESOURCE_GROUP" \
-            --execution "$PREFLIGHT_EXECUTION" \
-            --query '[].name' --output tsv)
-          if [ "${#PREFLIGHT_REPLICAS[@]}" -ne 1 ] || [ -z "${PREFLIGHT_REPLICAS[0]}" ]; then
-            echo "::error::Expected exactly one replica for the exact database preflight execution"
+            --query properties.appLogsConfiguration.logAnalyticsConfiguration.customerId \
+            --output tsv)
+          if [ -z "$PREFLIGHT_LOG_ANALYTICS_WORKSPACE_ID" ]; then
+            echo "::error::Container Apps environment has no Log Analytics workspace for preflight evidence"
             exit 1
           fi
-          az containerapp job logs show \
-            --name "$MIGRATION_JOB_NAME" \
-            --resource-group "$AZURE_RESOURCE_GROUP" \
-            --execution "$PREFLIGHT_EXECUTION" \
-            --replica "${PREFLIGHT_REPLICAS[0]}" \
-            --container migrate \
-            --tail 200 \
-            --format json > preflight-execution-logs.json
+          PREFLIGHT_LOG_QUERY=$(cat <<KQL
+          ContainerAppConsoleLogs_CL
+          | where TimeGenerated > ago(30m)
+          | where Log_s contains "ARCHMORPH_MIGRATION_PREFLIGHT_EVIDENCE="
+          | where Log_s contains "$PREFLIGHT_EXECUTION_MARKER"
+          | project Log_s
+          | order by TimeGenerated asc
+          | take 20
+          KQL
+          )
+          for attempt in $(seq 1 30); do
+            az monitor log-analytics query \
+              --workspace "$PREFLIGHT_LOG_ANALYTICS_WORKSPACE_ID" \
+              --analytics-query "$PREFLIGHT_LOG_QUERY" \
+              --output json > preflight-execution-logs.json
+            if jq -e '[(.tables[]?.rows[]?)] | length > 0' \
+              preflight-execution-logs.json >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "::error::Timed out waiting for exact preflight execution evidence in Log Analytics"
+              exit 1
+            fi
+            sleep 10
+          done
           python backend/verify_migration_preflight.py \
             --input preflight-execution-logs.json \
             --execution-marker "$PREFLIGHT_EXECUTION_MARKER" \

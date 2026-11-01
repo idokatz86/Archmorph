@@ -436,8 +436,8 @@ def _execute(arguments: argparse.Namespace) -> dict[str, object]:
             expected_current=str(request.get("expected_current") or ""),
             accepted_current=tuple(request["accept_current"]),
             bootstrap=bool(request["bootstrap"]),
-            execution_marker=str(request["execution_marker"]),
-            image_digest=str(request["image_digest"]),
+            execution_marker=str(request.get("execution_marker") or ""),
+            image_digest=str(request.get("image_digest") or ""),
         )
     return run(
         expected_head=str(request["expected_head"]),

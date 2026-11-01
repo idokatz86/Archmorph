@@ -42,6 +42,27 @@ def test_verifies_exact_preflight_evidence_from_json_container_logs():
     ) == "014"
 
 
+def test_verifies_preflight_evidence_from_log_analytics_rows():
+    raw_logs = json.dumps(
+        {
+            "tables": [
+                {
+                    "rows": [
+                        [_log(revision="014")],
+                    ]
+                }
+            ]
+        }
+    )
+
+    assert verify_preflight_logs(
+        raw_logs,
+        execution_marker=EXECUTION_MARKER,
+        image_digest=IMAGE_DIGEST,
+        accepted_revisions=ACCEPTED_REVISIONS,
+    ) == "014"
+
+
 def test_cli_writes_only_the_verified_revision_to_github_output(tmp_path):
     log_path = tmp_path / "preflight.json"
     output_path = tmp_path / "github-output"
@@ -77,6 +98,13 @@ def test_rejects_missing_or_ambiguous_evidence():
     with pytest.raises(ValueError, match="exactly one"):
         verify_preflight_logs(
             f"{_log()}\n{_log()}",
+            execution_marker=EXECUTION_MARKER,
+            image_digest=IMAGE_DIGEST,
+            accepted_revisions=ACCEPTED_REVISIONS,
+        )
+    with pytest.raises(ValueError, match="exactly one"):
+        verify_preflight_logs(
+            json.dumps({"logs": [{"log": f"{_log()}\n{_log()}"}]}),
             execution_marker=EXECUTION_MARKER,
             image_digest=IMAGE_DIGEST,
             accepted_revisions=ACCEPTED_REVISIONS,

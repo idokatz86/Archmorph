@@ -275,9 +275,14 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert "validate-container-args" in preflight
     assert "Same-identity database preflight failed" in preflight
     assert "Same-identity database preflight timed out" in preflight
-    assert "job replica list" in preflight
-    assert "job logs show" in preflight
-    assert '--execution "$PREFLIGHT_EXECUTION"' in preflight
+    assert "appLogsConfiguration.logAnalyticsConfiguration.customerId" in preflight
+    assert "az monitor log-analytics query" in preflight
+    assert "ContainerAppConsoleLogs_CL" in preflight
+    assert '"$PREFLIGHT_EXECUTION_MARKER"' in preflight
+    assert "seq 1 30" in preflight
+    assert "Timed out waiting for exact preflight execution evidence" in preflight
+    assert "job replica list" not in preflight
+    assert "job logs show" not in preflight
     assert 'verify_migration_preflight.py' in preflight
     assert '--execution-marker "$PREFLIGHT_EXECUTION_MARKER"' in preflight
     assert '--image-digest "$IMAGE_DIGEST"' in preflight
@@ -1173,7 +1178,7 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
     )["run"]
     assert "--accept-current 013" in detect
     assert "verify_migration_preflight.py" in detect
-    assert "job logs show" in detect
+    assert "az monitor log-analytics query" in detect
     assert "/api/schema-compatibility" not in detect
     assert "Stage signed bridge reuse script" not in names
     assert "reuse-signed-bridge.sh" not in CI_WORKFLOW.read_text(encoding="utf-8")

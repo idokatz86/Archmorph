@@ -43,15 +43,17 @@ def _evidence_objects(raw_logs: str) -> list[dict[str, Any]]:
     for line in _log_strings(raw_logs):
         start = 0
         while (position := line.find(EVIDENCE_PREFIX, start)) >= 0:
-            payload = line[position + len(EVIDENCE_PREFIX) :].lstrip()
+            raw_payload = line[position + len(EVIDENCE_PREFIX) :]
+            payload = raw_payload.lstrip()
+            leading_whitespace = len(raw_payload) - len(payload)
             try:
-                record, _ = decoder.raw_decode(payload)
+                record, consumed = decoder.raw_decode(payload)
             except json.JSONDecodeError as error:
                 raise ValueError("preflight log contains malformed evidence") from error
             if not isinstance(record, dict):
                 raise ValueError("preflight evidence must be a JSON object")
             evidence.append(record)
-            start = position + len(EVIDENCE_PREFIX) + len(payload)
+            start = position + len(EVIDENCE_PREFIX) + leading_whitespace + consumed
     return evidence
 
 

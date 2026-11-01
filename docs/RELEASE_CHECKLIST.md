@@ -104,6 +104,10 @@ The `CI/CD` workflow must pass before release:
   full environment identity and private-network subnet. Any existing dedicated
   migration identity retains its region; a stale environment setting must not
   trigger identity replacement or public Key Vault access.
+  Schema discovery reads the exact run-attempt marker and immutable image-bound
+  preflight record from the environment's durable Log Analytics console logs,
+  with bounded ingestion retries. Missing, duplicate, stale, or unsupported
+  evidence fails closed without depending on replica retention.
 - `deploy-frontend`: runs only after backend success, deploys the tested artifact, verifies routed pages, and restores the prior successful artifact on failure.
 	On the first bridge rollout only, no previous complete artifact contract may
 	exist; failure remains release-blocking and the bridge keeps the API compatible
