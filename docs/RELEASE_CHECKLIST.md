@@ -152,10 +152,16 @@ After deployment, verify:
 	artifact/decision reads through transaction-read-only, tenant-scoped SQL.
 	Writes, effectful or unclassified GETs, and unsupported parameters return a
 	retryable maintenance response; every bridge response is `no-store`.
-- Confirm `PRODUCTION_RUNNER_LABELS` selects a reviewed GitHub-hosted runner with
-  private DNS/network reachability to rollout-coordination and application
-  storage private endpoints. Missing runner/network configuration blocks release;
-  public Blob access is never enabled as a deployment fallback.
+- Confirm `PRODUCTION_RUNNER_LABELS` selects the reviewed, dedicated Azure
+  private-network runner (`self-hosted`, `Linux`, `X64`,
+  `archmorph-production-private`) with private DNS/network reachability to
+  rollout-coordination and application storage endpoints. This is an
+  operator-started, ephemeral self-hosted runner, not a GitHub-hosted runner:
+  start the deallocated VM and register it with a short-lived registration
+  token through protected parameters only for an explicitly authorized job.
+  After the job, deregister it, remove the temporary Run Command resource, and
+  deallocate the VM. Missing runner/network configuration blocks release; public
+  Blob access is never enabled as a deployment fallback.
 - Confirm the same-identity migration preflight succeeded with one validated
 	canonical JSON runtime envelope accepting revision `013` and the reviewed
 	target before Alembic ran.
