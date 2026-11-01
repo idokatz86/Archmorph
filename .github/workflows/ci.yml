@@ -5,6 +5,13 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+  workflow_dispatch:
+    inputs:
+      confirm_production_deploy:
+        description: Confirm that this main-branch run may deploy to production
+        required: true
+        type: boolean
+        default: false
 
 # Default-deny write capabilities; individual release jobs grant only what they use.
 permissions:
@@ -761,7 +768,7 @@ jobs:
     needs: [backend-tests, rollout-contracts, frontend-build, openapi-client-drift, iac-validate, alembic-migration-smoke, terraform-config-validate, terraform-policy-as-code]
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_production_deploy
     permissions:
       contents: read
       packages: write
@@ -1025,7 +1032,7 @@ jobs:
     needs: [build-backend-release]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_production_deploy
     permissions:
       actions: read
       contents: read
@@ -1123,7 +1130,7 @@ jobs:
     needs: [build-backend-release, scan-backend-release]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_production_deploy
     permissions:
       actions: read
       attestations: write
@@ -1210,7 +1217,7 @@ jobs:
     needs: [backend-tests, rollout-contracts, frontend-build, openapi-client-drift, iac-validate, alembic-migration-smoke, terraform-config-validate, terraform-policy-as-code, attest-backend-release]
     runs-on: ${{ fromJSON(vars.PRODUCTION_RUNNER_LABELS) }}
     timeout-minutes: 45
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_production_deploy
     environment: production
     permissions:
       actions: read
@@ -2326,14 +2333,47 @@ jobs:
             --expected-bootstrap false \
             --execution-marker "$PREFLIGHT_EXECUTION_MARKER" \
             --image-digest "$IMAGE_DIGEST" >/dev/null
-          curl -fsS --max-time 30 "${API_URL%/api}/api/schema-compatibility" \
-            -o current-schema-compatibility.json
-          CURRENT_SCHEMA=$(jq -er '.current_revision' current-schema-compatibility.json)
-          if [ "$CURRENT_SCHEMA" != "013" ] && [ "$CURRENT_SCHEMA" != "$EXPECTED_ALEMBIC_HEAD" ]; then
-            echo "::error::Production schema is outside the reviewed 013-to-${EXPECTED_ALEMBIC_HEAD} rollout"
+          PREFLIGHT_LOG_ANALYTICS_WORKSPACE_ID=$(az containerapp env show \
+            --name "$CONTAINER_APP_ENV" \
+            --resource-group "$AZURE_RESOURCE_GROUP" \
+            --query properties.appLogsConfiguration.logAnalyticsConfiguration.customerId \
+            --output tsv)
+          if [ -z "$PREFLIGHT_LOG_ANALYTICS_WORKSPACE_ID" ]; then
+            echo "::error::Container Apps environment has no Log Analytics workspace for preflight evidence"
             exit 1
           fi
-          echo "revision=$CURRENT_SCHEMA" >> "$GITHUB_OUTPUT"
+          PREFLIGHT_LOG_QUERY=$(cat <<KQL
+          ContainerAppConsoleLogs_CL
+          | where TimeGenerated > ago(30m)
+          | where Log_s contains "ARCHMORPH_MIGRATION_PREFLIGHT_EVIDENCE="
+          | where Log_s contains "$PREFLIGHT_EXECUTION_MARKER"
+          | order by TimeGenerated asc
+          | project Log_s
+          | take 20
+          KQL
+          )
+          for attempt in $(seq 1 30); do
+            az monitor log-analytics query \
+              --workspace "$PREFLIGHT_LOG_ANALYTICS_WORKSPACE_ID" \
+              --analytics-query "$PREFLIGHT_LOG_QUERY" \
+              --output json > preflight-execution-logs.json
+            if jq -e '[(.tables[]?.rows[]?)] | length > 0' \
+              preflight-execution-logs.json >/dev/null; then
+              break
+            fi
+            if [ "$attempt" -eq 30 ]; then
+              echo "::error::Timed out waiting for exact preflight execution evidence in Log Analytics"
+              exit 1
+            fi
+            sleep 10
+          done
+          python backend/verify_migration_preflight.py \
+            --input preflight-execution-logs.json \
+            --execution-marker "$PREFLIGHT_EXECUTION_MARKER" \
+            --image-digest "$IMAGE_DIGEST" \
+            --accepted-revision 013 \
+            --accepted-revision "$EXPECTED_ALEMBIC_HEAD" \
+            --github-output "$GITHUB_OUTPUT"
 
       - name: Create branch-specific rollout state
         id: rollout_state
@@ -4375,7 +4415,7 @@ jobs:
     needs: [deploy-backend, frontend-build]
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_production_deploy
     environment: production
     steps:
       - name: Confirm serialized frontend deployment completed
@@ -4388,7 +4428,7 @@ jobs:
     needs: [deploy-backend, deploy-frontend]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_production_deploy
     environment: production
     steps:
       - uses: actions/checkout@v7
@@ -4402,7 +4442,7 @@ jobs:
 
   production-browser-synthetic-gate:
     needs: [post-deploy-smoke]
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && github.event_name == 'workflow_dispatch' && inputs.confirm_production_deploy
     permissions:
       contents: read
       issues: write

@@ -76,6 +76,31 @@ def test_migration_preflight_resolves_connection_selects_one_and_checks_schema(m
     engine.dispose.assert_called_once_with()
 
 
+def test_migration_preflight_evidence_binds_execution_and_immutable_image(monkeypatch):
+    image_digest = "sha256:" + "a" * 64
+    monkeypatch.setenv(
+        "MIGRATION_IMAGE_REFERENCE",
+        f"registry.example.invalid/api@{image_digest}",
+    )
+    monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
+    engine, connection = _engine_and_connection()
+    connection.execute.side_effect = [
+        MagicMock(scalar_one=MagicMock(return_value=1)),
+        MagicMock(scalars=MagicMock(return_value=("014",))),
+    ]
+
+    with patch.object(run_migrations, "create_engine", return_value=engine):
+        evidence = run_migrations.preflight(
+            accepted_current=("013", "014"),
+            execution_marker="preflight-12345-1",
+            image_digest=image_digest,
+        )
+
+    assert evidence["execution_marker"] == "preflight-12345-1"
+    assert evidence["image_digest"] == image_digest
+    assert evidence["image_reference"].endswith(f"@{image_digest}")
+
+
 def test_migration_preflight_fails_closed_on_data_plane_or_schema_mismatch(monkeypatch):
     monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
     engine, connection = _engine_and_connection()
@@ -440,6 +465,30 @@ def test_runtime_envelope_dispatches_preflight_as_one_typed_request(monkeypatch)
         expected_current="",
         accepted_current=("013", "014"),
         bootstrap=False,
+        execution_marker="preflight-123-1",
+        image_digest=digest,
+    )
+
+
+def test_legacy_preflight_dispatches_without_envelope_metadata(monkeypatch):
+    with patch.object(
+        run_migrations,
+        "preflight",
+        return_value={"status": "preflight_succeeded"},
+    ) as preflight:
+        result = run_migrations._execute(
+            run_migrations._parse_args(
+                ["--preflight-only", "--accept-current", "013", "--accept-current", "014"]
+            )
+        )
+
+    assert result == {"status": "preflight_succeeded"}
+    preflight.assert_called_once_with(
+        expected_current="",
+        accepted_current=("013", "014"),
+        bootstrap=False,
+        execution_marker="",
+        image_digest="",
     )
 
 

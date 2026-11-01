@@ -55,6 +55,29 @@ def _terraform_alert_block(terraform: str, resource_name: str) -> str:
     raise AssertionError(f"Unterminated Terraform alert resource {resource_name}")
 
 
+def test_ci_production_deploy_requires_explicit_manual_confirmation():
+    workflow = _load(CI_WORKFLOW)
+    dispatch = workflow[True]["workflow_dispatch"]
+    confirmation = dispatch["inputs"]["confirm_production_deploy"]
+
+    assert confirmation["type"] == "boolean"
+    assert confirmation["required"] is True
+    assert confirmation["default"] is False
+    for job_name in (
+        "build-backend-release",
+        "scan-backend-release",
+        "attest-backend-release",
+        "deploy-backend",
+        "deploy-frontend",
+        "post-deploy-smoke",
+        "production-browser-synthetic-gate",
+    ):
+        condition = workflow["jobs"][job_name]["if"]
+        assert "github.event_name == 'workflow_dispatch'" in condition
+        assert "inputs.confirm_production_deploy" in condition
+        assert "github.ref == 'refs/heads/main'" in condition
+
+
 def test_ci_includes_pgvector_empty_schema_structural_migration_cycle():
     workflow = _load(CI_WORKFLOW)
     job = workflow["jobs"]["alembic-migration-smoke"]
@@ -252,8 +275,19 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert "validate-container-args" in preflight
     assert "Same-identity database preflight failed" in preflight
     assert "Same-identity database preflight timed out" in preflight
-    assert "/api/schema-compatibility" in preflight
-    assert "current-schema-compatibility.json" in preflight
+    assert "appLogsConfiguration.logAnalyticsConfiguration.customerId" in preflight
+    assert "az monitor log-analytics query" in preflight
+    assert "ContainerAppConsoleLogs_CL" in preflight
+    assert '"$PREFLIGHT_EXECUTION_MARKER"' in preflight
+    assert preflight.index("| order by TimeGenerated asc") < preflight.index("| project Log_s")
+    assert "seq 1 30" in preflight
+    assert "Timed out waiting for exact preflight execution evidence" in preflight
+    assert "job replica list" not in preflight
+    assert "job logs show" not in preflight
+    assert 'verify_migration_preflight.py' in preflight
+    assert '--execution-marker "$PREFLIGHT_EXECUTION_MARKER"' in preflight
+    assert '--image-digest "$IMAGE_DIGEST"' in preflight
+    assert "/api/schema-compatibility" not in preflight
 
     assert "az containerapp logs show" not in migration
     for event in (
@@ -1144,7 +1178,9 @@ def test_rollout_captures_exact_traffic_bridges_first_and_restores_post_shift_fa
         "Route production to verified bridge before migration",
     )["run"]
     assert "--accept-current 013" in detect
-    assert "/api/schema-compatibility" in detect
+    assert "verify_migration_preflight.py" in detect
+    assert "az monitor log-analytics query" in detect
+    assert "/api/schema-compatibility" not in detect
     assert "Stage signed bridge reuse script" not in names
     assert "reuse-signed-bridge.sh" not in CI_WORKFLOW.read_text(encoding="utf-8")
     assert "BRIDGE_REVISION=" in resolve

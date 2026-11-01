@@ -76,6 +76,11 @@ The backend must start with PostgreSQL, Redis, `ENFORCE_POSTGRES=true`, and `REQ
 
 The `CI/CD` workflow must pass before release:
 
+- Production deployment is manual: dispatch `CI/CD` from protected `main` and
+  set `confirm_production_deploy` to `true` only for the reviewed source SHA.
+  Pushes to `main` run CI only; they do not publish release images or start
+  production mutation jobs. The confirmed dispatch runs the hosted
+  build/scan/attestation and production release stages.
 - Release-monitoring resources must already be provisioned by an explicitly
   approved [isolated monitoring plan](../infra/release-monitoring/README.md).
   The six output IDs come from that root, not the primary state; absence or drift
@@ -99,6 +104,10 @@ The `CI/CD` workflow must pass before release:
   full environment identity and private-network subnet. Any existing dedicated
   migration identity retains its region; a stale environment setting must not
   trigger identity replacement or public Key Vault access.
+  Schema discovery reads the exact run-attempt marker and immutable image-bound
+  preflight record from the environment's durable Log Analytics console logs,
+  with bounded ingestion retries. Missing, duplicate, stale, or unsupported
+  evidence fails closed without depending on replica retention.
 - `deploy-frontend`: runs only after backend success, deploys the tested artifact, verifies routed pages, and restores the prior successful artifact on failure.
 	On the first bridge rollout only, no previous complete artifact contract may
 	exist; failure remains release-blocking and the bridge keeps the API compatible
