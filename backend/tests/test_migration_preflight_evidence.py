@@ -6,7 +6,7 @@ from verify_migration_preflight import main, verify_preflight_logs
 
 
 IMAGE_DIGEST = "sha256:" + "a" * 64
-IMAGE_REFERENCE = f"archmorph.azurecr.io/api@{IMAGE_DIGEST}"
+IMAGE_REFERENCE = f"registry.example.invalid/api@{IMAGE_DIGEST}"
 EXECUTION_MARKER = "preflight-12345-1"
 ACCEPTED_REVISIONS = ("013", "014")
 
@@ -91,7 +91,7 @@ def test_rejects_missing_or_ambiguous_evidence():
         ({"image_digest": "sha256:" + "b" * 64}, "another image"),
         ({"current_revision": "012"}, "unsupported schema"),
         ({"accepted_revisions": ["012", "014"]}, "unexpected schema allow-list"),
-        ({"image_reference": "archmorph.azurecr.io/api:latest"}, "does not match"),
+        ({"image_reference": "registry.example.invalid/api:latest"}, "does not match"),
     ],
 )
 def test_rejects_stale_or_out_of_contract_preflight_evidence(overrides, message):

@@ -80,7 +80,7 @@ def test_migration_preflight_evidence_binds_execution_and_immutable_image(monkey
     image_digest = "sha256:" + "a" * 64
     monkeypatch.setenv(
         "MIGRATION_IMAGE_REFERENCE",
-        f"archmorph.azurecr.io/api@{image_digest}",
+        f"registry.example.invalid/api@{image_digest}",
     )
     monkeypatch.setenv("DATABASE_URL", "postgresql://example.invalid/archmorph")
     engine, connection = _engine_and_connection()
