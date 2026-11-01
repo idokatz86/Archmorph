@@ -81,8 +81,15 @@ Private deployment configuration must supply a distinct
 Secret name, and existing prerequisite names. Do not publish their concrete
 values. It must also supply the rollout coordination account/container,
 release-automation and priority-only principal object IDs, and
-`PRODUCTION_RUNNER_LABELS` for a
-reviewed GitHub-hosted runner with private endpoint reachability. Public storage
+`PRODUCTION_RUNNER_LABELS` for the reviewed, dedicated Azure private-network
+runner (`self-hosted`, `Linux`, `X64`, `archmorph-production-private`) with
+private endpoint reachability. This is an operator-started ephemeral
+self-hosted runner, not a GitHub-hosted runner. Start the normally deallocated
+VM and register it with a short-lived GitHub registration token supplied only
+through protected parameters for an explicitly authorized job. After the job,
+deregister the runner, remove the temporary Run Command resource, and
+deallocate the VM. A missing runner blocks deployment; do not fall back to a
+public runner or public storage access. Public storage
 network access has no CI cutover override and fails closed. Before traffic shift, failures leave the routed bridge unchanged. After
 shift, any routed verification failure restores and verifies the exact prior
 manifest, captures diagnostics, and fails. No live apply is required locally.
