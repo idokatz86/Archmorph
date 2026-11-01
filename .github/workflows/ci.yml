@@ -2347,8 +2347,8 @@ jobs:
           | where TimeGenerated > ago(30m)
           | where Log_s contains "ARCHMORPH_MIGRATION_PREFLIGHT_EVIDENCE="
           | where Log_s contains "$PREFLIGHT_EXECUTION_MARKER"
-          | project Log_s
           | order by TimeGenerated asc
+          | project Log_s
           | take 20
           KQL
           )

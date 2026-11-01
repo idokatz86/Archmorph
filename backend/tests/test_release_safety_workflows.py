@@ -279,6 +279,7 @@ def test_backend_deploy_runs_isolated_bootstrap_and_exact_head_migration_before_
     assert "az monitor log-analytics query" in preflight
     assert "ContainerAppConsoleLogs_CL" in preflight
     assert '"$PREFLIGHT_EXECUTION_MARKER"' in preflight
+    assert preflight.index("| order by TimeGenerated asc") < preflight.index("| project Log_s")
     assert "seq 1 30" in preflight
     assert "Timed out waiting for exact preflight execution evidence" in preflight
     assert "job replica list" not in preflight
