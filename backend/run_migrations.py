@@ -187,6 +187,8 @@ def preflight(
     expected_current: str = "",
     accepted_current: tuple[str, ...] = (),
     bootstrap: bool = False,
+    execution_marker: str = "",
+    image_digest: str = "",
 ) -> dict[str, object]:
     """Prove the Job identity can resolve the secret and query the live schema."""
     accepted = accepted_current or ((expected_current,) if expected_current else ())
@@ -216,11 +218,17 @@ def preflight(
         raise RuntimeError(
             "Database preflight failed the SELECT 1 or exact schema contract"
         )
+    image_reference = os.environ.get("MIGRATION_IMAGE_REFERENCE", "unknown")
+    if image_digest and image_reference.rpartition("@")[2] != image_digest:
+        raise RuntimeError("Preflight image digest does not match the deployed migration image")
+
     evidence = {
         "status": "preflight_succeeded",
         "current_revision": current_revision or "empty",
         "accepted_revisions": list(accepted),
-        "image_reference": os.environ.get("MIGRATION_IMAGE_REFERENCE", "unknown"),
+        "image_reference": image_reference,
+        "execution_marker": execution_marker,
+        "image_digest": image_digest,
     }
     logger.info(
         "Database secret, SELECT 1, and schema contract verified at revision %s",
@@ -428,6 +436,8 @@ def _execute(arguments: argparse.Namespace) -> dict[str, object]:
             expected_current=str(request.get("expected_current") or ""),
             accepted_current=tuple(request["accept_current"]),
             bootstrap=bool(request["bootstrap"]),
+            execution_marker=str(request["execution_marker"]),
+            image_digest=str(request["image_digest"]),
         )
     return run(
         expected_head=str(request["expected_head"]),

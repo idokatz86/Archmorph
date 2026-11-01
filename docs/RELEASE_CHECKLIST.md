@@ -76,6 +76,11 @@ The backend must start with PostgreSQL, Redis, `ENFORCE_POSTGRES=true`, and `REQ
 
 The `CI/CD` workflow must pass before release:
 
+- Production deployment is manual: dispatch `CI/CD` from protected `main` and
+  set `confirm_production_deploy` to `true` only for the reviewed source SHA.
+  Pushes to `main` run CI only; they do not publish release images or start
+  production mutation jobs. The confirmed dispatch runs the hosted
+  build/scan/attestation and production release stages.
 - Release-monitoring resources must already be provisioned by an explicitly
   approved [isolated monitoring plan](../infra/release-monitoring/README.md).
   The six output IDs come from that root, not the primary state; absence or drift
