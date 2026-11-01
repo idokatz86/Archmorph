@@ -51,7 +51,7 @@ CROSS_CLOUD_MAPPINGS = [
     {"aws": "DocumentDB", "azure": "Cosmos DB (MongoDB API)", "gcp": "Firestore", "category": "Database", "confidence": 0.85, "notes": "Document database", "last_reviewed": "2026-05-03"},
     {"aws": "Keyspaces", "azure": "Cosmos DB (Cassandra)", "gcp": "Bigtable", "category": "Database", "confidence": 0.80, "notes": "Wide-column NoSQL database", "last_reviewed": "2026-05-03"},
     {"aws": "Timestream", "azure": "Time Series Insights / Data Explorer", "gcp": "BigQuery (time series)", "category": "Database", "confidence": 0.80, "notes": "Time series database", "last_reviewed": "2026-05-03"},
-    {"aws": "QLDB", "azure": "Confidential Ledger", "gcp": "No direct managed equivalent", "category": "Database", "confidence": 0.75, "notes": "Azure Confidential Ledger is a partial analogue for tamper-evident append-only records; Cloud Spanner is not an immutable ledger.", "last_reviewed": "2026-11-01"},
+    {"aws": "QLDB", "azure": "Confidential Ledger", "gcp": "No direct managed equivalent", "category": "Database", "confidence": 0.75, "notes": "AWS's QLDB product page now redirects to Aurora; treat this as a legacy/migration mapping. Azure Confidential Ledger is a partial analogue; Cloud Spanner is not an immutable ledger.", "last_reviewed": "2026-11-01"},
     {"aws": "MemoryDB", "azure": "Cache for Redis (Enterprise)", "gcp": "Memorystore (Redis Cluster)", "category": "Database", "confidence": 0.85, "notes": "In-memory database", "last_reviewed": "2026-05-03"},
     {"aws": "DMS", "azure": "Database Migration Service", "gcp": "Database Migration Service", "category": "Database", "confidence": 0.90, "notes": "Database migration tooling", "last_reviewed": "2026-05-03"},
 
