@@ -51,7 +51,7 @@ CROSS_CLOUD_MAPPINGS = [
     {"aws": "DocumentDB", "azure": "Cosmos DB (MongoDB API)", "gcp": "Firestore", "category": "Database", "confidence": 0.85, "notes": "Document database", "last_reviewed": "2026-05-03"},
     {"aws": "Keyspaces", "azure": "Cosmos DB (Cassandra)", "gcp": "Bigtable", "category": "Database", "confidence": 0.80, "notes": "Wide-column NoSQL database", "last_reviewed": "2026-05-03"},
     {"aws": "Timestream", "azure": "Time Series Insights / Data Explorer", "gcp": "BigQuery (time series)", "category": "Database", "confidence": 0.80, "notes": "Time series database", "last_reviewed": "2026-05-03"},
-    {"aws": "QLDB", "azure": "Confidential Ledger", "gcp": "Cloud Spanner (immutable)", "category": "Database", "confidence": 0.75, "notes": "Ledger/immutable database — limited equivalents", "last_reviewed": "2026-05-03"},
+    {"aws": "QLDB", "azure": "Confidential Ledger", "gcp": "No direct managed equivalent", "category": "Database", "confidence": 0.75, "notes": "Azure Confidential Ledger is a partial analogue for tamper-evident append-only records; Cloud Spanner is not an immutable ledger.", "last_reviewed": "2026-11-01"},
     {"aws": "MemoryDB", "azure": "Cache for Redis (Enterprise)", "gcp": "Memorystore (Redis Cluster)", "category": "Database", "confidence": 0.85, "notes": "In-memory database", "last_reviewed": "2026-05-03"},
     {"aws": "DMS", "azure": "Database Migration Service", "gcp": "Database Migration Service", "category": "Database", "confidence": 0.90, "notes": "Database migration tooling", "last_reviewed": "2026-05-03"},
 
@@ -138,7 +138,7 @@ CROSS_CLOUD_MAPPINGS = [
     {"aws": "EventBridge", "azure": "Event Grid", "gcp": "Eventarc", "category": "Integration", "confidence": 0.90, "notes": "Serverless event bus", "last_reviewed": "2026-05-03"},
     {"aws": "Step Functions", "azure": "Logic Apps", "gcp": "Workflows", "category": "Integration", "confidence": 0.85, "notes": "Workflow orchestration", "last_reviewed": "2026-05-03"},
     {"aws": "Amazon MQ", "azure": "Service Bus (Premium)", "gcp": "Pub/Sub", "category": "Integration", "confidence": 0.80, "notes": "Managed message broker", "last_reviewed": "2026-05-03"},
-    {"aws": "AppSync", "azure": "API Apps (with GraphQL)", "gcp": "Apigee (GraphQL)", "category": "Integration", "confidence": 0.75, "notes": "GraphQL APIs — different maturity levels", "last_reviewed": "2026-05-03"},
+    {"aws": "AppSync", "azure": "API Management (GraphQL)", "gcp": "Apigee (GraphQL proxy)", "category": "Integration", "confidence": 0.75, "notes": "GraphQL overlap, not a 1:1 service: API Management supports pass-through and synthetic schemas with resolvers; Apigee is an API proxy, unlike AppSync's integrated serverless data/API features.", "last_reviewed": "2026-11-01"},
 
     # ═══════════════════════════════════════════════════════════
     # DEVELOPER TOOLS
@@ -169,19 +169,19 @@ CROSS_CLOUD_MAPPINGS = [
     # ═══════════════════════════════════════════════════════════
     # IOT
     # ═══════════════════════════════════════════════════════════
-    {"aws": "IoT Core", "azure": "IoT Hub", "gcp": "Cloud IoT Core", "category": "IoT", "confidence": 0.90, "notes": "IoT device connectivity and management", "last_reviewed": "2026-05-03"},
+    {"aws": "IoT Core", "azure": "IoT Hub", "gcp": "Pub/Sub + partner device platform", "category": "IoT", "confidence": 0.90, "notes": "IoT device connectivity and management; Google Cloud's Pub/Sub is a messaging backend, not a managed device-connectivity service.", "last_reviewed": "2026-11-01"},
     {"aws": "IoT Greengrass", "azure": "IoT Edge", "gcp": "Anthos (edge)", "category": "IoT", "confidence": 0.85, "notes": "Edge computing for IoT", "last_reviewed": "2026-05-03"},
     {"aws": "IoT Analytics", "azure": "Time Series Insights / Stream Analytics", "gcp": "BigQuery (IoT data)", "category": "IoT", "confidence": 0.80, "notes": "IoT data analytics", "last_reviewed": "2026-05-03"},
-    {"aws": "IoT SiteWise", "azure": "IoT Hub + Digital Twins", "gcp": "Cloud IoT + Dataflow", "category": "IoT", "confidence": 0.75, "notes": "Industrial IoT", "last_reviewed": "2026-05-03"},
+    {"aws": "IoT SiteWise", "azure": "IoT Operations + Digital Twins", "gcp": "Pub/Sub + Dataflow + BigQuery (custom asset model)", "category": "IoT", "confidence": 0.75, "notes": "Industrial edge ingestion, asset modeling, and analytics span multiple services; neither cloud target is a drop-in equivalent to SiteWise.", "last_reviewed": "2026-11-01"},
     {"aws": "IoT TwinMaker", "azure": "Digital Twins", "gcp": "Supply Chain Twin (limited)", "category": "IoT", "confidence": 0.80, "notes": "Digital twin modeling", "last_reviewed": "2026-05-03"},
-    {"aws": "IoT FleetWise", "azure": "IoT Hub + Stream Analytics", "gcp": "Cloud IoT + Pub/Sub", "category": "IoT", "confidence": 0.70, "notes": "Vehicle data — AWS-specific, limited equivalents", "last_reviewed": "2026-05-03"},
+    {"aws": "IoT FleetWise", "azure": "IoT Hub / IoT Operations (custom vehicle pipeline)", "gcp": "Pub/Sub + Dataflow (custom vehicle pipeline)", "category": "IoT", "confidence": 0.70, "notes": "No direct managed vehicle-signal modeling/decoder equivalent; these require custom pipelines. AWS IoT FleetWise is no longer open to new customers.", "last_reviewed": "2026-11-01"},
 
     # ═══════════════════════════════════════════════════════════
     # MEDIA
     # ═══════════════════════════════════════════════════════════
     {"aws": "MediaConvert", "azure": "Media Services (encoding)", "gcp": "Transcoder API", "category": "Media", "confidence": 0.90, "notes": "Video transcoding", "last_reviewed": "2026-05-03"},
     {"aws": "MediaLive", "azure": "Media Services (live)", "gcp": "Live Stream API", "category": "Media", "confidence": 0.85, "notes": "Live video processing", "last_reviewed": "2026-05-03"},
-    {"aws": "IVS", "azure": "Communication Services", "gcp": "Live Stream API", "category": "Media", "confidence": 0.75, "notes": "Interactive live streaming", "last_reviewed": "2026-05-03"},
+    {"aws": "IVS", "azure": "Communication Services Calling (not broadcast streaming)", "gcp": "Live Stream API (broadcast)", "category": "Media", "confidence": 0.75, "notes": "IVS combines low-latency one-to-many streaming with real-time stages; Azure Communication Services supports interactive calls, not an equivalent managed broadcast service.", "last_reviewed": "2026-11-01"},
 
     # ═══════════════════════════════════════════════════════════
     # MIGRATION
@@ -195,14 +195,14 @@ CROSS_CLOUD_MAPPINGS = [
     {"aws": "SES", "azure": "Email Communication", "gcp": "Google Workspace (Gmail API)", "category": "Business", "confidence": 0.80, "notes": "Email sending service", "last_reviewed": "2026-05-03"},
     {"aws": "Connect", "azure": "Dynamics 365 Contact Center", "gcp": "Contact Center AI", "category": "Business", "confidence": 0.80, "notes": "Cloud contact center", "last_reviewed": "2026-05-03"},
     {"aws": "WorkSpaces", "azure": "Virtual Desktop", "gcp": "Chrome Remote Desktop / VDI on GCE", "category": "Business", "confidence": 0.85, "notes": "Virtual desktop infrastructure", "last_reviewed": "2026-05-03"},
-    {"aws": "Pinpoint", "azure": "Notification Hubs", "gcp": "Firebase Cloud Messaging", "category": "Business", "confidence": 0.75, "notes": "Multi-channel marketing/notifications", "last_reviewed": "2026-05-03"},
+    {"aws": "Pinpoint", "azure": "Notification Hubs (push only)", "gcp": "Firebase Cloud Messaging (push only)", "category": "Business", "confidence": 0.75, "notes": "AWS ended support for Pinpoint campaigns, journeys, segments, and analytics on 2026-10-30; channel APIs for SMS, voice, and mobile push continue under AWS End User Messaging. The mapped services cover push, not the full marketing suite.", "last_reviewed": "2026-11-01"},
 
     # ═══════════════════════════════════════════════════════════
     # HYBRID & MULTI-CLOUD  (#60 — Azure Arc & Hybrid Management)
     # ═══════════════════════════════════════════════════════════
     {"aws": "EKS Anywhere", "azure": "Azure Arc-enabled Kubernetes", "gcp": "Anthos (multi-cloud)", "category": "Hybrid", "confidence": 0.85, "notes": "Managed Kubernetes across on-prem and multi-cloud — Arc projects Azure control plane anywhere", "last_reviewed": "2026-05-03"},
     {"aws": "SSM (hybrid nodes)", "azure": "Azure Arc-enabled Servers", "gcp": "Anthos for VMs", "category": "Hybrid", "confidence": 0.80, "notes": "Manage on-prem/multi-cloud servers from the cloud control plane", "last_reviewed": "2026-05-03"},
-    {"aws": "RDS on Outposts", "azure": "Azure Arc-enabled SQL", "gcp": "AlloyDB Omni", "category": "Hybrid", "confidence": 0.75, "notes": "Run managed database engine outside the cloud provider's region", "last_reviewed": "2026-05-03"},
+    {"aws": "RDS on Outposts", "azure": "SQL Managed Instance enabled by Azure Arc (SQL Server only)", "gcp": "AlloyDB Omni (PostgreSQL only)", "category": "Hybrid", "confidence": 0.75, "notes": "Both are on-premises managed-database patterns, but not engine-equivalent: RDS on Outposts supports SQL Server, MySQL, PostgreSQL, and Oracle.", "last_reviewed": "2026-11-01"},
     {"aws": "Control Tower (multi-account)", "azure": "Azure Lighthouse", "gcp": "Cloud Foundation Toolkit", "category": "Hybrid", "confidence": 0.80, "notes": "Multi-tenant / multi-subscription governance and delegation", "last_reviewed": "2026-05-03"},
     {"aws": "Outposts (rack)", "azure": "Azure Stack HCI", "gcp": "Google Distributed Cloud (GDC)", "category": "Hybrid", "confidence": 0.85, "notes": "Full cloud stack running on-premises on customer-owned hardware", "last_reviewed": "2026-05-03"},
 
@@ -211,11 +211,11 @@ CROSS_CLOUD_MAPPINGS = [
     # ═══════════════════════════════════════════════════════════
     {"aws": "Bedrock Agents", "azure": "Azure AI Agent Service", "gcp": "Vertex AI Agents", "category": "AI/ML", "confidence": 0.80, "notes": "Autonomous AI agents with tool-use — rapidly evolving across all providers", "last_reviewed": "2026-05-03"},
     {"aws": "Bedrock Knowledge Bases", "azure": "Azure AI Search (RAG)", "gcp": "Vertex AI Search", "category": "AI/ML", "confidence": 0.80, "notes": "Retrieval-Augmented Generation with managed vector stores", "last_reviewed": "2026-05-03"},
-    {"aws": "Q Business", "azure": "Microsoft 365 Copilot / AI Foundry", "gcp": "Gemini for Workspace", "category": "AI/ML", "confidence": 0.75, "notes": "Enterprise AI assistant grounded in organizational data", "last_reviewed": "2026-05-03"},
+    {"aws": "Q Business", "azure": "Microsoft 365 Copilot / Microsoft Foundry agents", "gcp": "Gemini for Workspace / Vertex AI Agent Builder", "category": "AI/ML", "confidence": 0.75, "notes": "Enterprise-data assistant and custom-agent capabilities have different scopes; Microsoft 365 Copilot is grounded in work data while Foundry builds custom agents. Amazon Q Business is no longer open to new customers.", "last_reviewed": "2026-11-01"},
     {"aws": "SageMaker Canvas", "azure": "Azure ML AutoML", "gcp": "Vertex AI AutoML", "category": "AI/ML", "confidence": 0.85, "notes": "No-code / low-code ML model building", "last_reviewed": "2026-05-03"},
     {"aws": "Bedrock Guardrails", "azure": "Azure AI Content Safety", "gcp": "Vertex AI Safety Filters", "category": "AI/ML", "confidence": 0.80, "notes": "Content filtering and responsible AI guardrails for LLM applications", "last_reviewed": "2026-05-03"},
-    {"aws": "PartyRock", "azure": "Azure AI Foundry (low-code)", "gcp": "Vertex AI Studio", "category": "AI/ML", "confidence": 0.75, "notes": "Low-code generative AI app builder", "last_reviewed": "2026-05-03"},
-    {"aws": "CodeGuru", "azure": "GitHub Advanced Security", "gcp": "Gemini Code Assist", "category": "AI/ML", "confidence": 0.75, "notes": "AI-powered code review and security analysis", "last_reviewed": "2026-05-03"},
+    {"aws": "PartyRock", "azure": "Copilot Studio / Microsoft Foundry", "gcp": "Vertex AI Studio", "category": "AI/ML", "confidence": 0.75, "notes": "PartyRock is a no-code mini-app prototyping/sharing playground; Copilot Studio is a low-code agent builder and Foundry is a developer platform, so neither is a direct clone.", "last_reviewed": "2026-11-01"},
+    {"aws": "CodeGuru", "azure": "GitHub Copilot code review / CodeQL / Application Insights Profiler", "gcp": "Gemini Code Assist / Cloud Profiler", "category": "AI/ML", "confidence": 0.75, "notes": "Composite family: CodeGuru Reviewer covers code review and CodeGuru Profiler covers runtime performance. New Reviewer repository associations ended 2025-11-07; the mapped alternatives split these functions.", "last_reviewed": "2026-11-01"},
 
     # ═══════════════════════════════════════════════════════════
     # EDGE COMPUTING & DISTRIBUTED CLOUD  (#62)
