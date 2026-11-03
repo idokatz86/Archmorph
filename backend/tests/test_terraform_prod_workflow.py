@@ -14,6 +14,12 @@ def _step_by_name(steps: list[dict], name: str) -> dict:
     raise AssertionError(f'Expected workflow step "{name}"')
 
 
+def test_primary_terraform_provider_disables_automatic_registration():
+    provider_config = (REPO_ROOT / "infra" / "main.tf").read_text(encoding="utf-8")
+
+    assert 'resource_provider_registrations = "none"' in provider_config
+
+
 def test_prod_plan_encrypts_binary_plan_and_uploads_integrity_metadata():
     workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
     plan_steps = workflow["jobs"]["prod-plan"]["steps"]

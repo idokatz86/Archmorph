@@ -76,6 +76,10 @@ The backend must start with PostgreSQL, Redis, `ENFORCE_POSTGRES=true`, and `REQ
 
 The `CI/CD` workflow must pass before release:
 
+- The separate `Terraform Production` plan uses the primary `infra` root.
+  Its AzureRM provider disables automatic provider registration, so a plan
+  cannot silently register Azure namespaces before review; if a namespace is
+  missing, stop and resolve that prerequisite through an approved process.
 - Production deployment is manual: dispatch `CI/CD` from protected `main` and
   set `confirm_production_deploy` to `true` only for the reviewed source SHA.
   Pushes to `main` run CI only; they do not publish release images or start
