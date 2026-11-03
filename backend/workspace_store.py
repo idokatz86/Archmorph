@@ -105,6 +105,10 @@ class CanonicalWriteDeniedError(ValueError):
     """Raised when canonical state is absent, inactive, or outside caller scope."""
 
 
+class _RestoreContextChangedError(RuntimeError):
+    """Raised when a restore context moves while its locks are acquired."""
+
+
 @dataclass(frozen=True)
 class AnalysisWriteResult:
     """Result of one canonical analysis persistence operation."""
@@ -1788,7 +1792,6 @@ def persist_analysis_state(
                     diagram_id=diagram_id,
                     owner_user_id=owner_user_id,
                     tenant_id=tenant_id,
-                    for_update=True,
                 )
                 if tombstone is not None and tombstone.state != "active":
                     raise ValueError("Diagram has been purged")
@@ -1815,6 +1818,44 @@ def persist_analysis_state(
                         tenant_id=tenant_id,
                     )
                 locked_workspaces.append(resolved_workspace)
+
+                # Refresh after the workspace lock so a concurrent first write
+                # cannot leave this transaction acting on a stale identity read.
+                analysis_identity = (
+                    db.query(Analysis.id, Analysis.workspace_id)
+                    .filter(
+                        Analysis.diagram_id == diagram_id,
+                        Analysis.owner_user_id == owner_user_id,
+                        Analysis.tenant_id == tenant_id,
+                    )
+                    .one_or_none()
+                )
+                if analysis_identity is not None:
+                    db.rollback()
+                    continue
+
+                # Keep lifecycle row locks after workspace locks to preserve
+                # the canonical lock order used by other write paths.
+                tombstone = _get_lifecycle(
+                    db,
+                    diagram_id=diagram_id,
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                    for_update=True,
+                )
+                if tombstone is not None:
+                    # The earlier unlocked read may still be in the identity map.
+                    db.refresh(tombstone)
+                if tombstone is not None and tombstone.state != "active":
+                    raise ValueError("Diagram has been purged")
+                if (
+                    tombstone is not None
+                    and tombstone.workspace_id
+                    and tombstone.workspace_id != resolved_workspace_id
+                ):
+                    db.rollback()
+                    continue
+
                 mappings = snapshot.get("mappings", [])
                 confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
                 analysis = Analysis(
@@ -2090,28 +2131,42 @@ def persist_analysis_mutation(db: Session, **kwargs: Any) -> AnalysisWriteResult
     return persist_analysis_state(db, **kwargs)
 
 
-def issue_restore_grant(
+def _lock_restore_context(
     db: Session,
     *,
     owner_user_id: str,
     tenant_id: str,
     diagram_id: str,
-    ttl_seconds: int,
-    payload_hash: Optional[str] = None,
-) -> tuple[str, int, int]:
-    """Persist and return a one-time opaque restore nonce."""
-    cleanup_restore_grants(db, limit=200)
-    analysis_identity = (
-        db.query(Analysis.id)
-        .filter(
-            Analysis.diagram_id == diagram_id,
-            Analysis.owner_user_id == owner_user_id,
-            Analysis.tenant_id == tenant_id,
-        )
-        .one_or_none()
+) -> tuple[Optional[Analysis], Optional[Workspace], Optional[DiagramLifecycle]]:
+    """Lock the workspace before lifecycle and grant rows, rechecking unlocked hints."""
+    identity_query = db.query(Analysis.id, Analysis.workspace_id).filter(
+        Analysis.diagram_id == diagram_id,
+        Analysis.owner_user_id == owner_user_id,
+        Analysis.tenant_id == tenant_id,
     )
+    analysis_identity = identity_query.one_or_none()
     analysis = None
     workspace = None
+    lifecycle_hint = None
+    if analysis_identity is None:
+        lifecycle_hint = _get_lifecycle(
+            db,
+            diagram_id=diagram_id,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+        )
+        if lifecycle_hint is not None and lifecycle_hint.workspace_id is not None:
+            workspace = _lock_active_workspace(
+                db,
+                lifecycle_hint.workspace_id,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+            )
+        analysis_identity = identity_query.one_or_none()
+        if analysis_identity is not None and (
+            workspace is None or analysis_identity.workspace_id != workspace.id
+        ):
+            raise _RestoreContextChangedError("Analysis workspace changed while locking")
     if analysis_identity is not None:
         analysis, workspace = _lock_active_analysis(
             db,
@@ -2126,6 +2181,38 @@ def issue_restore_grant(
         tenant_id=tenant_id,
         for_update=True,
     )
+    if lifecycle is not None and lifecycle_hint is not None:
+        db.refresh(lifecycle)
+    if lifecycle is not None and lifecycle.workspace_id is not None and (
+        workspace is None or lifecycle.workspace_id != workspace.id
+    ):
+        raise _RestoreContextChangedError("Lifecycle workspace changed while locking")
+    return analysis, workspace, lifecycle
+
+
+def issue_restore_grant(
+    db: Session,
+    *,
+    owner_user_id: str,
+    tenant_id: str,
+    diagram_id: str,
+    ttl_seconds: int,
+    payload_hash: Optional[str] = None,
+) -> tuple[str, int, int]:
+    """Persist and return a one-time opaque restore nonce."""
+    for _ in range(5):
+        try:
+            analysis, workspace, lifecycle = _lock_restore_context(
+                db,
+                owner_user_id=owner_user_id,
+                tenant_id=tenant_id,
+                diagram_id=diagram_id,
+            )
+            break
+        except _RestoreContextChangedError:
+            db.rollback()
+    else:
+        raise RuntimeError("Restore grant context changed repeatedly while locking")
     if lifecycle is None:
         if analysis is None:
             raise ValueError("Diagram not found")
@@ -2136,15 +2223,9 @@ def issue_restore_grant(
             tenant_id=tenant_id,
             workspace_id=analysis.workspace_id,
         )
-    elif workspace is None and lifecycle.workspace_id is not None:
-        workspace = _lock_active_workspace(
-            db,
-            lifecycle.workspace_id,
-            owner_user_id=owner_user_id,
-            tenant_id=tenant_id,
-        )
     if lifecycle.state != "active":
         raise ValueError("Diagram not found")
+    cleanup_restore_grants(db, limit=200)
     expected_version = int(analysis.current_version or 0) if analysis is not None else 0
     nonce = secrets.token_urlsafe(32)
     nonce_digest = hashlib.sha256(nonce.encode("utf-8")).hexdigest()
@@ -2203,53 +2284,20 @@ def consume_restore_grant(
 ) -> bool:
     """Atomically consume a matching, live restore grant."""
     nonce_digest = hashlib.sha256(nonce.encode("utf-8")).hexdigest()
+    try:
+        _analysis, workspace, lifecycle = _lock_restore_context(
+            db,
+            owner_user_id=owner_user_id,
+            tenant_id=tenant_id,
+            diagram_id=diagram_id,
+        )
+    except (CanonicalWriteDeniedError, _RestoreContextChangedError):
+        db.rollback()
+        return False
     query = db.query(RestoreGrant).filter(RestoreGrant.nonce_digest == nonce_digest)
     if db.get_bind().dialect.name == "postgresql":
         query = query.with_for_update()
     grant = query.first()
-    workspace = None
-    analysis_identity = (
-        db.query(Analysis.id)
-        .filter(
-            Analysis.diagram_id == diagram_id,
-            Analysis.owner_user_id == owner_user_id,
-            Analysis.tenant_id == tenant_id,
-        )
-        .one_or_none()
-    )
-    try:
-        if analysis_identity is not None:
-            _analysis, workspace = _lock_active_analysis(
-                db,
-                analysis_identity.id,
-                owner_user_id=owner_user_id,
-                tenant_id=tenant_id,
-            )
-    except CanonicalWriteDeniedError:
-        db.rollback()
-        return False
-    lifecycle = _get_lifecycle(
-        db,
-        diagram_id=diagram_id,
-        owner_user_id=owner_user_id,
-        tenant_id=tenant_id,
-        for_update=True,
-    )
-    if (
-        workspace is None
-        and lifecycle is not None
-        and lifecycle.workspace_id is not None
-    ):
-        try:
-            workspace = _lock_active_workspace(
-                db,
-                lifecycle.workspace_id,
-                owner_user_id=owner_user_id,
-                tenant_id=tenant_id,
-            )
-        except CanonicalWriteDeniedError:
-            db.rollback()
-            return False
     now = datetime.now(timezone.utc)
     expires_at = grant.expires_at if grant is not None else None
     if expires_at is not None and expires_at.tzinfo is None:

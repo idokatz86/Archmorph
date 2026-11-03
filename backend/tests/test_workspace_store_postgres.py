@@ -606,6 +606,516 @@ def test_concurrent_first_write_upserts_one_analysis_and_monotonic_versions(post
         db.close()
 
 
+def test_first_write_observes_purge_after_initial_lifecycle_read(postgres_factory, monkeypatch):
+    import workspace_store
+
+    owner = "pg-lifecycle-race-owner"
+    tenant = "pg-lifecycle-race-tenant"
+    diagram = "pg-lifecycle-race"
+    db = postgres_factory()
+    try:
+        workspace = create_workspace(db, owner_user_id=owner, tenant_id=tenant, name="Race")
+        db.add(DiagramLifecycle(
+            diagram_id=diagram,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            workspace_id=workspace.id,
+            generation=1,
+            state="active",
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    lifecycle_read = threading.Event()
+    resume_write = threading.Event()
+    original_get_lifecycle = workspace_store._get_lifecycle
+
+    def pause_after_lifecycle_read(db, **kwargs):
+        lifecycle = original_get_lifecycle(db, **kwargs)
+        if kwargs["diagram_id"] == diagram and not kwargs.get("for_update", False):
+            lifecycle_read.set()
+            assert resume_write.wait(timeout=10)
+        return lifecycle
+
+    monkeypatch.setattr(workspace_store, "_get_lifecycle", pause_after_lifecycle_read)
+
+    def write():
+        db = postgres_factory()
+        try:
+            return persist_analysis_state(
+                db,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram,
+                snapshot={"mappings": []},
+            )
+        finally:
+            db.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(write)
+        try:
+            assert lifecycle_read.wait(timeout=10)
+            db = postgres_factory()
+            try:
+                operation = workspace_store.begin_diagram_purge(
+                    db,
+                    diagram_id=diagram,
+                    owner_user_id=owner,
+                    tenant_id=tenant,
+                )
+                assert operation is not None
+            finally:
+                db.close()
+        finally:
+            resume_write.set()
+        with pytest.raises(ValueError, match="Diagram has been purged"):
+            future.result(timeout=10)
+
+    db = postgres_factory()
+    try:
+        assert db.query(Analysis).filter_by(diagram_id=diagram).count() == 0
+        assert db.query(DiagramLifecycle).filter_by(diagram_id=diagram).one().state == "purging"
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize("operation", ["issue", "consume"])
+def test_first_write_and_restore_grants_share_workspace_lock_order(
+    postgres_factory, monkeypatch, operation
+):
+    import workspace_store
+
+    owner = "pg-grant-race-owner"
+    tenant = "pg-grant-race-tenant"
+    diagram = "pg-grant-race"
+    grant_details = None
+    db = postgres_factory()
+    try:
+        workspace = create_workspace(db, owner_user_id=owner, tenant_id=tenant, name="Race")
+        db.add(DiagramLifecycle(
+            diagram_id=diagram,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            workspace_id=workspace.id,
+            generation=1,
+            state="active",
+        ))
+        db.commit()
+        if operation == "consume":
+            grant_details = issue_restore_grant(
+                db,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram,
+                ttl_seconds=300,
+            )
+    finally:
+        db.close()
+
+    writer_locked = threading.Event()
+    grant_waiting = threading.Event()
+    resume_write = threading.Event()
+    writer_thread = None
+    grant_thread = None
+    original_lock = workspace_store._lock_active_workspace
+
+    def coordinate_workspace_lock(*args, **kwargs):
+        thread = threading.get_ident()
+        if thread == grant_thread:
+            grant_waiting.set()
+        workspace = original_lock(*args, **kwargs)
+        if thread == writer_thread:
+            writer_locked.set()
+            assert resume_write.wait(timeout=10)
+        return workspace
+
+    monkeypatch.setattr(workspace_store, "_lock_active_workspace", coordinate_workspace_lock)
+
+    def write():
+        nonlocal writer_thread
+        writer_thread = threading.get_ident()
+        db = postgres_factory()
+        try:
+            return persist_analysis_state(
+                db,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram,
+                snapshot={"mappings": []},
+            )
+        finally:
+            db.close()
+
+    def issue_grant():
+        nonlocal grant_thread
+        grant_thread = threading.get_ident()
+        db = postgres_factory()
+        try:
+            if operation == "issue":
+                return issue_restore_grant(
+                    db,
+                    owner_user_id=owner,
+                    tenant_id=tenant,
+                    diagram_id=diagram,
+                    ttl_seconds=300,
+                )
+            assert grant_details is not None
+            nonce, generation, expected_version = grant_details
+            return consume_restore_grant(
+                db,
+                nonce=nonce,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram,
+                generation=generation,
+                expected_version=expected_version,
+                payload_hash="race",
+            )
+        finally:
+            db.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        writer = pool.submit(write)
+        try:
+            assert writer_locked.wait(timeout=10)
+            grant = pool.submit(issue_grant)
+            assert grant_waiting.wait(timeout=10)
+        finally:
+            resume_write.set()
+        result = writer.result(timeout=15)
+        grant_result = grant.result(timeout=15)
+
+    assert result.version.version_number == 1
+    if operation == "issue":
+        _nonce, _generation, expected_version = grant_result
+        assert expected_version == 1
+    else:
+        assert grant_result is True
+
+
+def test_restore_hook_and_concurrent_consumer_do_not_deadlock(postgres_factory, monkeypatch):
+    import workspace_store
+
+    owner = "pg-grant-hook-owner"
+    tenant = "pg-grant-hook-tenant"
+    diagram = "pg-grant-hook"
+    db = postgres_factory()
+    try:
+        workspace = create_workspace(db, owner_user_id=owner, tenant_id=tenant, name="Race")
+        db.add(DiagramLifecycle(
+            diagram_id=diagram,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            workspace_id=workspace.id,
+            generation=1,
+            state="active",
+        ))
+        db.commit()
+        nonce, generation, expected_version = issue_restore_grant(
+            db,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            diagram_id=diagram,
+            ttl_seconds=300,
+            payload_hash="race",
+        )
+    finally:
+        db.close()
+    grant_kwargs = {
+        "nonce": nonce,
+        "owner_user_id": owner,
+        "tenant_id": tenant,
+        "diagram_id": diagram,
+        "generation": generation,
+        "expected_version": expected_version,
+        "payload_hash": "race",
+    }
+
+    writer_locked = threading.Event()
+    consumer_waiting = threading.Event()
+    resume_write = threading.Event()
+    writer_thread = None
+    consumer_thread = None
+    original_lock = workspace_store._lock_active_workspace
+
+    def coordinate_workspace_lock(*args, **kwargs):
+        thread = threading.get_ident()
+        if thread == consumer_thread:
+            consumer_waiting.set()
+        workspace = original_lock(*args, **kwargs)
+        if thread == writer_thread:
+            writer_locked.set()
+            assert resume_write.wait(timeout=10)
+        return workspace
+
+    monkeypatch.setattr(workspace_store, "_lock_active_workspace", coordinate_workspace_lock)
+
+    def write():
+        nonlocal writer_thread
+        writer_thread = threading.get_ident()
+        db = postgres_factory()
+        try:
+            def consume_before_commit(transaction):
+                if not consume_restore_grant(transaction, **grant_kwargs, commit=False):
+                    raise ValueError("Restore grant unavailable")
+
+            return persist_analysis_state(
+                db,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram,
+                snapshot={"mappings": []},
+                precommit_hook=consume_before_commit,
+            )
+        finally:
+            db.close()
+
+    def consume():
+        nonlocal consumer_thread
+        consumer_thread = threading.get_ident()
+        db = postgres_factory()
+        try:
+            return consume_restore_grant(db, **grant_kwargs)
+        finally:
+            db.close()
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        writer = pool.submit(write)
+        try:
+            assert writer_locked.wait(timeout=10)
+            consumer = pool.submit(consume)
+            assert consumer_waiting.wait(timeout=10)
+        finally:
+            resume_write.set()
+        result = writer.result(timeout=15)
+        assert consumer.result(timeout=15) is False
+
+    assert result.version.version_number == 1
+    db = postgres_factory()
+    try:
+        assert db.query(RestoreGrant).filter_by(diagram_id=diagram).one().consumed_at is not None
+        assert db.query(Analysis).filter_by(diagram_id=diagram).count() == 1
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize("operation", ["issue", "consume"])
+def test_restore_grant_observes_purge_after_initial_lifecycle_read(
+    postgres_factory, monkeypatch, operation
+):
+    import workspace_store
+
+    owner = "pg-grant-purge-owner"
+    tenant = "pg-grant-purge-tenant"
+    diagram = "pg-grant-purge"
+    grant_details = None
+    db = postgres_factory()
+    try:
+        workspace = create_workspace(db, owner_user_id=owner, tenant_id=tenant, name="Race")
+        db.add(DiagramLifecycle(
+            diagram_id=diagram,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            workspace_id=workspace.id,
+            generation=1,
+            state="active",
+        ))
+        db.commit()
+        if operation == "consume":
+            grant_details = issue_restore_grant(
+                db,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram,
+                ttl_seconds=300,
+            )
+    finally:
+        db.close()
+
+    lifecycle_read = threading.Event()
+    resume_grant = threading.Event()
+    original_get_lifecycle = workspace_store._get_lifecycle
+
+    def pause_after_lifecycle_read(db, **kwargs):
+        lifecycle = original_get_lifecycle(db, **kwargs)
+        if kwargs["diagram_id"] == diagram and not kwargs.get("for_update", False):
+            lifecycle_read.set()
+            assert resume_grant.wait(timeout=10)
+        return lifecycle
+
+    monkeypatch.setattr(workspace_store, "_get_lifecycle", pause_after_lifecycle_read)
+
+    def use_grant():
+        db = postgres_factory()
+        try:
+            if operation == "issue":
+                return issue_restore_grant(
+                    db,
+                    owner_user_id=owner,
+                    tenant_id=tenant,
+                    diagram_id=diagram,
+                    ttl_seconds=300,
+                )
+            assert grant_details is not None
+            nonce, generation, expected_version = grant_details
+            return consume_restore_grant(
+                db,
+                nonce=nonce,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram,
+                generation=generation,
+                expected_version=expected_version,
+                payload_hash="race",
+            )
+        finally:
+            db.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(use_grant)
+        try:
+            assert lifecycle_read.wait(timeout=10)
+            db = postgres_factory()
+            try:
+                operation_receipt = workspace_store.begin_diagram_purge(
+                    db,
+                    diagram_id=diagram,
+                    owner_user_id=owner,
+                    tenant_id=tenant,
+                )
+                assert operation_receipt is not None
+            finally:
+                db.close()
+        finally:
+            resume_grant.set()
+        if operation == "issue":
+            with pytest.raises(ValueError, match="Diagram not found"):
+                future.result(timeout=10)
+        else:
+            assert future.result(timeout=10) is False
+
+    db = postgres_factory()
+    try:
+        assert db.query(DiagramLifecycle).filter_by(diagram_id=diagram).one().state == "purging"
+        assert db.query(Analysis).filter_by(diagram_id=diagram).count() == 0
+        if operation == "consume":
+            assert db.query(RestoreGrant).filter_by(diagram_id=diagram).one().revoked_at is not None
+        else:
+            assert db.query(RestoreGrant).filter_by(diagram_id=diagram).count() == 0
+    finally:
+        db.close()
+
+
+@pytest.mark.parametrize("operation", ["issue", "consume"])
+def test_restore_grant_handles_workspace_change_during_lock(
+    postgres_factory, monkeypatch, operation
+):
+    import workspace_store
+
+    owner = "pg-grant-move-owner"
+    tenant = "pg-grant-move-tenant"
+    diagram = "pg-grant-move"
+    grant_details = None
+    db = postgres_factory()
+    try:
+        source = create_workspace(db, owner_user_id=owner, tenant_id=tenant, name="Source")
+        target = create_workspace(db, owner_user_id=owner, tenant_id=tenant, name="Target")
+        target_id = target.id
+        db.add(DiagramLifecycle(
+            diagram_id=diagram,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            workspace_id=source.id,
+            generation=1,
+            state="active",
+        ))
+        db.commit()
+        if operation == "consume":
+            grant_details = issue_restore_grant(
+                db,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram,
+                ttl_seconds=300,
+            )
+    finally:
+        db.close()
+
+    lifecycle_read = threading.Event()
+    resume_grant = threading.Event()
+    original_get_lifecycle = workspace_store._get_lifecycle
+
+    def pause_after_lifecycle_read(db, **kwargs):
+        lifecycle = original_get_lifecycle(db, **kwargs)
+        if (
+            kwargs["diagram_id"] == diagram
+            and not kwargs.get("for_update", False)
+            and not lifecycle_read.is_set()
+        ):
+            lifecycle_read.set()
+            assert resume_grant.wait(timeout=10)
+        return lifecycle
+
+    monkeypatch.setattr(workspace_store, "_get_lifecycle", pause_after_lifecycle_read)
+
+    def use_grant():
+        db = postgres_factory()
+        try:
+            if operation == "issue":
+                return issue_restore_grant(
+                    db,
+                    owner_user_id=owner,
+                    tenant_id=tenant,
+                    diagram_id=diagram,
+                    ttl_seconds=300,
+                )
+            assert grant_details is not None
+            nonce, generation, expected_version = grant_details
+            return consume_restore_grant(
+                db,
+                nonce=nonce,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram,
+                generation=generation,
+                expected_version=expected_version,
+                payload_hash="race",
+            )
+        finally:
+            db.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(use_grant)
+        try:
+            assert lifecycle_read.wait(timeout=10)
+            db = postgres_factory()
+            try:
+                lifecycle = db.query(DiagramLifecycle).filter_by(diagram_id=diagram).one()
+                lifecycle.workspace_id = target_id
+                db.commit()
+            finally:
+                db.close()
+        finally:
+            resume_grant.set()
+        result = future.result(timeout=10)
+
+    if operation == "issue":
+        _nonce, _generation, expected_version = result
+        assert expected_version == 0
+    else:
+        assert result is False
+    db = postgres_factory()
+    try:
+        assert db.query(DiagramLifecycle).filter_by(diagram_id=diagram).one().workspace_id == target_id
+        grant = db.query(RestoreGrant).filter_by(diagram_id=diagram).one()
+        assert grant.consumed_at is None
+        assert grant.revoked_at is None
+    finally:
+        db.close()
+
+
 def test_reversed_cache_projection_never_replaces_newer_version(postgres_factory):
     cache = InMemoryStore(maxsize=20, ttl=3600)
     db = postgres_factory()

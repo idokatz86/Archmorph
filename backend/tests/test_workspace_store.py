@@ -856,6 +856,45 @@ class TestCanonicalAnalysisState:
         assert db.query(Workspace).filter_by(owner_user_id="owner-rollback").count() == 0
         assert db.query(Analysis).filter_by(diagram_id="diag-rollback").count() == 0
 
+    def test_first_write_rechecks_lifecycle_after_workspace_lock(self, db, monkeypatch):
+        from models.workspace import Analysis, DiagramLifecycle
+        import workspace_store
+
+        owner = "owner-lifecycle-race"
+        tenant = "tenant-lifecycle-race"
+        diagram = "diag-lifecycle-race"
+        workspace = create_workspace(db, owner_user_id=owner, tenant_id=tenant, name="Race")
+        db.add(DiagramLifecycle(
+            diagram_id=diagram,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            workspace_id=workspace.id,
+            generation=1,
+            state="active",
+        ))
+        db.commit()
+        original_lock = workspace_store._lock_active_workspace
+
+        def lock_then_mark_purging(*args, **kwargs):
+            locked = original_lock(*args, **kwargs)
+            db.execute(
+                DiagramLifecycle.__table__.update()
+                .where(DiagramLifecycle.diagram_id == diagram)
+                .values(state="purging")
+            )
+            return locked
+
+        monkeypatch.setattr(workspace_store, "_lock_active_workspace", lock_then_mark_purging)
+        with pytest.raises(ValueError, match="Diagram has been purged"):
+            persist_analysis_state(
+                db,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram,
+                snapshot={"mappings": []},
+            )
+        assert db.query(Analysis).filter_by(diagram_id=diagram).count() == 0
+
     def test_cross_tenant_lookup_matches_missing_lookup(self, db):
         persist_analysis_state(
             db,
