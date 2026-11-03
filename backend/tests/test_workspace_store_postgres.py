@@ -606,6 +606,81 @@ def test_concurrent_first_write_upserts_one_analysis_and_monotonic_versions(post
         db.close()
 
 
+def test_first_write_observes_purge_after_initial_lifecycle_read(postgres_factory, monkeypatch):
+    import workspace_store
+
+    owner = "pg-lifecycle-race-owner"
+    tenant = "pg-lifecycle-race-tenant"
+    diagram = "pg-lifecycle-race"
+    db = postgres_factory()
+    try:
+        workspace = create_workspace(db, owner_user_id=owner, tenant_id=tenant, name="Race")
+        db.add(DiagramLifecycle(
+            diagram_id=diagram,
+            owner_user_id=owner,
+            tenant_id=tenant,
+            workspace_id=workspace.id,
+            generation=1,
+            state="active",
+        ))
+        db.commit()
+    finally:
+        db.close()
+
+    lifecycle_read = threading.Event()
+    resume_write = threading.Event()
+    original_get_lifecycle = workspace_store._get_lifecycle
+
+    def pause_after_lifecycle_read(db, **kwargs):
+        lifecycle = original_get_lifecycle(db, **kwargs)
+        if kwargs["diagram_id"] == diagram and not kwargs.get("for_update", False):
+            lifecycle_read.set()
+            assert resume_write.wait(timeout=10)
+        return lifecycle
+
+    monkeypatch.setattr(workspace_store, "_get_lifecycle", pause_after_lifecycle_read)
+
+    def write():
+        db = postgres_factory()
+        try:
+            return persist_analysis_state(
+                db,
+                owner_user_id=owner,
+                tenant_id=tenant,
+                diagram_id=diagram,
+                snapshot={"mappings": []},
+            )
+        finally:
+            db.close()
+
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        future = pool.submit(write)
+        try:
+            assert lifecycle_read.wait(timeout=10)
+            db = postgres_factory()
+            try:
+                operation = workspace_store.begin_diagram_purge(
+                    db,
+                    diagram_id=diagram,
+                    owner_user_id=owner,
+                    tenant_id=tenant,
+                )
+                assert operation is not None
+            finally:
+                db.close()
+        finally:
+            resume_write.set()
+        with pytest.raises(ValueError, match="Diagram has been purged"):
+            future.result(timeout=10)
+
+    db = postgres_factory()
+    try:
+        assert db.query(Analysis).filter_by(diagram_id=diagram).count() == 0
+        assert db.query(DiagramLifecycle).filter_by(diagram_id=diagram).one().state == "purging"
+    finally:
+        db.close()
+
+
 def test_reversed_cache_projection_never_replaces_newer_version(postgres_factory):
     cache = InMemoryStore(maxsize=20, ttl=3600)
     db = postgres_factory()

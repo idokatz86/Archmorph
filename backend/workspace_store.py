@@ -1839,6 +1839,9 @@ def persist_analysis_state(
                     tenant_id=tenant_id,
                     for_update=True,
                 )
+                if tombstone is not None:
+                    # The earlier unlocked read may still be in the identity map.
+                    db.refresh(tombstone)
                 if tombstone is not None and tombstone.state != "active":
                     raise ValueError("Diagram has been purged")
                 if (
