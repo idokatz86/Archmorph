@@ -1788,7 +1788,6 @@ def persist_analysis_state(
                     diagram_id=diagram_id,
                     owner_user_id=owner_user_id,
                     tenant_id=tenant_id,
-                    for_update=True,
                 )
                 if tombstone is not None and tombstone.state != "active":
                     raise ValueError("Diagram has been purged")
@@ -1815,6 +1814,41 @@ def persist_analysis_state(
                         tenant_id=tenant_id,
                     )
                 locked_workspaces.append(resolved_workspace)
+
+                # Refresh after the workspace lock so a concurrent first write
+                # cannot leave this transaction acting on a stale identity read.
+                analysis_identity = (
+                    db.query(Analysis.id, Analysis.workspace_id)
+                    .filter(
+                        Analysis.diagram_id == diagram_id,
+                        Analysis.owner_user_id == owner_user_id,
+                        Analysis.tenant_id == tenant_id,
+                    )
+                    .one_or_none()
+                )
+                if analysis_identity is not None:
+                    db.rollback()
+                    continue
+
+                # Keep lifecycle row locks after workspace locks to preserve
+                # the canonical lock order used by other write paths.
+                tombstone = _get_lifecycle(
+                    db,
+                    diagram_id=diagram_id,
+                    owner_user_id=owner_user_id,
+                    tenant_id=tenant_id,
+                    for_update=True,
+                )
+                if tombstone is not None and tombstone.state != "active":
+                    raise ValueError("Diagram has been purged")
+                if (
+                    tombstone is not None
+                    and tombstone.workspace_id
+                    and tombstone.workspace_id != resolved_workspace_id
+                ):
+                    db.rollback()
+                    continue
+
                 mappings = snapshot.get("mappings", [])
                 confidences = [m.get("confidence") for m in mappings if m.get("confidence") is not None]
                 analysis = Analysis(
