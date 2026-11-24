@@ -122,3 +122,91 @@ class TestInvalidateCacheWithBlob:
         mock_blob.delete_blob.assert_called_once()
         assert pricing._price_cache == {}
         assert pricing._cache_loaded is False
+
+
+class TestPriceProvenance:
+    @patch("services.azure_pricing._load_cache")
+    def test_cached_prices_preserve_metadata_and_mark_legacy_source_unknown(self, mock_load):
+        mock_load.return_value = {
+            "cached_at": 1_700_000_000,
+            "prices_westeurope": {
+                "Azure Functions": 12.0,
+                "Azure SQL": 42.0,
+            },
+            "price_metadata_westeurope": {
+                "Azure Functions": {
+                    "source": "azure_retail_prices_api",
+                    "source_label": "Azure Retail Prices API",
+                },
+            },
+        }
+
+        result = pricing.fetch_prices_for_region("westeurope")
+
+        assert result["Azure Functions"] == 12.0
+        assert result.price_metadata["Azure Functions"]["source"] == "azure_retail_prices_api"
+        assert result.price_metadata["Azure Functions"]["is_cached"] is True
+        assert result.price_metadata["Azure SQL"]["source"] == "cached_source_unknown"
+        assert result.price_metadata["Azure SQL"]["source_url"] is None
+        assert result.cache_timestamp == 1_700_000_000
+
+    @patch("services.azure_pricing._save_cache")
+    @patch("services.azure_pricing._fetch_price_from_api")
+    @patch("services.azure_pricing._load_cache", return_value={})
+    def test_api_price_records_provenance_and_caches_full_request(
+        self, mock_load, mock_fetch, mock_save
+    ):
+        mock_fetch.return_value = {
+            "retail_price": 0.25,
+            "service_name": "Functions",
+            "product_name": "Functions Consumption",
+            "sku_name": "Consumption",
+            "meter_name": "Execution Time",
+            "unit_of_measure": "1 Hour",
+            "effective_start_date": "2025-01-01",
+            "currency_code": "USD",
+            "arm_region_name": "westeurope",
+        }
+        query = {
+            "serviceName": "Functions",
+            "skuName": "Consumption",
+            "meterName": "Execution Time",
+            "unit_multiplier": 100,
+            "fallback_monthly": 10,
+        }
+
+        with patch.dict(pricing.SERVICE_PRICE_QUERIES, {"Azure Functions": query}, clear=True):
+            result = pricing.fetch_prices_for_region("westeurope")
+
+        metadata = result.price_metadata["Azure Functions"]
+        assert result["Azure Functions"] == 25.0
+        assert metadata["source"] == "azure_retail_prices_api"
+        assert metadata["requested_sku"] == "Consumption"
+        assert metadata["returned_product_name"] == "Functions Consumption"
+        assert metadata["currency_code"] == "USD"
+        mock_fetch.assert_called_once_with(
+            service_name="Functions",
+            arm_region="westeurope",
+            sku_name="Consumption",
+            meter_name="Execution Time",
+            include_details=True,
+        )
+        mock_save.assert_called_once()
+
+    @patch("services.azure_pricing._save_cache")
+    @patch("services.azure_pricing._fetch_price_from_api", return_value=None)
+    @patch("services.azure_pricing._load_cache", return_value={})
+    def test_partial_request_uses_builtin_estimate_without_persisting(
+        self, mock_load, mock_fetch, mock_save
+    ):
+        query = {"fallback_monthly": 18.0}
+
+        with patch.dict(pricing.SERVICE_PRICE_QUERIES, {"Azure Functions": query}, clear=True):
+            result = pricing.fetch_prices_for_region(
+                "westeurope", needed_services={"Azure Functions"}
+            )
+
+        assert result["Azure Functions"] == 18.0
+        assert result.price_metadata["Azure Functions"]["source"] == "built_in_estimate"
+        assert "built-in estimate" in result.price_metadata["Azure Functions"]["note"]
+        mock_save.assert_not_called()
