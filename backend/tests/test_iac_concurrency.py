@@ -290,6 +290,198 @@ class TestIacOptimisticConcurrency:
         assert resp.json()["etag"] == _compute_iac_etag(updated_code)
         assert SESSION_STORE[diagram_with_analysis][_IAC_ETAG_KEY] == _compute_iac_etag(updated_code)
 
+    def test_iac_chat_rejects_result_when_canonical_code_changes_during_generation(
+        self,
+        client,
+        diagram_with_analysis,
+    ):
+        from routers.iac_routes import _IAC_ETAG_KEY, _compute_iac_etag, _iac_code_hash
+
+        stale_code = 'resource "azurerm_resource_group" "draft_a" {}'
+        newer_code = 'resource "azurerm_resource_group" "validated_b" {}'
+        session = SESSION_STORE[diagram_with_analysis]
+        session.update(
+            {
+                "iac_code": stale_code,
+                "iac_code_hash": _iac_code_hash(stale_code),
+                "iac_format": "terraform",
+                "iac_validation": {"status": "failed", "format": "terraform"},
+                "_iac_validation_code_hash": _iac_code_hash(stale_code),
+                "_iac_validation_format": "terraform",
+                _IAC_ETAG_KEY: _compute_iac_etag(stale_code),
+            }
+        )
+        SESSION_STORE[diagram_with_analysis] = session
+
+        def finish_after_newer_generation(*_args, **_kwargs):
+            current = copy.deepcopy(SESSION_STORE[diagram_with_analysis])
+            current.update(
+                {
+                    "iac_code": newer_code,
+                    "iac_code_hash": _iac_code_hash(newer_code),
+                    "iac_format": "terraform",
+                    "iac_validation": {"status": "passed", "format": "terraform"},
+                    "_iac_validation_code_hash": _iac_code_hash(newer_code),
+                    "_iac_validation_format": "terraform",
+                    _IAC_ETAG_KEY: _compute_iac_etag(newer_code),
+                }
+            )
+            SESSION_STORE[diagram_with_analysis] = current
+            return {"code": stale_code, "reply": "No changes.", "validation": None}
+
+        with patch(
+            "routers.iac_routes.process_iac_chat",
+            side_effect=finish_after_newer_generation,
+        ):
+            response = client.post(
+                f"/api/diagrams/{diagram_with_analysis}/iac-chat",
+                json={
+                    "message": "explain this draft",
+                    "code": stale_code,
+                    "format": "terraform",
+                    "code_hash": _iac_code_hash(stale_code),
+                },
+            )
+
+        assert response.status_code == 409
+        assert response.json()["error"]["details"]["error"] == "iac_version_conflict"
+        stored = SESSION_STORE[diagram_with_analysis]
+        assert stored["iac_code"] == newer_code
+        assert stored["iac_validation"]["status"] == "passed"
+        assert stored["_iac_validation_code_hash"] == _iac_code_hash(newer_code)
+
+    def test_iac_chat_commit_uses_atomic_source_state_guard(self, client, diagram_with_analysis):
+        from routers import iac_routes
+        from routers.iac_routes import _IAC_ETAG_KEY, _compute_iac_etag, _iac_code_hash
+
+        old_code = 'resource "azurerm_resource_group" "old" {}'
+        chat_code = 'resource "azurerm_resource_group" "chat" {}'
+        newer_code = 'resource "azurerm_resource_group" "newer" {}'
+        session = SESSION_STORE[diagram_with_analysis]
+        session.update(
+            {
+                "iac_code": old_code,
+                "iac_code_hash": _iac_code_hash(old_code),
+                "iac_format": "terraform",
+                _IAC_ETAG_KEY: _compute_iac_etag(old_code),
+            }
+        )
+        SESSION_STORE[diagram_with_analysis] = session
+        persist_mutation = iac_routes.persist_diagram_mutation_async
+
+        async def update_before_commit(request, diagram_id, snapshot, **kwargs):
+            current = copy.deepcopy(SESSION_STORE[diagram_id])
+            current.update(
+                {
+                    "iac_code": newer_code,
+                    "iac_code_hash": _iac_code_hash(newer_code),
+                    "iac_format": "terraform",
+                    _IAC_ETAG_KEY: _compute_iac_etag(newer_code),
+                }
+            )
+            SESSION_STORE[diagram_id] = current
+            return await persist_mutation(request, diagram_id, snapshot, **kwargs)
+
+        with (
+            patch(
+                "routers.iac_routes.process_iac_chat",
+                return_value={"code": chat_code, "reply": "Updated."},
+            ),
+            patch(
+                "routers.iac_routes.persist_diagram_mutation_async",
+                side_effect=update_before_commit,
+            ),
+        ):
+            response = client.post(
+                f"/api/diagrams/{diagram_with_analysis}/iac-chat",
+                json={
+                    "message": "update resource",
+                    "code": old_code,
+                    "format": "terraform",
+                    "code_hash": _iac_code_hash(old_code),
+                },
+            )
+
+        assert response.status_code == 409
+        assert response.json()["error"]["details"]["error"] == "analysis_version_conflict"
+        assert SESSION_STORE[diagram_with_analysis]["iac_code"] == newer_code
+
+    def test_iac_chat_clears_validation_when_committed_code_differs(self, client, diagram_with_analysis):
+        from routers.iac_routes import _iac_code_hash
+
+        initial_code = 'resource "azurerm_resource_group" "old" {}'
+        changed_code = 'resource "azurerm_resource_group" "new" {}'
+        session = SESSION_STORE[diagram_with_analysis]
+        session.update(
+            {
+                "iac_code": initial_code,
+                "iac_code_hash": _iac_code_hash(initial_code),
+                "iac_format": "terraform",
+                "iac_validation": {"status": "passed", "format": "terraform"},
+                "_iac_validation_code_hash": _iac_code_hash(initial_code),
+                "_iac_validation_format": "terraform",
+            }
+        )
+        SESSION_STORE[diagram_with_analysis] = session
+
+        with patch(
+            "routers.iac_routes.process_iac_chat",
+            return_value={"code": changed_code, "reply": "Updated."},
+        ):
+            response = client.post(
+                f"/api/diagrams/{diagram_with_analysis}/iac-chat",
+                json={
+                    "message": "rename resource",
+                    "code": initial_code,
+                    "format": "terraform",
+                    "code_hash": _iac_code_hash(initial_code),
+                },
+            )
+
+        assert response.status_code == 200
+        stored = SESSION_STORE[diagram_with_analysis]
+        assert stored["iac_code"] == changed_code
+        assert "iac_validation" not in stored
+
+    def test_iac_chat_reuses_validation_only_for_matching_code_and_format(
+        self,
+        client,
+        diagram_with_analysis,
+    ):
+        from routers.iac_routes import _iac_code_hash
+
+        code = 'resource "azurerm_resource_group" "current" {}'
+        validation = {"status": "passed", "format": "terraform"}
+        session = SESSION_STORE[diagram_with_analysis]
+        session.update(
+            {
+                "iac_code": code,
+                "iac_code_hash": _iac_code_hash(code),
+                "iac_format": "terraform",
+                "iac_validation": validation,
+                "_iac_validation_code_hash": _iac_code_hash(code),
+                "_iac_validation_format": "terraform",
+            }
+        )
+        SESSION_STORE[diagram_with_analysis] = session
+
+        with patch(
+            "routers.iac_routes.process_iac_chat",
+            return_value={"code": code, "reply": "No changes."},
+        ):
+            response = client.post(
+                f"/api/diagrams/{diagram_with_analysis}/iac-chat",
+                json={
+                    "message": "explain this resource",
+                    "code": code,
+                    "format": "terraform",
+                    "code_hash": _iac_code_hash(code),
+                },
+            )
+
+        assert response.status_code == 200
+        assert SESSION_STORE[diagram_with_analysis]["iac_validation"] == validation
+
 
 class TestAsyncIacCanonicalState:
     """Async generation must persist canonical state for chat + concurrency checks."""

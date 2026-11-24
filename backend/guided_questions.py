@@ -45,6 +45,9 @@ Answers = dict[str, Any]
 import json
 import os
 from customer_intent import build_customer_intent_profile
+from confidence_provenance import build_provenance
+from mapping_evidence import build_mapping_evidence
+from source_provider import normalize_source_provider
 
 _data_file_QUESTION_BANK = os.path.join(os.path.dirname(__file__), 'assets', 'guided_questions_bank.json')
 try:
@@ -421,6 +424,100 @@ def _question_reason(question: dict, touches_low_confidence: bool, inferred_answ
     return "High-impact architecture choice; reviewing it can change generated Azure resources."
 
 
+def _refresh_guided_mapping_evidence(
+    analysis: dict,
+    original_mappings: list[dict],
+    mappings: list[dict],
+    answers: dict,
+    effective_answers: Answers,
+) -> None:
+    source_provider = analysis.get("source_provider")
+    for original, mapping in zip(original_mappings, mappings):
+        target_changed = original.get("azure_service") != mapping.get("azure_service")
+        confidence_changed = original.get("confidence") != mapping.get("confidence")
+        if not target_changed and not confidence_changed:
+            continue
+
+        original_evidence = original.get("original_detection_evidence")
+        if not isinstance(original_evidence, dict):
+            original_evidence = original.get("evidence")
+        original_provenance = original.get("original_detection_confidence_provenance")
+        if not isinstance(original_provenance, dict):
+            original_provenance = original.get("confidence_provenance")
+
+        if target_changed:
+            if isinstance(original_evidence, dict):
+                mapping.setdefault(
+                    "original_detection_evidence",
+                    copy.deepcopy(original_evidence),
+                )
+            if isinstance(original_provenance, dict):
+                mapping.setdefault(
+                    "original_detection_confidence_provenance",
+                    copy.deepcopy(original_provenance),
+                )
+
+            source_service = mapping.get("source_service", "")
+            is_spark_choice = (
+                isinstance(source_service, str)
+                and ("EMR" in source_service or "Elastic MapReduce" in source_service)
+            )
+            question_id = "data_spark_runtime" if is_spark_choice else None
+            choice = effective_answers.get(question_id) if question_id else None
+            mapping["guided_choice"] = {
+                "question_id": question_id,
+                "answer": choice,
+                "answer_source": (
+                    "user" if question_id in answers else "default"
+                ) if question_id else "guided_answers",
+                "previous_target": original.get("azure_service"),
+                "selected_target": mapping.get("azure_service"),
+            }
+
+            detection_confidence = (
+                original_evidence.get("detection_confidence", original.get("confidence"))
+                if isinstance(original_evidence, dict)
+                else original.get("confidence")
+            )
+            guided_evidence_mapping = {
+                **mapping,
+                "source": "user",
+                "user_override": True,
+                "user_confirmed": True,
+                "confidence": detection_confidence,
+                "notes": "",
+                "alternatives": [],
+                "feature_gaps": [],
+                "limitations": [],
+            }
+            if "source_provider" not in guided_evidence_mapping:
+                guided_evidence_mapping["source_provider"] = source_provider
+            mapping["evidence"] = build_mapping_evidence(
+                guided_evidence_mapping,
+                run_id=(
+                    (original_evidence.get("run_id") if isinstance(original_evidence, dict) else None)
+                    or analysis.get("run_id")
+                ),
+                analysis_timestamp=(
+                    (original_evidence.get("generated_at") if isinstance(original_evidence, dict) else None)
+                    or analysis.get("analysis_timestamp")
+                ),
+            )
+
+        provenance_provider = mapping.get("source_provider", source_provider)
+        if provenance_provider is not None:
+            try:
+                provenance_provider = normalize_source_provider(provenance_provider)
+            except ValueError:
+                provenance_provider = None
+        provenance_mapping = dict(mapping)
+        provenance_mapping.pop("source_provider", None)
+        mapping["confidence_provenance"] = build_provenance(
+            provenance_mapping,
+            source_provider=provenance_provider,
+        )
+
+
 def apply_answers(analysis_result: dict, answers: dict) -> dict:
     """Apply user answers to refine an Azure architecture analysis.
 
@@ -431,6 +528,7 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
       • Swapping Azure service mappings (e.g. EMR → Databricks instead of Synapse).
       • Upgrading or downgrading SKU references in mapping notes.
       • Modifying confidence scores when the user confirms preferences.
+      • Preserving detection evidence while refreshing provenance for guided changes.
       • Appending compliance / networking / DR warnings.
       • Adding IaC parameter recommendations under a new ``iac_parameters`` key.
 
@@ -448,6 +546,7 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
     result: dict = copy.deepcopy(analysis_result)
 
     mappings: list[dict] = result.get("mappings", [])
+    original_mappings = copy.deepcopy(mappings)
     warnings: list[str] = result.get("warnings", [])
     iac_params: dict[str, Any] = result.get("iac_parameters", {})
 
@@ -475,6 +574,13 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
     _apply_deploy_region(effective, iac_params)
     _apply_encryption(effective, mappings, warnings, iac_params)
 
+    _refresh_guided_mapping_evidence(
+        result,
+        original_mappings,
+        mappings,
+        answers or {},
+        effective,
+    )
     result["mappings"] = mappings
     result["warnings"] = warnings
     result["iac_parameters"] = iac_params

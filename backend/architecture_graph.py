@@ -83,8 +83,14 @@ def build_architecture_graph(analysis: dict[str, Any]) -> dict[str, Any]:
             warnings.append(f"mapping_{index}_missing_source_service")
             continue
 
-        mapping_provider = _normalize_provider(mapping.get("source_provider"), warnings, index=index)
-        node_provider = mapping_provider or source_provider
+        if "source_provider" in mapping:
+            node_provider = _normalize_provider(
+                mapping.get("source_provider"),
+                warnings,
+                index=index,
+            )
+        else:
+            node_provider = source_provider
         node_material = f"{index}\0{node_provider or ''}\0{source_service}\0{target_service}"
         node_id = f"mapping-{index}-{hashlib.sha256(node_material.encode('utf-8')).hexdigest()[:10]}"
         confidence_value = mapping.get("confidence")

@@ -388,6 +388,56 @@ class TestApplyAnswersIntegration:
         vm = [m for m in result["mappings"] if "EC2" in m["source_service"]][0]
         assert "Premium" in vm["azure_service"] or "premium" in vm.get("notes", "").lower()
 
+    def test_spark_target_change_separates_detection_evidence_and_refreshes_provenance(self):
+        from architecture_graph import build_architecture_graph
+
+        original_evidence = {
+            "detection_source": "ai",
+            "rationale": "Synapse was selected for EMR.",
+            "run_id": "run-1",
+            "generated_at": "2026-01-01T00:00:00Z",
+        }
+        original_provenance = {
+            "azure_service": "synapse analytics",
+            "feature_parity": {"total_features": 1},
+        }
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [
+                {
+                    "source_service": "Amazon EMR",
+                    "azure_service": "Azure Synapse Spark Pool",
+                    "confidence": 0.8,
+                    "source": "ai",
+                    "evidence": original_evidence,
+                    "confidence_provenance": original_provenance,
+                }
+            ],
+        }
+
+        refined = apply_answers(
+            analysis,
+            {"data_spark_runtime": "Azure Databricks"},
+        )
+        mapping = refined["mappings"][0]
+        node = build_architecture_graph(refined)["nodes"][0]
+
+        assert mapping["azure_service"] == "Azure Databricks"
+        assert mapping["original_detection_evidence"] == original_evidence
+        assert mapping["original_detection_confidence_provenance"] == original_provenance
+        assert mapping["guided_choice"] == {
+            "question_id": "data_spark_runtime",
+            "answer": "Azure Databricks",
+            "answer_source": "user",
+            "previous_target": "Azure Synapse Spark Pool",
+            "selected_target": "Azure Databricks",
+        }
+        assert mapping["evidence"]["detection_source"] == "user"
+        assert "Azure Databricks" in mapping["evidence"]["rationale"]
+        assert mapping["confidence_provenance"]["azure_service"] == "Azure Databricks"
+        assert node["evidence"] == mapping["evidence"]
+        assert node["confidence_provenance"] == mapping["confidence_provenance"]
+
 
 # ====================================================================
 # QUESTION_BANK — new categories (Issues #60-#67)

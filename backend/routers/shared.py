@@ -1158,6 +1158,31 @@ def require_diagram_or_purge_access(request: Request, diagram_id: str) -> dict:
         db.close()
 
 
+def _persist_transient_diagram_snapshot(
+    diagram_id: str,
+    snapshot: dict,
+    expected_session_state: Optional[dict],
+) -> None:
+    """Persist transient state, using compare-and-swap when an expected state is supplied."""
+    if expected_session_state is None:
+        if not SESSION_STORE.set(diagram_id, snapshot):
+            raise ArchmorphException(503, "Analysis cache is temporarily unavailable")
+        return
+
+    committed, _ = SESSION_STORE.update_if(
+        diagram_id,
+        lambda current: isinstance(current, dict)
+        and all(current.get(key) == value for key, value in expected_session_state.items()),
+        lambda _current: snapshot,
+    )
+    if not committed:
+        raise ArchmorphException(
+            409,
+            "Analysis changed while this operation was running.",
+            details={"error": "analysis_version_conflict"},
+        )
+
+
 def persist_diagram_mutation(
     request: Request,
     diagram_id: str,
@@ -1167,6 +1192,7 @@ def persist_diagram_mutation(
     artifact_format: Optional[str] = None,
     artifact_content: Optional[str] = None,
     expected_version: Optional[int] = None,
+    expected_session_state: Optional[dict] = None,
     label: Optional[str] = None,
     restored_from: Optional[int] = None,
     allow_legacy_cache_rehome: bool = False,
@@ -1179,17 +1205,26 @@ def persist_diagram_mutation(
     """
     detached_snapshot = copy.deepcopy(snapshot)
     if _is_public_diagram_session(diagram_id, detached_snapshot):
-        if not SESSION_STORE.set(diagram_id, detached_snapshot):
-            raise ArchmorphException(503, "Analysis cache is temporarily unavailable")
+        _persist_transient_diagram_snapshot(
+            diagram_id,
+            detached_snapshot,
+            expected_session_state,
+        )
         return None
     principal = get_request_durable_principal(request)
     if principal is None:
-        if not SESSION_STORE.set(diagram_id, detached_snapshot):
-            raise ArchmorphException(503, "Analysis cache is temporarily unavailable")
+        _persist_transient_diagram_snapshot(
+            diagram_id,
+            detached_snapshot,
+            expected_session_state,
+        )
         return None
     if principal["owner_api_key_id"] is not None and not API_KEY:
-        if not SESSION_STORE.set(diagram_id, detached_snapshot):
-            raise ArchmorphException(503, "Analysis cache is temporarily unavailable")
+        _persist_transient_diagram_snapshot(
+            diagram_id,
+            detached_snapshot,
+            expected_session_state,
+        )
         return None
     existing_owner = detached_snapshot.get("_owner_user_id") or detached_snapshot.get("_owner_api_key_id")
     if existing_owner is None and principal["owner_api_key_id"] is None:
@@ -1197,8 +1232,11 @@ def persist_diagram_mutation(
 
         user = get_user_from_request_headers(dict(request.headers))
         if user is None:
-            if not SESSION_STORE.set(diagram_id, detached_snapshot):
-                raise ArchmorphException(503, "Analysis cache is temporarily unavailable")
+            _persist_transient_diagram_snapshot(
+                diagram_id,
+                detached_snapshot,
+                expected_session_state,
+            )
             return None
     if not principal["tenant_id"]:
         raise ArchmorphException(

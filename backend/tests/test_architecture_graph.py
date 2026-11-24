@@ -72,6 +72,24 @@ def test_missing_provider_remains_unknown():
     assert graph["nodes"][0]["source_provider"] is None
 
 
+def test_explicit_unsupported_mapping_provider_does_not_inherit_analysis_provider():
+    graph = build_architecture_graph({
+        "source_provider": "aws",
+        "mappings": [
+            {
+                "source_service": "User-added service",
+                "azure_service": "Azure service",
+                "source_provider": "user",
+            },
+            {"source_service": "EC2", "azure_service": "Virtual Machines"},
+        ],
+    })
+
+    assert graph["nodes"][0]["source_provider"] is None
+    assert graph["nodes"][1]["source_provider"] == "aws"
+    assert "unsupported_source_provider_0" in graph["warnings"]
+
+
 def test_graph_rejects_edges_with_unknown_node_ids():
     with pytest.raises(ValidationError, match="must reference existing nodes"):
         ArchitectureGraph(
