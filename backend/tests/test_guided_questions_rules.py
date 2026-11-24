@@ -409,6 +409,7 @@ class TestApplyAnswersIntegration:
                     "azure_service": "Azure Synapse Spark Pool",
                     "confidence": 0.8,
                     "source": "ai",
+                    "needs_review": True,
                     "evidence": original_evidence,
                     "confidence_provenance": original_provenance,
                 }
@@ -433,10 +434,48 @@ class TestApplyAnswersIntegration:
             "selected_target": "Azure Databricks",
         }
         assert mapping["evidence"]["detection_source"] == "user"
+        assert mapping["evidence"]["user_confirmed"] is True
+        assert mapping["evidence"]["needs_review"] is False
+        assert mapping["needs_review"] is False
         assert "Azure Databricks" in mapping["evidence"]["rationale"]
         assert mapping["confidence_provenance"]["azure_service"] == "Azure Databricks"
         assert node["evidence"] == mapping["evidence"]
         assert node["confidence_provenance"] == mapping["confidence_provenance"]
+
+    def test_default_spark_runtime_does_not_confirm_or_clear_review(self):
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [
+                {
+                    "source_service": "Amazon EMR",
+                    "azure_service": "Azure Databricks",
+                    "confidence": 0.55,
+                    "source": "ai",
+                    "needs_review": False,
+                    "evidence": {
+                        "detection_source": "ai",
+                        "detection_confidence": 0.55,
+                    },
+                }
+            ],
+        }
+
+        mapping = apply_answers(analysis, {})["mappings"][0]
+
+        assert mapping["azure_service"] == "Azure Synapse Spark Pool"
+        assert mapping["guided_choice"]["answer_source"] == "default"
+        assert mapping["guided_choice"]["answer"] == "Azure Synapse Spark Pools"
+        assert mapping["confidence"] == 0.55
+        assert "User selected:" not in mapping.get("notes", "")
+        assert not any(
+            "User confirmed Spark runtime" in reason
+            for reason in mapping.get("confidence_explanation", [])
+        )
+        assert mapping["evidence"]["detection_source"] == "ai"
+        assert mapping["evidence"]["user_override"] is False
+        assert mapping["evidence"]["user_confirmed"] is False
+        assert mapping["evidence"]["needs_review"] is True
+        assert mapping["needs_review"] is True
 
 
 # ====================================================================
