@@ -239,7 +239,7 @@ def test_sync_hld_and_iac_artifacts_survive_cache_loss(test_client, durable_runt
     assert hld_artifacts[0].version_id
 
     code = 'resource "azurerm_resource_group" "main" {}'
-    with patch("routers.iac_routes.generate_iac_code", return_value=code):
+    with patch("routers.iac_routes.generate_iac_code_with_validation", return_value={"code": code, "validation": {"status": "passed", "errors": [], "warnings": []}}):
         response = test_client.post(
             f"/api/diagrams/{diagram_id}/generate?format=terraform",
             headers=headers,
@@ -338,7 +338,7 @@ def test_api_key_iac_mutation_survives_cache_loss(test_client, durable_runtime, 
     SESSION_STORE.set(diagram_id, session)
     code = 'resource "azurerm_resource_group" "api_key" {}'
 
-    with patch("routers.iac_routes.generate_iac_code", return_value=code):
+    with patch("routers.iac_routes.generate_iac_code_with_validation", return_value={"code": code, "validation": {"status": "passed", "errors": [], "warnings": []}}):
         response = test_client.post(
             f"/api/diagrams/{diagram_id}/generate?format=terraform",
             headers={"X-API-Key": api_key},
@@ -379,8 +379,12 @@ def test_iac_idempotency_is_scoped_to_the_canonical_source_version(
     terraform_v2 = 'resource "azurerm_resource_group" "second" {}'
 
     with patch(
-        "routers.iac_routes.generate_iac_code",
-        side_effect=[terraform_v1, bicep, terraform_v2],
+        "routers.iac_routes.generate_iac_code_with_validation",
+        side_effect=[
+            {"code": terraform_v1, "validation": {"status": "passed", "errors": [], "warnings": []}},
+            {"code": bicep, "validation": {"status": "passed", "errors": [], "warnings": []}},
+            {"code": terraform_v2, "validation": {"status": "passed", "errors": [], "warnings": []}},
+        ],
     ):
         responses = [
             test_client.post(
@@ -1501,8 +1505,11 @@ def _wait_for_job(test_client, job_id, headers):
         (
             "generate-async?format=terraform",
             "generate_iac",
-            "routers.iac_routes.generate_iac_code",
-            'resource "azurerm_resource_group" "async" {}',
+            "routers.iac_routes.generate_iac_code_with_validation",
+            {
+                "code": 'resource "azurerm_resource_group" "async" {}',
+                "validation": {"status": "passed", "errors": [], "warnings": []},
+            },
             "terraform",
             "iac_code",
         ),
@@ -1565,7 +1572,8 @@ def test_async_artifact_paths_survive_cache_loss(
         owner_user_id=owner,
         tenant_id=tenant,
     )
-    assert hydrated[snapshot_key] == patch_value
+    expected_snapshot_value = patch_value["code"] if job_type == "generate_iac" else patch_value
+    assert hydrated[snapshot_key] == expected_snapshot_value
     artifacts = _artifacts(durable_runtime, analysis_id, artifact_type)
     assert len(artifacts) == 1
     assert artifacts[0].version_id

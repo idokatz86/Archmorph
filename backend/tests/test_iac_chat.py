@@ -95,7 +95,7 @@ class TestIacChatProcessing:
         IAC_CHAT_SESSIONS.clear()
 
     @patch("iac_chat.cached_chat_completion")
-    @patch("iac_chat._apply_validation", side_effect=lambda code, _format: code)
+    @patch("iac_chat._apply_validation_with_result", side_effect=lambda code, _format: (code, {"status": "passed", "errors": [], "warnings": []}))
     def test_process_iac_chat_returns_result(self, mock_validation, mock_completion):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -115,10 +115,11 @@ class TestIacChatProcessing:
         assert "changes_summary" in result
         assert "services_added" in result
         assert result["error"] is False
+        assert result["validation"]["status"] == "passed"
         mock_validation.assert_called_once()
 
     @patch("iac_chat.cached_chat_completion")
-    @patch("iac_chat._apply_validation", side_effect=lambda code, _format: code + "\n# validation marker")
+    @patch("iac_chat._apply_validation_with_result", side_effect=lambda code, _format: (code + "\n# validation marker", {"status": "warning", "errors": [], "warnings": ["review"]}))
     def test_process_iac_chat_surfaces_validation_annotations(self, mock_validation, mock_completion):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -134,10 +135,11 @@ class TestIacChatProcessing:
         )
 
         assert "# validation marker" in result["code"]
+        assert result["validation"]["status"] == "warning"
         mock_validation.assert_called_once()
 
     @patch("iac_chat.cached_chat_completion")
-    @patch("iac_chat._apply_validation")
+    @patch("iac_chat._apply_validation_with_result")
     def test_process_iac_chat_preserves_explain_responses_unchanged(self, mock_validation, mock_completion):
         mock_response = MagicMock()
         mock_response.choices = [MagicMock()]
@@ -405,6 +407,9 @@ class TestIacChatEndpoints:
         assert "reply" in data
         assert "code" in data
         assert data["error"] is False
+        assert data["validation"]["schema_version"] == "iac-validation/v1"
+        from main import SESSION_STORE
+        assert SESSION_STORE[analyzed_diagram]["iac_validation"] == data["validation"]
 
     def test_iac_chat_history_endpoint(self, client, analyzed_diagram):
         resp = client.get(f"/api/diagrams/{analyzed_diagram}/iac-chat/history")

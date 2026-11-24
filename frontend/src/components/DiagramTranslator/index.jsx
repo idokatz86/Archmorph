@@ -443,6 +443,7 @@ export default function DiagramTranslator() {
         questionAssumptions: cached.questionAssumptions || [],
         answers: cached.answers || {},
         iacCode: cached.iacCode || null,
+        iacValidation: cached.iacValidation || null,
         iacFormat: normalizeIacFormat(cached.iacFormat),
         hldData: cached.hldData || null,
         exportCapability: null,
@@ -484,6 +485,7 @@ export default function DiagramTranslator() {
             questionAssumptions: data.question_assumptions || [],
             answers: data.answers || {},
             iacCode: data.iac_code || null,
+            iacValidation: data.iac_validation || null,
             iacFormat: normalizeIacFormat(data.iac_format),
             hldData: data.hld_data || null,
             step: data.iac_code ? 'iac' : data.analysis ? 'results' : 'upload',
@@ -609,7 +611,7 @@ export default function DiagramTranslator() {
     set({ loading: true, error: null });
     try {
       const combined = await api.get(`/projects/${state.projectId}/analysis`);
-      set({ analysis: combined, step: 'results', loading: false, iacCode: null, diagramId: null, exportCapability: null });
+      set({ analysis: combined, step: 'results', loading: false, iacCode: null, iacValidation: null, diagramId: null, exportCapability: null });
       await refreshProjectStatus(state.projectId);
     } catch (err) {
       set({ error: err.message, loading: false });
@@ -631,7 +633,7 @@ export default function DiagramTranslator() {
 
   const handleAddProjectDiagram = () => {
     clearSelectedUpload();
-    set({ step: 'upload', iacCode: null, error: null, analysis: null, purgeReceipt: null });
+    set({ step: 'upload', iacCode: null, iacValidation: null, error: null, analysis: null, purgeReceipt: null });
   };
 
   const handlePurgeCurrentAnalysis = async () => {
@@ -1183,7 +1185,7 @@ export default function DiagramTranslator() {
         { cleanup: () => set({ loading: false }) },
       );
       if (refined) {
-        set({ analysis: { ...state.analysis, ...refined }, step: 'results' });
+        set({ analysis: { ...state.analysis, ...refined }, iacCode: null, iacValidation: null, step: 'results' });
       }
     } catch (err) {
       set({ error: err.message });
@@ -1202,8 +1204,8 @@ export default function DiagramTranslator() {
         { cleanup: () => set({ loading: false, generatingIac: false }) },
       );
       if (iacData) {
-        set({ iacCode: iacData.code, step: 'iac', generatingIac: false });
-        updateSessionCache({ iacCode: iacData.code, iacFormat: fmt }); // #263
+        set({ iacCode: iacData.code, iacValidation: iacData.validation || null, step: 'iac', generatingIac: false });
+        updateSessionCache({ iacCode: iacData.code, iacValidation: iacData.validation || null, iacFormat: fmt }); // #263
         // Fetch cost estimate in parallel (non-blocking)
         api.get(`/diagrams/${state.diagramId}/cost-estimate`).then(cost => {
           set({ costEstimate: cost });
@@ -1230,12 +1232,12 @@ export default function DiagramTranslator() {
       );
       if (iacData) {
         if (isCombinedProject) {
-          set({ iacCode: iacData.code, step: 'iac', generatingIac: false, generatingAll: false, genProgress: null });
-          updateSessionCache({ iacCode: iacData.code, iacFormat: fmt });
+          set({ iacCode: iacData.code, iacValidation: iacData.validation || null, step: 'iac', generatingIac: false, generatingAll: false, genProgress: null });
+          updateSessionCache({ iacCode: iacData.code, iacValidation: iacData.validation || null, iacFormat: fmt });
           return;
         }
-        set({ iacCode: iacData.code, genProgress: 'IaC complete. Generating HLD document...' });
-        updateSessionCache({ iacCode: iacData.code, iacFormat: fmt });
+        set({ iacCode: iacData.code, iacValidation: iacData.validation || null, genProgress: 'IaC complete. Generating HLD document...' });
+        updateSessionCache({ iacCode: iacData.code, iacValidation: iacData.validation || null, iacFormat: fmt });
         // Start HLD generation in parallel
         const [hldData, costData] = await Promise.allSettled([
           api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, undefined, 180_000),
@@ -1361,8 +1363,16 @@ export default function DiagramTranslator() {
         services: data.services_added || [],
       });
       if (data.code && !data.error) {
-        set({ previousIacCode: state.iacCode, iacCode: data.code });
-        updateSessionCache({ iacCode: data.code });
+        const updates = {
+          previousIacCode: state.iacCode,
+          iacCode: data.code,
+          ...(data.validation ? { iacValidation: data.validation } : {}),
+        };
+        set(updates);
+        updateSessionCache({
+          iacCode: data.code,
+          ...(data.validation ? { iacValidation: data.validation } : {}),
+        });
       }
     } catch {
       addChatMessage({ role: 'assistant', content: 'Sorry, couldn\'t connect to the IaC assistant.' });
@@ -1478,6 +1488,7 @@ export default function DiagramTranslator() {
       tab.id === 'iac' && state.iacCode ? (
         <IaCViewer
           iacCode={state.iacCode}
+          iacValidation={state.iacValidation}
           previousIacCode={state.previousIacCode}
           iacFormat={state.iacFormat}
           copyFeedback={state.copyFeedback}
@@ -1794,6 +1805,7 @@ export default function DiagramTranslator() {
           loading={state.loading}
           generatingIac={state.generatingIac}
           iacFormat={state.iacFormat}
+          iacValidation={state.iacValidation}
           exportLoading={state.exportLoading}
           copyFeedback={state.copyFeedback}
           onSetStep={(step) => set({ step })}

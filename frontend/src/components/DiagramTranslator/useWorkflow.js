@@ -22,6 +22,7 @@ const initialState = {
   questionAssumptions: [],
   answers: {},
   iacCode: null,
+  iacValidation: null,
   iacFormat: 'terraform',
   costEstimate: null,
   exportLoading: {},

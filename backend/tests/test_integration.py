@@ -375,8 +375,11 @@ class TestFullPipelineIntegration:
         assert resp.status_code == 200
 
         # Generate IaC
-        with patch("routers.iac_routes.generate_iac_code") as mock_iac:
-            mock_iac.return_value = "resource aws_s3_bucket mock {}"
+        with patch("routers.iac_routes.generate_iac_code_with_validation") as mock_iac:
+            mock_iac.return_value = {
+                "code": "resource aws_s3_bucket mock {}",
+                "validation": {"status": "passed", "errors": [], "warnings": []},
+            }
             resp = client.post(f"/api/diagrams/{diagram_id}/generate?format=terraform")
         assert resp.status_code == 200
         assert "resource" in resp.json()["code"] or "provider" in resp.json()["code"]

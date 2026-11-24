@@ -12,6 +12,7 @@ import re
 import shutil
 import subprocess
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional, List, Tuple
 
@@ -561,12 +562,21 @@ def _scan_security(code: str, iac_format: str) -> List[Tuple[str, str]]:
     return issues
 
 
-def _apply_validation(code: str, iac_format: str) -> str:
-    """Run format-specific validation and security scanning, then log issues.
-    Returns code with inline warnings.
+def _validation_not_run(iac_format: str, reason: str) -> dict:
+    return {
+        "schema_version": "iac-validation/v1",
+        "status": "not_run",
+        "format": iac_format,
+        "checks": [],
+        "errors": [],
+        "warnings": [],
+        "checked_at": None,
+        "scope": "Validation is not deployment approval or proof of operational safety.",
+        "reason": reason,
+    }
 
-    Always returns code (better to show imperfect code with warnings than nothing).
-    """
+
+def _validate_iac_code(code: str, iac_format: str) -> dict:
     validators = {
         "terraform": _validate_terraform,
         "bicep": _validate_bicep,
@@ -574,15 +584,37 @@ def _apply_validation(code: str, iac_format: str) -> str:
 
     validator = validators.get(iac_format)
     if not validator:
-        return code
+        return _validation_not_run(iac_format, "No validator is configured for this format.")
 
     issues = validator(code)
-
-    # Security scanning (Issue #276) — check for common insecure patterns
     issues.extend(_scan_security(code, iac_format))
 
     errors = [(s, m) for s, m in issues if s == "error"]
     warnings = [(s, m) for s, m in issues if s == "warning"]
+    if errors:
+        status = "failed"
+    elif warnings:
+        status = "warning"
+    else:
+        status = "passed"
+
+    return {
+        "schema_version": "iac-validation/v1",
+        "status": status,
+        "format": iac_format,
+        "checks": ["format_validation", "static_security_scan"],
+        "errors": [message for _, message in errors],
+        "warnings": [message for _, message in warnings],
+        "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "scope": "Format validation and static security checks only; not deployment approval.",
+    }
+
+
+def _apply_validation_with_result(code: str, iac_format: str) -> tuple[str, dict]:
+    """Run validation once and return both the draft code and its outcome."""
+    validation = _validate_iac_code(code, iac_format)
+    errors = [("error", message) for message in validation["errors"]]
+    warnings = [("warning", message) for message in validation["warnings"]]
 
     if warnings:
         logger.warning(
@@ -632,7 +664,13 @@ def _apply_validation(code: str, iac_format: str) -> str:
             len(errors), iac_format,
         )
 
-    return code
+    return code, validation
+
+
+def _apply_validation(code: str, iac_format: str) -> str:
+    """Return generated code with inline validation comments for legacy callers."""
+    validated_code, _validation = _apply_validation_with_result(code, iac_format)
+    return validated_code
 
 
 def _strip_code_fences(code: str) -> str:
@@ -666,6 +704,29 @@ def _load_fallback_template(iac_format: str, safe_project: str, safe_env: str, s
 
 
 def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", params: Optional[dict] = None) -> str:
+    """Generate IaC for legacy callers that consume a code string."""
+    return _generate_iac_code(analysis, iac_format, params, with_validation=False)
+
+
+def generate_iac_code_with_validation(
+    analysis: Optional[dict],
+    iac_format: str = "terraform",
+    params: Optional[dict] = None,
+) -> dict:
+    """Generate an editable draft together with explicit validation metadata."""
+    result = _generate_iac_code(analysis, iac_format, params, with_validation=True)
+    if not isinstance(result, dict):
+        raise RuntimeError("IaC generation did not return validation metadata")
+    return result
+
+
+def _generate_iac_code(
+    analysis: Optional[dict],
+    iac_format: str,
+    params: Optional[dict],
+    *,
+    with_validation: bool,
+) -> str | dict:
     """
     Generate IaC code from analysis results using GPT-4o.
 
@@ -690,12 +751,19 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
     )
 
     if ci_smoke.enabled():
-        return ci_smoke.iac_code(iac_format, safe_project, safe_region)
+        code = ci_smoke.iac_code(iac_format, safe_project, safe_region)
+        if with_validation:
+            return {"code": code, "validation": _validation_not_run(iac_format, "CI smoke output skips validators.")}
+        return code
 
     # No analysis — return base template
     if not analysis or not analysis.get("mappings"):
         try:
-            return _load_fallback_template(iac_format, safe_project, safe_env, safe_region)
+            code = _load_fallback_template(iac_format, safe_project, safe_env, safe_region)
+            if with_validation:
+                code, validation = _apply_validation_with_result(code, iac_format)
+                return {"code": code, "validation": validation}
+            return code
         except FileNotFoundError:
             logger.warning("Base template not found for %s, generating from scratch", iac_format)
 
@@ -711,7 +779,24 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
     cloud_label = {"azure": "Azure", "aws": "AWS", "gcp": "Google Cloud"}.get(target_provider, "cloud")
 
     try:
-        code = _generate_and_verify_iac(prompt, cloud_label, iac_format, analysis)
+        if with_validation:
+            code, validation = _generate_and_verify_iac(
+                prompt,
+                cloud_label,
+                iac_format,
+                analysis,
+                with_validation=True,
+            )
+            return {"code": code, "validation": validation}
+        code = _generate_and_verify_iac(
+            prompt,
+            cloud_label,
+            iac_format,
+            analysis,
+            with_validation=False,
+        )
+        if not isinstance(code, str):
+            raise RuntimeError("IaC generator returned an unexpected validation result")
         return code
 
     except Exception as exc:
@@ -720,18 +805,33 @@ def generate_iac_code(analysis: Optional[dict], iac_format: str = "terraform", p
             type(exc).__name__,
         )
         try:
-            return _load_fallback_template(
+            code = _load_fallback_template(
                 iac_format, safe_project, safe_env, safe_region,
                 "\n\n# NOTE: Dynamic generation was unavailable. This is a base template.\n"
                 "# Re-run after fixing the OpenAI configuration to get full IaC output.\n",
             )
+            if with_validation:
+                code, validation = _apply_validation_with_result(code, iac_format)
+                return {"code": code, "validation": validation}
+            return code
         except FileNotFoundError:
-            return "# IaC generation is temporarily unavailable.\n"
+            code = "# IaC generation is temporarily unavailable.\n"
+            if with_validation:
+                return {
+                    "code": code,
+                    "validation": _validation_not_run(iac_format, "No fallback template is available."),
+                }
+            return code
 
 
 def _generate_and_verify_iac(
-    prompt: str, cloud_label: str, iac_format: str, analysis: Optional[dict]
-) -> str:
+    prompt: str,
+    cloud_label: str,
+    iac_format: str,
+    analysis: Optional[dict],
+    *,
+    with_validation: bool = False,
+) -> str | tuple[str, dict]:
     """Generate IaC via GPT-4o, then run a self-reflection verification pass."""
     code = ""
     try:
@@ -787,6 +887,8 @@ def _generate_and_verify_iac(
 
     code = _strip_code_fences(code)
     code = _verify_iac_completeness(code, cloud_label, iac_format, analysis)
+    if with_validation:
+        return _apply_validation_with_result(code, iac_format)
     return _apply_validation(code, iac_format)
 
 

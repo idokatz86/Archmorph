@@ -93,6 +93,22 @@ describe('ExportHub accessibility', () => {
   expect(screen.getByRole('status')).toHaveTextContent('5 of 6 deliverables selected')
   })
 
+  it('shows the current IaC validation status', async () => {
+    render(<ExportHub diagramId="diag-1" iacValidation={{ status: 'failed' }} />)
+    openExportHub()
+    expect(await screen.findByLabelText('IaC status: Blocked')).toBeInTheDocument()
+  })
+
+  it('distinguishes validation warnings and shows their details', async () => {
+    render(<ExportHub
+      diagramId="diag-1"
+      iacValidation={{ status: 'warning', warnings: ['Review network exposure'] }}
+    />)
+    openExportHub()
+    expect(await screen.findByLabelText('IaC status: Draft · Warnings')).toBeInTheDocument()
+    expect(screen.getByLabelText('IaC validation warnings')).toHaveTextContent('Review network exposure')
+  })
+
   it('renders generated SVG in a live Landing Zone viewer', async () => {
     const user = userEvent.setup()
     api.post.mockResolvedValueOnce({

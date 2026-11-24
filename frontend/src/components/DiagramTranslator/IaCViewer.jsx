@@ -29,7 +29,7 @@ const CHAT_QUICK_BUTTONS = [
 ];
 
 export default function IaCViewer({
-  iacCode, previousIacCode, iacFormat, copyFeedback,
+  iacCode, iacValidation, previousIacCode, iacFormat, copyFeedback,
   iacChatOpen, iacChatMessages, iacChatInput, iacChatLoading,
   iacChatEndRef, iacChatInputRef,
   onCopyWithFeedback, onToggleChat, onOpenChatWithMessage,
@@ -37,6 +37,26 @@ export default function IaCViewer({
   onPushPr,
 }) {
   const safeIacFormat = iacFormat === 'bicep' ? 'bicep' : 'terraform';
+  const validationStatus = iacValidation?.status;
+  const validationLabel = validationStatus === 'passed'
+    ? 'Validated'
+    : validationStatus === 'failed'
+      ? 'Blocked'
+      : 'Draft';
+  const validationStyle = validationStatus === 'passed'
+    ? 'border-success/30 bg-success/10 text-success'
+    : validationStatus === 'failed'
+      ? 'border-danger/30 bg-danger/10 text-danger'
+      : 'border-warning/30 bg-warning/10 text-warning';
+  const validationMessage = validationStatus === 'passed'
+    ? 'Format and static security checks passed.'
+    : validationStatus === 'failed'
+      ? 'Validation found errors. Review them before using this draft.'
+      : validationStatus === 'warning'
+        ? 'Validation found warnings; this draft needs review.'
+        : 'Validation has not run or its result is unavailable.';
+  const validationErrors = Array.isArray(iacValidation?.errors) ? iacValidation.errors : [];
+  const validationWarnings = Array.isArray(iacValidation?.warnings) ? iacValidation.warnings : [];
   const [pushOpen, setPushOpen] = useState(false);
   const [repo, setRepo] = useState('');
   const [baseBranch, setBaseBranch] = useState('main');
@@ -132,6 +152,18 @@ export default function IaCViewer({
               Push PR
             </Button>
           </div>
+        </div>
+        <div className={`mb-4 rounded-lg border px-3 py-2 text-xs ${validationStyle}`} role="status" aria-label={`IaC status: ${validationLabel}`}>
+          <p className="font-semibold">{validationLabel} · {validationMessage}</p>
+          <p className="mt-1 text-text-secondary">
+            {iacValidation?.scope || 'Static validation is not deployment approval.'}
+          </p>
+          {(validationErrors.length > 0 || validationWarnings.length > 0) && (
+            <ul className="mt-2 list-disc space-y-1 pl-4">
+              {validationErrors.map((message, index) => <li key={`error-${index}`}>{String(message)}</li>)}
+              {validationWarnings.map((message, index) => <li key={`warning-${index}`}>{String(message)}</li>)}
+            </ul>
+          )}
         </div>
         {pushOpen && (
           <form onSubmit={handlePushSubmit} className="mb-4 rounded-lg border border-border bg-secondary/40 p-3">

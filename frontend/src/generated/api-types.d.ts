@@ -10110,8 +10110,19 @@ export interface components {
             monthly_high: number;
             /** Monthly Low */
             monthly_low: number;
+            /** Price Evidence */
+            price_evidence?: {
+                [key: string]: unknown;
+            };
             /** Price Source */
             price_source: string;
+            /**
+             * Price Source Id
+             * @default source_unverified
+             */
+            price_source_id: string;
+            /** Price Source Url */
+            price_source_url?: string | null;
             /** Quantity */
             quantity: number;
             /** Quantity Assumption */
@@ -10156,6 +10167,8 @@ export interface components {
             missing_cost_warnings?: string[];
             /** Pricing Source */
             pricing_source: string;
+            /** Pricing Sources */
+            pricing_sources?: string[];
             /** Region */
             region: string;
             /** Schema Version */

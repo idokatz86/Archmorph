@@ -489,7 +489,7 @@ class TestDiagramExport:
 # ====================================================================
 
 class TestIaCGeneration:
-    @patch("routers.iac_routes.generate_iac_code", return_value="resource aws_instance {}")
+    @patch("routers.iac_routes.generate_iac_code_with_validation", return_value={"code": "resource aws_instance {}", "validation": {"status": "passed", "errors": [], "warnings": []}})
     def test_generate_terraform(self, mock_iac, client, analyzed_diagram):
         resp = client.post(f"/api/diagrams/{analyzed_diagram}/generate?format=terraform")
         assert resp.status_code == 200
@@ -497,7 +497,7 @@ class TestIaCGeneration:
         assert data["format"] == "terraform"
         assert "resource" in data["code"] or "provider" in data["code"]
 
-    @patch("routers.iac_routes.generate_iac_code", return_value="resource aws_instance {} param")
+    @patch("routers.iac_routes.generate_iac_code_with_validation", return_value={"code": "resource aws_instance {} param", "validation": {"status": "passed", "errors": [], "warnings": []}})
     def test_generate_bicep(self, mock_iac, client, analyzed_diagram):
         resp = client.post(f"/api/diagrams/{analyzed_diagram}/generate?format=bicep")
         assert resp.status_code == 200
@@ -509,7 +509,7 @@ class TestIaCGeneration:
         resp = client.post(f"/api/diagrams/{analyzed_diagram}/generate?format=pulumi")
         assert resp.status_code == 422
 
-    @patch("routers.iac_routes.generate_iac_code", return_value="resource aws_instance {}")
+    @patch("routers.iac_routes.generate_iac_code_with_validation", return_value={"code": "resource aws_instance {}", "validation": {"status": "passed", "errors": [], "warnings": []}})
     def test_generate_any_diagram_id(self, mock_iac, client, clean_session):
         SESSION_STORE["any-id"] = copy.deepcopy(MOCK_ANALYSIS)
         resp = client.post("/api/diagrams/any-id/generate?format=terraform")

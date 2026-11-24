@@ -8,7 +8,7 @@ Split from diagrams.py for maintainability (#284).
 from fastapi import APIRouter, Request, Depends
 from pydantic import Field
 from strict_models import StrictBaseModel
-from typing import Optional, List
+from typing import Any, Optional, List
 import asyncio
 import copy
 import csv
@@ -476,6 +476,9 @@ class CostAssumptionService(StrictBaseModel):
     monthly_high: float
     monthly_estimate: float
     price_source: str
+    price_source_id: str = "source_unverified"
+    price_source_url: Optional[str] = None
+    price_evidence: dict[str, Any] = Field(default_factory=dict)
     base_price_usd: float
     hourly_rate_usd: float
     sku_multiplier: float
@@ -492,6 +495,7 @@ class CostAssumptionsResponse(StrictBaseModel):
     arm_region: str
     sku_strategy: str
     pricing_source: str
+    pricing_sources: List[str] = Field(default_factory=list)
     cache_age_days: Optional[float] = None
     total_monthly_estimate: dict[str, float]
     service_count: int

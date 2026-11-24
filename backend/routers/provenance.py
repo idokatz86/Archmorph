@@ -27,7 +27,7 @@ async def get_provenance_summary(request: Request, diagram_id: str, _auth=Depend
     if not mappings:
         raise ArchmorphException(404, f"No service mappings found in analysis for diagram {diagram_id}.")
 
-    summary = build_provenance_summary(mappings)
+    summary = build_provenance_summary(mappings, source_provider=session.get("source_provider"))
     summary["diagram_id"] = diagram_id
     return summary
 
@@ -63,6 +63,9 @@ async def get_provenance_detail(request: Request, diagram_id: str, service_name:
             f"Service '{service_name}' not found in analysis. Available: {', '.join(available)}",
         )
 
-    provenance = build_provenance(target_mapping)
+    provenance = build_provenance(
+        target_mapping,
+        source_provider=session.get("source_provider"),
+    )
     provenance["diagram_id"] = diagram_id
     return provenance

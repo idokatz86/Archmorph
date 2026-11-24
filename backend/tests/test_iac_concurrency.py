@@ -44,6 +44,10 @@ resource "azurerm_resource_group" "rg" {
 }
 """
 STALE_TERRAFORM_CODE = 'resource "azurerm_resource_group" "stale" {}'
+MOCK_IAC_GENERATION = {
+    "code": MOCK_TERRAFORM_CODE,
+    "validation": {"status": "passed", "errors": [], "warnings": []},
+}
 
 
 def _auth_headers(user_id: str = "iac-async-user", tenant_id: str = "tenant-iac-async") -> dict:
@@ -110,7 +114,7 @@ def owned_diagram_with_analysis(client):
 class TestIacEtagGeneration:
     """ETag is generated and returned after IaC generation."""
 
-    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code_with_validation", return_value=MOCK_IAC_GENERATION)
     def test_generate_iac_returns_etag_header(self, mock_gen, client, diagram_with_analysis):
         resp = client.post(
             f"/api/diagrams/{diagram_with_analysis}/generate",
@@ -121,7 +125,7 @@ class TestIacEtagGeneration:
         assert resp.headers["etag"], "ETag must not be empty"
         assert resp.json()["etag"] == resp.headers["etag"]
 
-    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code_with_validation", return_value=MOCK_IAC_GENERATION)
     def test_generate_iac_etag_is_deterministic_for_same_code(self, mock_gen, client, diagram_with_analysis):
         """Same code must always produce the same ETag."""
         resp1 = client.post(
@@ -134,22 +138,24 @@ class TestIacEtagGeneration:
         )
         assert resp1.headers["etag"] == resp2.headers["etag"]
 
-    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code_with_validation", return_value=MOCK_IAC_GENERATION)
     def test_generate_iac_stores_code_and_etag_in_session(self, mock_gen, client, diagram_with_analysis):
         """The session must carry the ETag after generation."""
         from routers.iac_routes import _IAC_ETAG_KEY
-        client.post(
+        response = client.post(
             f"/api/diagrams/{diagram_with_analysis}/generate",
             params={"format": "terraform"},
         )
+        assert response.json()["validation"]["status"] == "passed"
         session = SESSION_STORE[diagram_with_analysis]
         assert _IAC_ETAG_KEY in session, "Session must store the IaC ETag"
+        assert session["iac_validation"]["status"] == "passed"
 
 
 class TestIacOptimisticConcurrency:
     """Concurrent edit detection via If-Match."""
 
-    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code_with_validation", return_value=MOCK_IAC_GENERATION)
     def test_matching_if_match_succeeds(self, mock_gen, client, diagram_with_analysis):
         """If-Match matching the stored ETag must succeed (200)."""
         # First generation — no If-Match required
@@ -195,7 +201,7 @@ class TestIacOptimisticConcurrency:
         body = r.json()
         assert "iac_version_conflict" in str(body) or "conflict" in str(body).lower()
 
-    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code_with_validation", return_value=MOCK_IAC_GENERATION)
     def test_missing_if_match_with_no_prior_etag_succeeds(self, mock_gen, client, diagram_with_analysis):
         """First-time generation (no stored ETag) without If-Match must succeed."""
         r = client.post(
@@ -204,7 +210,7 @@ class TestIacOptimisticConcurrency:
         )
         assert r.status_code == 200
 
-    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code_with_validation", return_value=MOCK_IAC_GENERATION)
     def test_missing_if_match_with_prior_etag_succeeds(self, mock_gen, client, diagram_with_analysis):
         """Omitting If-Match even when a prior ETag exists must succeed (free regeneration)."""
         # First generation — establishes an ETag
@@ -299,7 +305,7 @@ class TestAsyncIacCanonicalState:
             time.sleep(0.05)
         pytest.fail(f"Async IaC job {job_id} did not complete in time")
 
-    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code_with_validation", return_value=MOCK_IAC_GENERATION)
     def test_async_generate_persists_canonical_code_hash_and_etag(
         self,
         mock_gen,
@@ -326,14 +332,16 @@ class TestAsyncIacCanonicalState:
         assert result["code"] == MOCK_TERRAFORM_CODE
         assert result["code_hash"] == expected_hash
         assert result["etag"] == expected_etag
+        assert result["validation"]["status"] == "passed"
 
         session = SESSION_STORE[owned_diagram_with_analysis]
         assert session["iac_code"] == MOCK_TERRAFORM_CODE
         assert session["iac_code_hash"] == expected_hash
         assert session["iac_format"] == "terraform"
+        assert session["iac_validation"]["status"] == "passed"
         assert session[_IAC_ETAG_KEY] == expected_etag
 
-    @patch("routers.iac_routes.generate_iac_code", return_value=MOCK_TERRAFORM_CODE)
+    @patch("routers.iac_routes.generate_iac_code_with_validation", return_value=MOCK_IAC_GENERATION)
     def test_async_result_drives_chat_hash_checks_and_if_match_conflicts(
         self,
         mock_gen,
@@ -390,9 +398,9 @@ class TestAsyncIacCanonicalState:
             session["iac_code_hash"] = _iac_code_hash(newer_code)
             session[_IAC_ETAG_KEY] = _compute_iac_etag(newer_code)
             SESSION_STORE[owned_diagram_with_analysis] = session
-            return MOCK_TERRAFORM_CODE
+            return MOCK_IAC_GENERATION
 
-        with patch("routers.iac_routes.generate_iac_code", side_effect=generate_after_concurrent_update):
+        with patch("routers.iac_routes.generate_iac_code_with_validation", side_effect=generate_after_concurrent_update):
             queued = client.post(
                 f"/api/diagrams/{owned_diagram_with_analysis}/generate-async",
                 params={"format": "terraform"},
@@ -423,9 +431,9 @@ class TestAsyncIacCanonicalState:
 
         def generate_after_purge(*args, **kwargs):
             SESSION_STORE.delete(owned_diagram_with_analysis)
-            return MOCK_TERRAFORM_CODE
+            return MOCK_IAC_GENERATION
 
-        with patch("routers.iac_routes.generate_iac_code", side_effect=generate_after_purge):
+        with patch("routers.iac_routes.generate_iac_code_with_validation", side_effect=generate_after_purge):
             queued = client.post(
                 f"/api/diagrams/{owned_diagram_with_analysis}/generate-async",
                 params={"format": "terraform"},

@@ -257,8 +257,11 @@ def test_project_generate_uses_durable_combined_analysis(test_client, tenant_a_a
     _analyze(test_client, uploaded["diagram_id"], tenant_a_auth_headers)
     SESSION_STORE.clear()
     with patch(
-        "routers.projects.generate_iac_code",
-        return_value='resource "azurerm_resource_group" "rg" {}',
+        "routers.projects.generate_iac_code_with_validation",
+        return_value={
+            "code": 'resource "azurerm_resource_group" "rg" {}',
+            "validation": {"status": "passed", "errors": [], "warnings": []},
+        },
     ) as generate:
         response = test_client.post(
             f"/api/projects/{uploaded['project_id']}/generate?format=terraform",
@@ -267,6 +270,7 @@ def test_project_generate_uses_durable_combined_analysis(test_client, tenant_a_a
 
     assert response.status_code == 200, response.text
     assert generate.call_args.kwargs["analysis"]["combined"] is True
+    assert response.json()["validation"]["status"] == "passed"
 
 
 def test_project_id_collision_retries(monkeypatch):
@@ -426,7 +430,7 @@ def test_project_member_role_matrix_cache_loss_and_revocation(
         headers=viewer_headers,
     ).status_code == 404
 
-    with patch("routers.projects.generate_iac_code", return_value="resource {}"):
+    with patch("routers.projects.generate_iac_code_with_validation", return_value={"code": "resource {}", "validation": {"status": "passed", "errors": [], "warnings": []}}):
         assert test_client.post(
             f"/api/projects/{project_id}/generate?format=terraform",
             headers=editor_headers,

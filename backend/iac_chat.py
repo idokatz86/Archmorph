@@ -17,7 +17,7 @@ from typing import Any, Dict, List, Optional
 from openai import RateLimitError, APITimeoutError, APIConnectionError, BadRequestError
 from log_sanitizer import log_model_output_metadata
 from openai_client import cached_chat_completion, AZURE_OPENAI_DEPLOYMENT
-from iac_generator import _apply_validation
+from iac_generator import _apply_validation_with_result
 from prompt_guard import (
     PROMPT_ARMOR,
     sanitize_message,
@@ -229,6 +229,7 @@ def process_iac_chat(
     )
 
     raw_text = ""
+    validation = None
     try:
         response = cached_chat_completion(
             messages=messages,
@@ -276,7 +277,7 @@ def process_iac_chat(
             if code == current_code or code == current_code.strip():
                 code = current_code
             elif iac_format in ("terraform", "bicep"):
-                code = _apply_validation(code, iac_format)
+                code, validation = _apply_validation_with_result(code, iac_format)
 
         changes = _coerce_to_str_list(result.get("changes_summary", []))
         services = _coerce_to_str_list(result.get("services_added", []))
@@ -383,6 +384,7 @@ def process_iac_chat(
         "code": code,
         "changes_summary": changes,
         "services_added": services,
+        "validation": validation,
         "error": False,
     }
 

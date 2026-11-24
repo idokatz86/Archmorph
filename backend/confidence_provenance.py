@@ -12,6 +12,8 @@ from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from source_provider import normalize_source_provider
+
 # ─────────────────────────────────────────────────────────────
 # 1. Feature Parity Database  (top 30 AWS → Azure pairs)
 # ─────────────────────────────────────────────────────────────
@@ -572,7 +574,12 @@ CATALOG_WEIGHT = 0.7
 GPT_WEIGHT = 0.3
 
 
-def build_provenance(mapping: Dict[str, Any], catalog_confidence: Optional[float] = None) -> Dict[str, Any]:
+def build_provenance(
+    mapping: Dict[str, Any],
+    catalog_confidence: Optional[float] = None,
+    *,
+    source_provider: object | None = None,
+) -> Dict[str, Any]:
     """Build a structured confidence provenance record for a single mapping.
 
     Parameters
@@ -590,6 +597,8 @@ def build_provenance(mapping: Dict[str, Any], catalog_confidence: Optional[float
     """
     source = _norm(mapping.get("source_service", ""))
     azure = _norm(mapping.get("azure_service", mapping.get("target_service", "")))
+    provider_value = mapping.get("source_provider", source_provider)
+    provider = normalize_source_provider(provider_value) if provider_value is not None else None
     overall = mapping.get("confidence", 0)
     # Normalise to 0-100 scale
     if isinstance(overall, (int, float)) and overall <= 1.0:
@@ -600,7 +609,7 @@ def build_provenance(mapping: Dict[str, Any], catalog_confidence: Optional[float
     # --- 1. Score decomposition ---
     cat_conf = catalog_confidence
     if cat_conf is None:
-        cat_conf = _lookup_catalog_confidence(source, azure)
+        cat_conf = _lookup_catalog_confidence(source, azure, provider)
 
     if cat_conf is not None:
         cat_pct = round(cat_conf * 100) if cat_conf <= 1.0 else int(cat_conf)
@@ -624,6 +633,8 @@ def build_provenance(mapping: Dict[str, Any], catalog_confidence: Optional[float
                 "weight": CATALOG_WEIGHT,
                 "contribution": cat_contribution,
                 "source": "services/mappings.py static catalog",
+                "source_provider": provider,
+                "matched": cat_conf is not None,
             },
             "gpt_detection": {
                 "score": gpt_pct,
@@ -647,6 +658,7 @@ def build_provenance(mapping: Dict[str, Any], catalog_confidence: Optional[float
     return {
         "source_service": source,
         "azure_service": azure,
+        "source_provider": provider,
         "score_decomposition": decomposition,
         "feature_parity": parity,
         "azure_docs": docs,
@@ -654,7 +666,11 @@ def build_provenance(mapping: Dict[str, Any], catalog_confidence: Optional[float
     }
 
 
-def build_provenance_summary(mappings: List[Dict[str, Any]]) -> Dict[str, Any]:
+def build_provenance_summary(
+    mappings: List[Dict[str, Any]],
+    *,
+    source_provider: object | None = None,
+) -> Dict[str, Any]:
     """Build provenance for all mappings in an analysis result.
 
     Returns a dict keyed by source service name, plus summary statistics.
@@ -666,7 +682,7 @@ def build_provenance_summary(mappings: List[Dict[str, Any]]) -> Dict[str, Any]:
         source = _norm(m.get("source_service", ""))
         if not source:
             continue
-        prov = build_provenance(m)
+        prov = build_provenance(m, source_provider=source_provider)
         per_service[source] = prov
 
         # Collect parity ratio for summary
@@ -699,14 +715,29 @@ def _norm(value: Any) -> str:
     return str(value).strip()
 
 
-def _lookup_catalog_confidence(source: str, azure: str) -> Optional[float]:
-    """Look up static catalog confidence for a source→azure pair."""
+def _lookup_catalog_confidence(
+    source: str,
+    azure: str,
+    source_provider: object | None,
+) -> Optional[float]:
+    """Look up static catalog confidence in the matching source-provider column."""
+    if source_provider is None:
+        return None
+
+    provider = normalize_source_provider(source_provider)
     from services.mappings import CROSS_CLOUD_MAPPINGS
 
     src_lower = source.lower()
     az_lower = azure.lower()
     for entry in CROSS_CLOUD_MAPPINGS:
-        if entry["aws"].lower() == src_lower and entry["azure"].lower() == az_lower:
+        provider_service = entry.get(provider)
+        target_service = entry.get("azure")
+        if (
+            isinstance(provider_service, str)
+            and provider_service.lower() == src_lower
+            and isinstance(target_service, str)
+            and target_service.lower() == az_lower
+        ):
             return entry["confidence"]
     return None
 

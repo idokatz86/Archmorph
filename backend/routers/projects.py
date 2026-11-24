@@ -7,7 +7,7 @@ from typing import Literal
 from fastapi import APIRouter, Depends, Request
 
 from error_envelope import ArchmorphException
-from iac_generator import generate_iac_code
+from iac_generator import generate_iac_code_with_validation
 from project_merge import merge_project_analyses
 from project_store import (
     PROJECT_EDIT_ROLES,
@@ -149,17 +149,25 @@ async def generate_project_iac(
     )
     _check_architecture_blockers(f"project-{project_id}", combined, force)
     try:
-        code = await asyncio.to_thread(
-            generate_iac_code,
+        generation = await asyncio.to_thread(
+            generate_iac_code_with_validation,
             analysis=combined,
             iac_format=format,
             params=combined.get("iac_parameters", {}),
         )
     except Exception as exc:
         raise ArchmorphException(500, "Project IaC generation failed. Please try again.") from exc
+    code = generation["code"]
+    validation = generation["validation"]
     record_event(f"project_iac_generated_{format}", {"project_id": project_id})
     record_funnel_step(f"project-{project_id}", "iac_generate")
-    return {"project_id": project_id, "format": format, "code": code, "analysis": combined}
+    return {
+        "project_id": project_id,
+        "format": format,
+        "code": code,
+        "validation": validation,
+        "analysis": combined,
+    }
 
 
 @router.get("/api/projects/{project_id}/members")

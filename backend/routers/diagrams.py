@@ -54,9 +54,11 @@ from error_envelope import ArchmorphException
 from upload_validator import validate_upload, UploadValidationError
 from sku_translator import get_sku_translator
 from confidence_provenance import build_provenance
+from architecture_graph import build_architecture_graph
 from architecture_rules import evaluate as evaluate_architecture_rules
 from architecture_review import build_audit_pipeline_issue, classify_regulated_workload
 from source_provider import normalize_source_provider
+from mapping_evidence import attach_evidence_to_mappings, build_run_metadata
 from project_store import (
     acquire_project,
     get_project,
@@ -126,7 +128,10 @@ def _enrich_with_provenance(result: dict) -> dict:
     """Attach structured confidence provenance to each mapping."""
     for m in result.get("mappings", []):
         try:
-            m["confidence_provenance"] = build_provenance(m)
+            m["confidence_provenance"] = build_provenance(
+                m,
+                source_provider=result.get("source_provider"),
+            )
         except Exception:
             logger.debug("Provenance enrichment skipped for mapping")
     return result
@@ -184,7 +189,24 @@ def _normalize_analysis(result: dict) -> dict:
 
     result = _enrich_with_sku(result)
     result = _enrich_with_provenance(result)
+    mappings = result.get("mappings")
+    if isinstance(mappings, list):
+        source_provider = result.get("source_provider")
+        for mapping in mappings:
+            if not isinstance(mapping, dict):
+                continue
+            if not isinstance(mapping.get("evidence"), dict):
+                mapping.pop("evidence", None)
+            if isinstance(source_provider, str) and source_provider.strip():
+                mapping["source_provider"] = source_provider
+        run_metadata = build_run_metadata(result)
+        attach_evidence_to_mappings(
+            mappings,
+            run_id=run_metadata["run_id"],
+            analysis_timestamp=run_metadata["analysis_timestamp"],
+        )
     result = _enrich_with_architecture_issues(result)
+    result["architecture_graph"] = build_architecture_graph(result)
     return result
 
 
@@ -996,6 +1018,7 @@ async def analyze_diagram(request: Request, diagram_id: str, _auth=Depends(verif
 
     if ci_smoke.enabled():
         result = ci_smoke.clone_analysis(diagram_id)
+        result["architecture_graph"] = build_architecture_graph(result)
         capability_binding = None
         if user:
             result["_owner_user_id"] = principal["owner_user_id"]

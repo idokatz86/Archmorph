@@ -246,6 +246,11 @@ export default function CostPanel({ costEstimate, diagramId, api }) {
           {displayEstimate?.service_count > 0 && <span className="ml-2">({displayEstimate.service_count} services)</span>}
         </p>
       )}
+      {displayEstimate?.pricing_source && (
+        <p className="text-xs text-text-muted mb-3">
+          Pricing source: <span className="text-text-secondary">{displayEstimate.pricing_source}</span>
+        </p>
+      )}
       {!hasPricing ? (
         <div className="bg-surface rounded-lg p-4 text-center mb-4">
           <p className="text-sm text-text-muted mb-1">Pricing data is not available for the detected services.</p>
@@ -296,6 +301,14 @@ export default function CostPanel({ costEstimate, diagramId, api }) {
                 const maxCost = Math.max(...pricedServices.map(s => s.monthly_high || 0), 1);
                 return pricedServices.map((s, i) => {
                   const svcOverride = overrides[s.service] || {};
+                  const priceEvidence = s.price_evidence || {};
+                  const priceDetails = [
+                    priceEvidence.returned_sku || priceEvidence.requested_sku,
+                    priceEvidence.returned_meter || priceEvidence.requested_meter,
+                  ].filter(Boolean).join(' · ');
+                  const sourceUrl = s.price_source_url === 'https://prices.azure.com/api/retail/prices'
+                    ? s.price_source_url
+                    : null;
                   return (
                     <div key={i} className="py-2 border-b border-border last:border-0">
                       <div className="flex items-center justify-between mb-1">
@@ -307,6 +320,22 @@ export default function CostPanel({ costEstimate, diagramId, api }) {
                       <div className="h-1.5 bg-secondary rounded-full overflow-hidden mb-2">
                         <div className="h-full bg-cta/40 rounded-full transition-all duration-500" style={{ width: `${(s.monthly_high / maxCost) * 100}%` }} />
                       </div>
+                      <p className="text-[10px] text-text-muted mb-2">
+                        Price source: <span className="text-text-secondary">{s.price_source || 'Price source unknown'}</span>
+                        {priceDetails && <span> · {priceDetails}</span>}
+                        {priceEvidence.cache_age_days != null && <span> · Cached {priceEvidence.cache_age_days} days ago</span>}
+                        {(priceEvidence.cache_age_days === null || priceEvidence.cache_age_days === undefined) && priceEvidence.observed_at && <span> · Observed {priceEvidence.observed_at}</span>}
+                        {sourceUrl && (
+                          <a
+                            href={sourceUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="ml-1 text-cta hover:underline"
+                          >
+                            View source
+                          </a>
+                        )}
+                      </p>
                       {/* Instance count + Reserved capacity controls */}
                       <div className="flex items-center gap-2 flex-wrap">
                         <div className="flex items-center gap-1">

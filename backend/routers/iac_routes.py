@@ -39,7 +39,7 @@ from usage_metrics import (
     record_funnel_step,
 )
 from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
-from iac_generator import generate_iac_code
+from iac_generator import generate_iac_code_with_validation
 from iac_scaffold import generate_scaffold
 
 logger = logging.getLogger(__name__)
@@ -283,8 +283,8 @@ async def generate_iac(
     _check_architecture_blockers(diagram_id, session, force)
 
     try:
-        code = await asyncio.to_thread(
-            generate_iac_code,
+        generation = await asyncio.to_thread(
+            generate_iac_code_with_validation,
             analysis=session if session else None,
             iac_format=format,
             params=iac_params,
@@ -296,6 +296,8 @@ async def generate_iac(
         )
         raise ArchmorphException(500, "IaC generation failed. Please try again.")
 
+    code = generation["code"]
+    validation = generation["validation"]
     record_event_and_funnel_step(
         f"iac_generated_{format}",
         {"diagram_id": diagram_id},
@@ -310,6 +312,7 @@ async def generate_iac(
     updated_session["iac_code"] = code
     updated_session["iac_code_hash"] = _iac_code_hash(code)
     updated_session["iac_format"] = format
+    updated_session["iac_validation"] = validation
     new_etag = _store_iac_etag(updated_session, code)
     await persist_diagram_mutation_async(
         request,
@@ -327,6 +330,7 @@ async def generate_iac(
             "code": code,
             "code_hash": updated_session["iac_code_hash"],
             "etag": new_etag,
+            "validation": validation,
         },
         headers={"ETag": new_etag},
     )
@@ -392,6 +396,8 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
             updated_session["iac_code"] = new_code
             updated_session["iac_code_hash"] = _iac_code_hash(new_code)
             updated_session["iac_format"] = msg.format
+            if result.get("validation") is not None:
+                updated_session["iac_validation"] = result["validation"]
             updated_session["iac_chat_history"] = copy.deepcopy(
                 get_iac_chat_history(diagram_id)
             )
@@ -568,12 +574,14 @@ async def _run_iac_job(
 
         job_manager.update_progress(job_id, 30, "Calling GPT-4o for code generation...")
 
-        code = await asyncio.to_thread(
-            generate_iac_code,
+        generation = await asyncio.to_thread(
+            generate_iac_code_with_validation,
             analysis=session if session else None,
             iac_format=iac_format,
             params=iac_params,
         )
+        code = generation["code"]
+        validation = generation["validation"]
 
         if not job_manager.owns_current_lease(job_id):
             return
@@ -610,6 +618,7 @@ async def _run_iac_job(
             updated["iac_code"] = code
             updated["iac_code_hash"] = code_hash
             updated["iac_format"] = iac_format
+            updated["iac_validation"] = validation
             return updated
 
         latest_session = SESSION_STORE.peek(diagram_id)
@@ -661,6 +670,7 @@ async def _run_iac_job(
                 "code": code,
                 "code_hash": code_hash,
                 "etag": new_etag,
+                "validation": validation,
                 "canonical_state_persisted": canonical_state_persisted,
                 "canonical_state_conflict": canonical_state_changed,
                 "current_etag": current_etag,

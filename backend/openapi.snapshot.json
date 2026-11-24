@@ -1106,9 +1106,30 @@
             "title": "Monthly Low",
             "type": "number"
           },
+          "price_evidence": {
+            "additionalProperties": true,
+            "title": "Price Evidence",
+            "type": "object"
+          },
           "price_source": {
             "title": "Price Source",
             "type": "string"
+          },
+          "price_source_id": {
+            "default": "source_unverified",
+            "title": "Price Source Id",
+            "type": "string"
+          },
+          "price_source_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Source Url"
           },
           "quantity": {
             "title": "Quantity",
@@ -1228,6 +1249,13 @@
           "pricing_source": {
             "title": "Pricing Source",
             "type": "string"
+          },
+          "pricing_sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Pricing Sources",
+            "type": "array"
           },
           "region": {
             "title": "Region",

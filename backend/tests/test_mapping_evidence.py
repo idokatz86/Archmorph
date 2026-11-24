@@ -163,6 +163,15 @@ class TestBuildMappingEvidence:
         ev = me.build_mapping_evidence(m)
         assert ev["catalog_freshness"] is None
 
+    def test_missing_provider_does_not_assume_aws_catalog(self):
+        ev = me.build_mapping_evidence({
+            "source_service": "EC2",
+            "azure_service": "Virtual Machines",
+            "confidence": 0.95,
+            "source": "catalogue",
+        })
+        assert ev["catalog_freshness"] is None
+
     def test_gcp_catalog_freshness(self):
         ev = me.build_mapping_evidence(GCP_MAPPING)
         # GKE should be in the GCP catalog
@@ -245,6 +254,10 @@ class TestBuildRunMetadata:
         meta = me.build_run_metadata(self.ANALYSIS)
         assert meta["source_provider"] == "aws"
         assert meta["target_provider"] == "azure"
+
+    def test_missing_source_provider_remains_unknown(self):
+        meta = me.build_run_metadata({"mappings": []})
+        assert meta["source_provider"] == "unknown"
 
     def test_total_mappings_count(self):
         meta = me.build_run_metadata(self.ANALYSIS)

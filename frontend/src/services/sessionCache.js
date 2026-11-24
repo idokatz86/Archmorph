@@ -88,6 +88,7 @@ export function saveSession(diagramId, analysis, questions = [], answers = {}, e
       allQuestions: extra.allQuestions || [],
       questionAssumptions: extra.questionAssumptions || [],
       iacCode: extra.iacCode || null,
+      iacValidation: extra.iacValidation || null,
       iacFormat: extra.iacFormat || null,
       hldData: extra.hldData || null,
       restoreCapability: extra.restoreCapability || null,

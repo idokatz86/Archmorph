@@ -171,6 +171,10 @@ def test_architecture_package_html_manifest_contains_traceability_fields():
     assert manifest["target_provider"] == "Azure"
     assert manifest["export"] == {"format": "html", "diagram": "primary"}
     assert manifest["renderer"] == {"name": "architecture_package", "version": "1"}
+    assert manifest["architecture_graph"]["schema_version"] == "architecture-graph/v1"
+    assert len(manifest["architecture_graph"]["nodes"]) == len(SAMPLE_ANALYSIS["mappings"])
+    assert manifest["architecture_graph"]["edges"] == []
+    assert manifest["iac_validation"]["status"] == "not_run"
     assert len(manifest["customer_intent_profile_hash"]) == 64
     assert result["filename"] in manifest["artifact_filenames"]
     assert any(

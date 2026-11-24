@@ -85,12 +85,13 @@ export async function generateDeliverable(diagramId, deliverable, format, hldInc
     const data = await api.post(`/diagrams/${diagramId}/generate?format=${format}`, undefined, undefined, 180_000);
     const content = data.code || JSON.stringify(data, null, 2);
     const ext = format === 'terraform' ? 'tf' : format === 'bicep' ? 'bicep' : format;
-    return artifactFromText(content, {
+    const artifact = artifactFromText(content, {
       filename: data.filename || `archmorph-iac.${ext}`,
       format,
       mimeType: 'text/plain',
       provenance: { endpoint: `/diagrams/${diagramId}/generate`, source: 'backend' },
     });
+    return { ...artifact, validation: data.validation || null };
   }
 
   if (id === 'architecture-package') {
@@ -197,6 +198,7 @@ function downloadBlob(blob, filename) {
 
 export default function ExportHub({
   diagramId,
+  iacValidation = null,
   hldIncludeDiagrams = true,
   exportCapability = null,
   onExportCapability,
@@ -375,6 +377,22 @@ export default function ExportHub({
           {DELIVERABLES.map(d => {
             const Icon = d.icon;
             const status = itemStatus[d.id];
+            const validation = d.id === 'iac'
+              ? results[d.id]?.validation || iacValidation
+              : null;
+            const validationLabel = validation?.status === 'passed'
+              ? 'Validated'
+              : validation?.status === 'failed'
+                ? 'Blocked'
+                : validation?.status === 'warning'
+                  ? 'Draft · Warnings'
+                : 'Draft';
+            const validationClass = validation?.status === 'passed'
+              ? 'text-success'
+              : validation?.status === 'failed'
+                ? 'text-danger'
+                : 'text-warning';
+            const validationWarnings = Array.isArray(validation?.warnings) ? validation.warnings : [];
             const checkboxId = `export-hub-${d.id}`;
             return (
               <div
@@ -398,10 +416,22 @@ export default function ExportHub({
                     className="accent-cta w-4 h-4 shrink-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-cta/50 focus:ring-offset-2 focus:ring-offset-primary rounded-sm"
                     aria-label={`Include ${d.label}`}
                   />
-                  <label htmlFor={checkboxId} className="flex items-center gap-3 min-w-0 cursor-pointer">
-                    <Icon className={`w-4 h-4 shrink-0 ${selected[d.id] ? 'text-cta' : 'text-text-muted'}`} aria-hidden="true" />
-                    <span className={`text-sm font-medium ${selected[d.id] ? 'text-text-primary' : 'text-text-muted'}`}>{d.label}</span>
-                  </label>
+                  <div className="min-w-0">
+                    <label htmlFor={checkboxId} className="flex items-center gap-3 min-w-0 cursor-pointer">
+                      <Icon className={`w-4 h-4 shrink-0 ${selected[d.id] ? 'text-cta' : 'text-text-muted'}`} aria-hidden="true" />
+                      <span className={`text-sm font-medium ${selected[d.id] ? 'text-text-primary' : 'text-text-muted'}`}>{d.label}</span>
+                      {d.id === 'iac' && (
+                        <span className={`text-[10px] font-semibold ${validationClass}`} aria-label={`IaC status: ${validationLabel}`}>
+                          {validationLabel}
+                        </span>
+                      )}
+                    </label>
+                    {d.id === 'iac' && validation?.status === 'warning' && validationWarnings.length > 0 && (
+                      <p className="ml-10 mt-1 text-[10px] text-warning" aria-label="IaC validation warnings">
+                        {validationWarnings.map(String).join(' ')}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">

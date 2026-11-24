@@ -21,6 +21,7 @@ from azure_landing_zone import generate_landing_zone_svg
 from azure_landing_zone_schema import infer_dr_mode, infer_regions, infer_tiers_from_mappings
 from cost_assumptions import DIRECTIONAL_COST_NOTICE, build_cost_assumptions_artifact
 from customer_intent import build_customer_intent_profile
+from architecture_graph import ArchitectureGraph, build_architecture_graph
 from source_provider import normalize_source_provider
 from traceability_map import build_traceability_map, traceability_summary
 
@@ -429,6 +430,23 @@ def _build_manifest(
 
     # ── Run metadata / trust provenance (#1130) ──
     run_metadata = _build_run_metadata(analysis, analysis_id=analysis_id)
+    graph_data = analysis.get("architecture_graph")
+    architecture_graph = (
+        ArchitectureGraph.model_validate(graph_data).model_dump(mode="json")
+        if graph_data is not None
+        else build_architecture_graph(analysis)
+    )
+    graph_warnings = [
+        str(warning)
+        for warning in architecture_graph.get("warnings", [])
+        if warning
+    ]
+    iac_validation = analysis.get("iac_validation")
+    if not isinstance(iac_validation, dict):
+        iac_validation = {
+            "status": "not_run",
+            "reason": "No IaC validation result is available for this analysis.",
+        }
 
     manifest = {
         "schema_version": "architecture-package-manifest/v1",
@@ -447,11 +465,13 @@ def _build_manifest(
             for name, role, artifact_format in _manifest_artifacts(artifact_filenames, format)
         ],
         "mapping_references": _mapping_references(analysis),
+        "architecture_graph": architecture_graph,
+        "iac_validation": iac_validation,
         "alz_profile": build_alz_profile(analysis),
         "traceability_map": build_traceability_map(analysis),
         "dr_readiness": dr_readiness,
         "cost_assumptions": cost_assumptions,
-        "warnings": raw_warnings[:10],
+        "warnings": (raw_warnings + graph_warnings)[:20],
         "limitations": [
             {"title": title, "detail": detail}
             for title, detail in limitations

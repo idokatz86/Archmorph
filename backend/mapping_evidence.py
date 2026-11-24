@@ -79,7 +79,7 @@ def build_mapping_evidence(
     azure_service = _coerce_text(mapping.get("azure_service") or mapping.get("target_service"))
     confidence = _safe_float(mapping.get("confidence"), default=0.0)
     source = _coerce_text(mapping.get("source") or "unknown").lower()
-    source_provider = _coerce_text(mapping.get("source_provider") or "aws").lower()
+    source_provider = _coerce_text(mapping.get("source_provider")).lower() or "unknown"
 
     # --- rationale ---
     rationale = _build_rationale(mapping, source_service, azure_service, source)
@@ -146,7 +146,7 @@ def build_run_metadata(
     """
     stable_run_id = run_id or str(analysis.get("run_id") or analysis.get("correlation_id") or uuid.uuid4())
     source_provider = str(
-        analysis.get("source_provider") or analysis.get("provider") or "aws"
+        analysis.get("source_provider") or analysis.get("provider") or "unknown"
     ).lower()
     target_provider = str(analysis.get("target_provider") or "azure").lower()
     analysis_timestamp = str(
@@ -322,8 +322,10 @@ def _lookup_catalog_freshness(source_service: str, source_provider: str) -> Opti
     key = source_service.strip().lower()
     if source_provider == "gcp":
         row = _CATALOG_BY_GCP.get(key)
-    else:
+    elif source_provider == "aws":
         row = _CATALOG_BY_AWS.get(key)
+    else:
+        return None
     if row:
         return str(row.get("last_reviewed") or "") or None
     return None

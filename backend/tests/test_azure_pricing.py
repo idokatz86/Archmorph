@@ -204,6 +204,74 @@ class TestEstimateServicesCost:
         estimates = [s["monthly_estimate"] for s in result["services"]]
         assert estimates == sorted(estimates, reverse=True)
 
+    def test_api_price_provenance_uses_successful_response_metadata(self, monkeypatch):
+        import services.azure_pricing as pricing
+
+        monkeypatch.setattr(pricing, "HAS_HTTPX", True)
+        monkeypatch.setattr(pricing, "_load_cache", lambda **_kwargs: {})
+        monkeypatch.setattr(
+            pricing,
+            "_fetch_price_from_api",
+            lambda **_kwargs: {
+                "retail_price": 0.1,
+                "service_name": "Functions",
+                "sku_name": "Consumption",
+                "meter_name": "Execution Time",
+                "currency_code": "USD",
+            },
+        )
+
+        result = estimate_services_cost(
+            [{"azure_service": "Azure Functions"}],
+            persist_cache=False,
+        )
+        service = result["services"][0]
+
+        assert service["price_source_id"] == "azure_retail_prices_api"
+        assert service["price_source"] == "Azure Retail Prices API"
+        assert service["price_evidence"]["returned_meter"] == "Execution Time"
+        assert service["price_source_url"] == pricing.AZURE_PRICING_API
+
+    def test_api_failure_is_not_reported_as_live_price(self, monkeypatch):
+        import services.azure_pricing as pricing
+
+        monkeypatch.setattr(pricing, "HAS_HTTPX", True)
+        monkeypatch.setattr(pricing, "_load_cache", lambda **_kwargs: {})
+        monkeypatch.setattr(pricing, "_fetch_price_from_api", lambda **_kwargs: None)
+
+        result = estimate_services_cost(
+            [{"azure_service": "Azure AI Vision"}],
+            persist_cache=False,
+        )
+        service = result["services"][0]
+
+        assert service["price_source_id"] == "built_in_estimate"
+        assert service["price_source"] == "Built-in estimate"
+        assert service["price_source_url"] is None
+
+    def test_legacy_cache_without_provenance_is_not_attributed_to_api(self, monkeypatch):
+        import time
+        import services.azure_pricing as pricing
+
+        monkeypatch.setattr(
+            pricing,
+            "_load_cache",
+            lambda **_kwargs: {
+                "cached_at": time.time(),
+                "prices_westeurope": {"Azure Functions": 20.0},
+            },
+        )
+
+        result = estimate_services_cost(
+            [{"azure_service": "Azure Functions"}],
+            persist_cache=False,
+        )
+        service = result["services"][0]
+
+        assert service["price_source_id"] == "cached_source_unknown"
+        assert service["price_source"] == "Cached value (source unverified)"
+        assert service["price_source_url"] is None
+
 
 # ====================================================================
 # SERVICE_PRICE_QUERIES data quality
