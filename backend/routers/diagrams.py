@@ -200,6 +200,8 @@ def _normalize_analysis(result: dict) -> dict:
             if isinstance(source_provider, str) and source_provider.strip():
                 mapping["source_provider"] = source_provider
         run_metadata = build_run_metadata(result)
+        result["run_id"] = run_metadata["run_id"]
+        result["analysis_timestamp"] = run_metadata["analysis_timestamp"]
         attach_evidence_to_mappings(
             mappings,
             run_id=run_metadata["run_id"],

@@ -1201,7 +1201,6 @@ def fetch_prices_for_region(
             if isinstance(metadata, dict):
                 price_metadata[service_name] = {
                     **metadata,
-                    "cache_timestamp": cache_timestamp,
                     "is_cached": True,
                 }
             else:
@@ -1209,7 +1208,6 @@ def fetch_prices_for_region(
                     "source": "cached_source_unknown",
                     "source_label": "Cached value (source unverified)",
                     "source_url": None,
-                    "cache_timestamp": cache_timestamp,
                     "is_cached": True,
                     "note": "This cache entry predates recorded price-source metadata.",
                 }
@@ -1321,7 +1319,11 @@ def fetch_prices_for_region(
     return PriceFetchResult(
         prices,
         price_metadata,
-        cache_timestamp=cache.get("cached_at") if isinstance(cache.get("cached_at"), (int, float)) else None,
+        cache_timestamp=(
+            cache.get("cached_at")
+            if cache_key in cache and isinstance(cache.get("cached_at"), (int, float))
+            else None
+        ),
     )
 
 
@@ -1618,6 +1620,7 @@ def _build_cost_formula(
                 assumptions.append(f"Strategy multiplier: {multiplier:.1f}x ({strategy})")
             return formula, assumptions
 
+
     # Generic fallback with hourly rate if available
     if hourly_rate > 0 and sku_name:
         formula = f"{azure_service} [{sku_name}]: ${hourly_rate:.4f}/hr × 730 hrs/mo = ${base_price:.2f}/mo"
@@ -1647,6 +1650,18 @@ def _build_cost_formula(
         "No pricing data available for this service",
         "Check https://azure.microsoft.com/en-us/pricing/calculator/",
     ]
+
+
+def _observed_at_timestamp(value: object) -> float | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        observed_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=timezone.utc)
+    return observed_at.timestamp()
 
 
 def estimate_services_cost(
@@ -1782,8 +1797,9 @@ def estimate_services_cost(
             "requested_sku": source_record.get("requested_sku") or sku_name or None,
             "requested_meter": source_record.get("requested_meter") or meter_name or None,
             "cache_age_days": (
-                round((time.time() - source_record["cache_timestamp"]) / 86400, 1)
-                if isinstance(source_record.get("cache_timestamp"), (int, float))
+                round(max(0, time.time() - observed_timestamp) / 86400, 1)
+                if source_record.get("is_cached")
+                and (observed_timestamp := _observed_at_timestamp(source_record.get("observed_at"))) is not None
                 else None
             ),
         }

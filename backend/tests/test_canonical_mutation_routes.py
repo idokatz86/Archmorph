@@ -133,6 +133,7 @@ def test_analysis_add_and_apply_each_survive_cache_loss(test_client, durable_run
         updated = copy.deepcopy(analysis)
         updated["services_added"] = ["Azure Cache for Redis"]
         updated["services_detected"] += 1
+        updated["mappings"][0]["azure_service"] = "Updated Azure target"
         return updated
 
     with patch("routers.analysis.add_services_from_text", side_effect=add_service):
@@ -149,10 +150,12 @@ def test_analysis_add_and_apply_each_survive_cache_loss(test_client, durable_run
         tenant_id=tenant,
     )
     assert hydrated["services_added"] == ["Azure Cache for Redis"]
+    assert hydrated["architecture_graph"]["nodes"][0]["target_service"] == "Updated Azure target"
 
     def apply_answers(analysis, answers):
         updated = copy.deepcopy(analysis)
         updated["guided_answers"] = answers
+        updated["mappings"][0]["azure_service"] = "Refined Azure target"
         return updated
 
     with patch("routers.analysis.apply_answers", side_effect=apply_answers):
@@ -169,6 +172,7 @@ def test_analysis_add_and_apply_each_survive_cache_loss(test_client, durable_run
         tenant_id=tenant,
     )
     assert hydrated["guided_answers"] == {"availability": "zone-redundant"}
+    assert hydrated["architecture_graph"]["nodes"][0]["target_service"] == "Refined Azure target"
 
 
 def test_review_disposition_survives_cache_loss(test_client, durable_runtime):

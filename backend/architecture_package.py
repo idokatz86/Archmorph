@@ -21,7 +21,7 @@ from azure_landing_zone import generate_landing_zone_svg
 from azure_landing_zone_schema import infer_dr_mode, infer_regions, infer_tiers_from_mappings
 from cost_assumptions import DIRECTIONAL_COST_NOTICE, build_cost_assumptions_artifact
 from customer_intent import build_customer_intent_profile
-from architecture_graph import ArchitectureGraph, build_architecture_graph
+from architecture_graph import build_architecture_graph
 from source_provider import normalize_source_provider
 from traceability_map import build_traceability_map, traceability_summary
 
@@ -430,12 +430,7 @@ def _build_manifest(
 
     # ── Run metadata / trust provenance (#1130) ──
     run_metadata = _build_run_metadata(analysis, analysis_id=analysis_id)
-    graph_data = analysis.get("architecture_graph")
-    architecture_graph = (
-        ArchitectureGraph.model_validate(graph_data).model_dump(mode="json")
-        if graph_data is not None
-        else build_architecture_graph(analysis)
-    )
+    architecture_graph = build_architecture_graph(analysis)
     graph_warnings = [
         str(warning)
         for warning in architecture_graph.get("warnings", [])
@@ -547,17 +542,21 @@ def _build_run_metadata(
     """Build customer-safe run metadata for the manifest (#1130)."""
     try:
         from mapping_evidence import build_run_metadata  # type: ignore[import]
+        run_id = analysis.get("run_id") or analysis.get("correlation_id") or analysis_id
         meta = build_run_metadata(
             {**analysis, "analysis_id": analysis_id or analysis.get("analysis_id")},
-            run_id=str(analysis_id or ""),
+            run_id=str(run_id) if run_id else None,
         )
         return meta
     except Exception:  # noqa: BLE001
         pass
     return {
         "schema_version": "run-metadata/v1",
-        "run_id": str(analysis_id or ""),
-        "analysis_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "run_id": str(analysis.get("run_id") or analysis.get("correlation_id") or analysis_id or ""),
+        "analysis_timestamp": str(
+            analysis.get("analysis_timestamp")
+            or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        ),
         "source_provider": str(analysis.get("source_provider") or "aws").lower(),
         "target_provider": "azure",
     }

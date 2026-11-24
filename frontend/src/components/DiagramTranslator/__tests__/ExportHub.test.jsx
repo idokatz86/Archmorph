@@ -94,15 +94,32 @@ describe('ExportHub accessibility', () => {
   })
 
   it('shows the current IaC validation status', async () => {
-    render(<ExportHub diagramId="diag-1" iacValidation={{ status: 'failed' }} />)
+    render(<ExportHub
+      diagramId="diag-1"
+      iacValidation={{ status: 'failed', format: 'terraform', errors: ['Invalid syntax'] }}
+    />)
     openExportHub()
     expect(await screen.findByLabelText('IaC status: Blocked')).toBeInTheDocument()
+    expect(screen.getByLabelText('IaC validation errors')).toHaveTextContent('Invalid syntax')
+  })
+
+  it('only shows validation status for the selected IaC format', async () => {
+    const user = userEvent.setup()
+    render(<ExportHub
+      diagramId="diag-1"
+      iacValidation={{ status: 'passed', format: 'terraform' }}
+    />)
+    openExportHub()
+
+    expect(await screen.findByLabelText('IaC status: Validated')).toBeInTheDocument()
+    await user.selectOptions(screen.getByLabelText('Infrastructure Code format'), 'bicep')
+    expect(await screen.findByLabelText('IaC status: Draft')).toBeInTheDocument()
   })
 
   it('distinguishes validation warnings and shows their details', async () => {
     render(<ExportHub
       diagramId="diag-1"
-      iacValidation={{ status: 'warning', warnings: ['Review network exposure'] }}
+      iacValidation={{ status: 'warning', format: 'terraform', warnings: ['Review network exposure'] }}
     />)
     openExportHub()
     expect(await screen.findByLabelText('IaC status: Draft · Warnings')).toBeInTheDocument()

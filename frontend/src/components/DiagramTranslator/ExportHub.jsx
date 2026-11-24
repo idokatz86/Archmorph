@@ -377,8 +377,10 @@ export default function ExportHub({
           {DELIVERABLES.map(d => {
             const Icon = d.icon;
             const status = itemStatus[d.id];
+            const selectedFormat = formats[d.id] || d.defaultFormat;
             const validation = d.id === 'iac'
-              ? results[d.id]?.validation || iacValidation
+              ? [results[d.id]?.validation, iacValidation]
+                .find(candidate => candidate?.format === selectedFormat) || null
               : null;
             const validationLabel = validation?.status === 'passed'
               ? 'Validated'
@@ -392,6 +394,7 @@ export default function ExportHub({
               : validation?.status === 'failed'
                 ? 'text-danger'
                 : 'text-warning';
+            const validationErrors = Array.isArray(validation?.errors) ? validation.errors : [];
             const validationWarnings = Array.isArray(validation?.warnings) ? validation.warnings : [];
             const checkboxId = `export-hub-${d.id}`;
             return (
@@ -426,7 +429,12 @@ export default function ExportHub({
                         </span>
                       )}
                     </label>
-                    {d.id === 'iac' && validation?.status === 'warning' && validationWarnings.length > 0 && (
+                    {d.id === 'iac' && validationErrors.length > 0 && (
+                      <p className="ml-10 mt-1 text-[10px] text-danger" aria-label="IaC validation errors">
+                        {validationErrors.map(String).join(' ')}
+                      </p>
+                    )}
+                    {d.id === 'iac' && validationWarnings.length > 0 && (
                       <p className="ml-10 mt-1 text-[10px] text-warning" aria-label="IaC validation warnings">
                         {validationWarnings.map(String).join(' ')}
                       </p>

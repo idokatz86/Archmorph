@@ -58,6 +58,8 @@ def test_normalized_analysis_builds_mapping_evidence_before_graph_projection():
     evidence = analysis["mappings"][0]["evidence"]
     assert evidence["rationale"]
     assert evidence["run_id"]
+    assert analysis["run_id"] == evidence["run_id"]
+    assert analysis["analysis_timestamp"] == evidence["generated_at"]
     assert analysis["architecture_graph"]["nodes"][0]["evidence"] == evidence
 
 

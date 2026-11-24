@@ -38,6 +38,7 @@ from service_builder import (
     add_services_from_text,
 )
 from architecture_package import generate_architecture_package
+from architecture_graph import build_architecture_graph
 from error_envelope import ArchmorphException
 from export_capabilities import (
     attach_export_capability_for_request,
@@ -148,6 +149,7 @@ async def add_services_natural_language(
         "text": body.text,
         "services_added": updated.get("services_added", []),
     })
+    updated["architecture_graph"] = build_architecture_graph(updated)
 
     await persist_diagram_mutation_async(
         request,
@@ -188,6 +190,7 @@ async def apply_guided_answers(
     analysis = await authorize_diagram_access_async(request, diagram_id, purpose="apply answers")
 
     refined = apply_answers(analysis, answers)
+    refined["architecture_graph"] = build_architecture_graph(refined)
     await persist_diagram_mutation_async(
         request,
         diagram_id,

@@ -1185,7 +1185,20 @@ export default function DiagramTranslator() {
         { cleanup: () => set({ loading: false }) },
       );
       if (refined) {
-        set({ analysis: { ...state.analysis, ...refined }, iacCode: null, iacValidation: null, step: 'results' });
+        const analysis = { ...state.analysis, ...refined };
+        set({
+          analysis,
+          iacCode: null,
+          iacValidation: null,
+          iacFormat: null,
+          step: 'results',
+        });
+        updateSessionCache({
+          analysis,
+          iacCode: null,
+          iacValidation: null,
+          iacFormat: null,
+        });
       }
     } catch (err) {
       set({ error: err.message });

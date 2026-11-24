@@ -11,7 +11,7 @@
  * - HLD data loss on navigation
  * - Signed-out PDF upload → analyze → auth recovery (#1027)
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import DiagramTranslator from '../../DiagramTranslator'
 
@@ -25,6 +25,10 @@ vi.mock('prismjs', () => ({
 }))
 vi.mock('prismjs/components/prism-hcl', () => ({}))
 vi.mock('prismjs/components/prism-json', () => ({}))
+
+beforeAll(() => {
+  Element.prototype.scrollTo = vi.fn()
+})
 
 // Mock sessionCache
 const mockSaveSession = vi.fn()
@@ -152,6 +156,47 @@ describe('DiagramTranslator — Session UX Tests', () => {
     await act(async () => { render(<DiagramTranslator />) });
     // With auto-restore (#269), cached session is loaded and step advances to results
     await waitFor(() => expect(screen.queryByText('Upload Architecture Diagram')).not.toBeInTheDocument());
+  })
+
+  it('updates cached analysis and clears IaC when guided answers are applied', async () => {
+    const analysis = {
+      diagram_type: 'AWS Architecture',
+      zones: [],
+      mappings: [],
+      services_detected: 0,
+    }
+    mockLoadSession.mockReturnValue({
+      diagramId: 'cached-answers',
+      analysis,
+      questions: [{
+        id: 'region',
+        question: 'Which region?',
+        category: 'infrastructure',
+        type: 'single_choice',
+        options: [{ value: 'eastus', label: 'East US' }],
+      }],
+      answers: { region: 'eastus' },
+      iacCode: null,
+      iacValidation: { status: 'passed', format: 'terraform' },
+      iacFormat: 'terraform',
+      ts: Date.now(),
+    })
+    const refined = {
+      mappings: [{ source_service: 'EC2', azure_service: 'Virtual Machines' }],
+    }
+    mockApi.post.mockResolvedValueOnce(refined)
+
+    render(<DiagramTranslator />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Back to Questions' }))
+    await screen.findByText('Customize Your Azure Architecture')
+    fireEvent.click(screen.getByRole('button', { name: 'Apply and View Results' }))
+
+    await waitFor(() => expect(mockUpdateSessionCache).toHaveBeenCalledWith(expect.objectContaining({
+      analysis: expect.objectContaining({ mappings: refined.mappings }),
+      iacCode: null,
+      iacValidation: null,
+      iacFormat: null,
+    })))
   })
 
   it('does not call diagram-only endpoints for combined project pseudo ids', async () => {

@@ -560,6 +560,35 @@ def test_manifest_run_metadata_analysis_id_in_run_id():
     assert run_meta["run_id"] == "specific-run-id"
 
 
+def test_manifest_reuses_analysis_run_metadata_and_rebuilds_graph():
+    analysis_timestamp = "2026-01-02T03:04:05Z"
+    analysis = {
+        **SAMPLE_ANALYSIS,
+        "run_id": "canonical-run-id",
+        "analysis_timestamp": analysis_timestamp,
+        "mappings": [{
+            "source_service": "EC2",
+            "azure_service": "Azure Virtual Machines",
+            "confidence": 0.9,
+        }],
+        "architecture_graph": {
+            "schema_version": "architecture-graph/v1",
+            "source_provider": "aws",
+            "target_provider": "azure",
+            "nodes": [],
+            "edges": [],
+            "warnings": [],
+        },
+    }
+
+    result = generate_architecture_package(analysis, format="html", analysis_id="diagram-id")
+    manifest = result["manifest"]
+
+    assert manifest["run_metadata"]["run_id"] == "canonical-run-id"
+    assert manifest["run_metadata"]["analysis_timestamp"] == analysis_timestamp
+    assert manifest["architecture_graph"]["nodes"][0]["target_service"] == "Azure Virtual Machines"
+
+
 def test_manifest_mapping_references_include_evidence_when_present():
     """mapping_references must include evidence fields when evidence is on the mapping."""
     analysis_with_evidence = {
