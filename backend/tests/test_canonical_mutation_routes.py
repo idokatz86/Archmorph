@@ -152,7 +152,7 @@ def test_analysis_add_and_apply_each_survive_cache_loss(test_client, durable_run
     assert hydrated["services_added"] == ["Azure Cache for Redis"]
     assert hydrated["architecture_graph"]["nodes"][0]["target_service"] == "Updated Azure target"
 
-    def apply_answers(analysis, answers):
+    def apply_answers(analysis, answers, *, explicit_answer_ids=None):
         updated = copy.deepcopy(analysis)
         updated["guided_answers"] = answers
         updated["mappings"][0]["azure_service"] = "Refined Azure target"
