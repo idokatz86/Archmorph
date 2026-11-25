@@ -442,6 +442,54 @@ class TestApplyAnswersIntegration:
         assert node["evidence"] == mapping["evidence"]
         assert node["confidence_provenance"] == mapping["confidence_provenance"]
 
+    def test_explicit_spark_confirmation_refreshes_evidence_when_target_is_unchanged(self):
+        from architecture_graph import build_architecture_graph
+
+        original_evidence = {
+            "detection_source": "ai",
+            "detection_confidence": 0.65,
+            "rationale": "Default Synapse mapping.",
+            "run_id": "run-2",
+        }
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [
+                {
+                    "source_service": "Amazon EMR",
+                    "azure_service": "Azure Synapse Spark Pool",
+                    "confidence": 1.0,
+                    "source": "ai",
+                    "needs_review": True,
+                    "guided_choice": {
+                        "question_id": "data_spark_runtime",
+                        "answer": "Azure Synapse Spark Pools",
+                        "answer_source": "default",
+                        "previous_target": "Azure Databricks",
+                        "selected_target": "Azure Synapse Spark Pool",
+                    },
+                    "evidence": original_evidence,
+                }
+            ],
+        }
+
+        refined = apply_answers(
+            analysis,
+            {"data_spark_runtime": "Azure Synapse Spark Pools"},
+        )
+        mapping = refined["mappings"][0]
+        node = build_architecture_graph(refined)["nodes"][0]
+
+        assert mapping["azure_service"] == "Azure Synapse Spark Pool"
+        assert mapping["guided_choice"]["answer_source"] == "user"
+        assert mapping["guided_choice"]["previous_target"] == "Azure Synapse Spark Pool"
+        assert mapping["guided_choice"]["selected_target"] == "Azure Synapse Spark Pool"
+        assert mapping["original_detection_evidence"] == original_evidence
+        assert mapping["evidence"]["detection_source"] == "user"
+        assert mapping["evidence"]["user_confirmed"] is True
+        assert mapping["evidence"]["needs_review"] is False
+        assert mapping["needs_review"] is False
+        assert node["needs_review"] is False
+
     def test_default_spark_runtime_does_not_confirm_or_clear_review(self):
         analysis = {
             "source_provider": "aws",

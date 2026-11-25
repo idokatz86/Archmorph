@@ -483,7 +483,9 @@ def _refresh_guided_mapping_evidence(
     for original, mapping in zip(original_mappings, mappings):
         target_changed = original.get("azure_service") != mapping.get("azure_service")
         confidence_changed = original.get("confidence") != mapping.get("confidence")
-        if not target_changed and not confidence_changed:
+        question_id = _guided_target_question_id(original, mapping)
+        user_selected = question_id is not None and question_id in answers
+        if not target_changed and not confidence_changed and not user_selected:
             continue
 
         original_evidence = original.get("original_detection_evidence")
@@ -493,7 +495,7 @@ def _refresh_guided_mapping_evidence(
         if not isinstance(original_provenance, dict):
             original_provenance = original.get("confidence_provenance")
 
-        if target_changed:
+        if target_changed or user_selected:
             if isinstance(original_evidence, dict):
                 mapping.setdefault(
                     "original_detection_evidence",
@@ -505,8 +507,6 @@ def _refresh_guided_mapping_evidence(
                     copy.deepcopy(original_provenance),
                 )
 
-            question_id = _guided_target_question_id(original, mapping)
-            user_selected = question_id is not None and question_id in answers
             choice = effective_answers.get(question_id) if question_id else None
             if question_id == "data_spark_runtime" and choice is None:
                 choice = _SPARK_RUNTIME_DEFAULT
