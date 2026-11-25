@@ -78,14 +78,14 @@ jobs:
       - name: Run root npm audit
         run: |
           PUPPETEER_SKIP_DOWNLOAD=1 npm ci --no-audit --no-fund
-          npm audit --audit-level=high
+          npm audit --audit-level=high --registry=https://registry.npmjs.org
 
       - name: Run npm audit
         working-directory: frontend
         run: |
           npm ci --no-audit --no-fund
           npm run test:security-packages
-          npm audit --audit-level=high
+          npm audit --audit-level=high --registry=https://registry.npmjs.org
 
   gitleaks:
     name: "Secret Scan — Gitleaks"
