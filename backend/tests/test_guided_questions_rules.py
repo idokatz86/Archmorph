@@ -419,6 +419,7 @@ class TestApplyAnswersIntegration:
         refined = apply_answers(
             analysis,
             {"data_spark_runtime": "Azure Databricks"},
+            explicit_answer_ids={"data_spark_runtime"},
         )
         mapping = refined["mappings"][0]
         node = build_architecture_graph(refined)["nodes"][0]
@@ -475,6 +476,7 @@ class TestApplyAnswersIntegration:
         refined = apply_answers(
             analysis,
             {"data_spark_runtime": "Azure Synapse Spark Pools"},
+            explicit_answer_ids={"data_spark_runtime"},
         )
         mapping = refined["mappings"][0]
         node = build_architecture_graph(refined)["nodes"][0]
@@ -489,6 +491,68 @@ class TestApplyAnswersIntegration:
         assert mapping["evidence"]["needs_review"] is False
         assert mapping["needs_review"] is False
         assert node["needs_review"] is False
+
+    def test_inferred_spark_answer_does_not_confirm_or_increase_confidence(self):
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [
+                {
+                    "source_service": "Amazon EMR",
+                    "azure_service": "Azure Databricks",
+                    "confidence": 0.55,
+                    "source": "ai",
+                    "needs_review": True,
+                    "evidence": {
+                        "detection_source": "ai",
+                        "detection_confidence": 0.55,
+                    },
+                }
+            ],
+        }
+
+        mapping = apply_answers(
+            analysis,
+            {"data_spark_runtime": "Azure Synapse Spark Pools"},
+        )["mappings"][0]
+
+        assert mapping["azure_service"] == "Azure Synapse Spark Pool"
+        assert mapping["confidence"] == 0.55
+        assert mapping["guided_choice"]["answer_source"] == "assumption"
+        assert mapping["evidence"]["detection_source"] == "ai"
+        assert mapping["evidence"]["user_confirmed"] is False
+        assert mapping["needs_review"] is True
+
+    def test_unchanged_sku_target_is_not_user_confirmed(self):
+        original_evidence = {
+            "detection_source": "ai",
+            "detection_confidence": 0.55,
+            "user_confirmed": False,
+            "needs_review": True,
+        }
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [
+                {
+                    "source_service": "AWS Lambda",
+                    "azure_service": "Azure Functions",
+                    "confidence": 0.55,
+                    "source": "ai",
+                    "needs_review": True,
+                    "evidence": original_evidence,
+                }
+            ],
+        }
+
+        mapping = apply_answers(
+            analysis,
+            {"arch_sku_strategy": "Cost-optimized (lowest viable tier)"},
+            explicit_answer_ids={"arch_sku_strategy"},
+        )["mappings"][0]
+
+        assert mapping["azure_service"] == "Azure Functions"
+        assert "guided_choice" not in mapping
+        assert mapping["evidence"] == original_evidence
+        assert mapping["needs_review"] is True
 
     def test_default_spark_runtime_does_not_confirm_or_clear_review(self):
         analysis = {

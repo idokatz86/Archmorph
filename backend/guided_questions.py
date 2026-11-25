@@ -446,7 +446,7 @@ def _guided_target_question_id(original: dict, mapping: dict) -> str | None:
         and "multi-region writes" in selected_target
     ):
         return "arch_ha"
-    if (
+    if previous_target != selected_target and (
         previous_target.replace("Standard", "Premium") == selected_target
         or previous_target.replace("Premium", "Standard") == selected_target
     ):
@@ -477,6 +477,7 @@ def _refresh_guided_mapping_evidence(
     original_mappings: list[dict],
     mappings: list[dict],
     answers: dict,
+    explicit_answer_ids: set[str],
     effective_answers: Answers,
 ) -> None:
     source_provider = analysis.get("source_provider")
@@ -484,7 +485,7 @@ def _refresh_guided_mapping_evidence(
         target_changed = original.get("azure_service") != mapping.get("azure_service")
         confidence_changed = original.get("confidence") != mapping.get("confidence")
         question_id = _guided_target_question_id(original, mapping)
-        user_selected = question_id is not None and question_id in answers
+        user_selected = question_id is not None and question_id in explicit_answer_ids
         if not target_changed and not confidence_changed and not user_selected:
             continue
 
@@ -514,7 +515,9 @@ def _refresh_guided_mapping_evidence(
                 "question_id": question_id,
                 "answer": choice,
                 "answer_source": (
-                    "user" if user_selected else "default"
+                    "user" if user_selected
+                    else "assumption" if question_id in answers
+                    else "default"
                 ) if question_id else "guided_answers",
                 "previous_target": original.get("azure_service"),
                 "selected_target": mapping.get("azure_service"),
@@ -568,7 +571,12 @@ def _refresh_guided_mapping_evidence(
         )
 
 
-def apply_answers(analysis_result: dict, answers: dict) -> dict:
+def apply_answers(
+    analysis_result: dict,
+    answers: dict,
+    *,
+    explicit_answer_ids: set[str] | None = None,
+) -> dict:
     """Apply user answers to refine an Azure architecture analysis.
 
     Creates a **deep copy** of *analysis_result* and mutates the copy — the
@@ -586,14 +594,17 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
         analysis_result: The dict returned by the ``/api/diagrams/{id}/analyze``
             endpoint (or equivalent).  Expected keys: ``mappings``, ``warnings``,
             and optional ``iac_parameters``.
-        answers: ``{question_id: user_answer}`` mapping.  Any question not
-            present is treated as accepting the default.
+        answers: ``{question_id: answer}`` mapping, including defaults and
+            inferred assumptions.
+        explicit_answer_ids: Question IDs the user explicitly selected or
+            confirmed. Other provided answers remain assumptions.
 
     Returns:
         A new analysis dict with adjusted mappings, updated warnings, refined
         confidence scores, and an ``iac_parameters`` section.
     """
     result: dict = copy.deepcopy(analysis_result)
+    explicit_answer_ids = set(explicit_answer_ids or ()) & set(answers or {})
 
     mappings: list[dict] = result.get("mappings", [])
     original_mappings = copy.deepcopy(mappings)
@@ -614,7 +625,7 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
         effective,
         mappings,
         warnings,
-        user_selected="data_spark_runtime" in (answers or {}),
+        user_selected="data_spark_runtime" in explicit_answer_ids,
     )
     _apply_functions_plan(effective, mappings, iac_params)
     _apply_cosmosdb(effective, mappings, iac_params)
@@ -634,12 +645,14 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
         original_mappings,
         mappings,
         answers or {},
+        explicit_answer_ids,
         effective,
     )
     result["mappings"] = mappings
     result["warnings"] = warnings
     result["iac_parameters"] = iac_params
     result["guided_answers"] = copy.deepcopy(answers or {})
+    result["guided_answer_explicit_ids"] = sorted(explicit_answer_ids)
     result["customer_intent"] = build_customer_intent_profile(effective)
 
     # ── Recalculate confidence_summary after all rule adjustments ──

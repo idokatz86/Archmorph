@@ -4,7 +4,7 @@ Analysis routes — guided questions, apply answers, add services, export diagra
 Split from diagrams.py for maintainability (#284).
 """
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends
 from strict_models import StrictBaseModel
 from typing import Dict, Any
 import asyncio
@@ -189,7 +189,32 @@ async def apply_guided_answers(
     """Apply user answers to refine the Azure architecture analysis."""
     analysis = await authorize_diagram_access_async(request, diagram_id, purpose="apply answers")
 
-    refined = apply_answers(analysis, answers)
+    if "answers" in answers:
+        user_answers = answers["answers"]
+        explicit_answer_ids = answers.get("explicit_answer_ids", [])
+        if not isinstance(user_answers, dict):
+            raise HTTPException(status_code=422, detail="'answers' must be an object")
+        if not isinstance(explicit_answer_ids, list) or not all(
+            isinstance(question_id, str) for question_id in explicit_answer_ids
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="'explicit_answer_ids' must be a list of question IDs",
+            )
+        if not set(explicit_answer_ids).issubset(user_answers):
+            raise HTTPException(
+                status_code=422,
+                detail="Every explicit answer ID must have a corresponding answer",
+            )
+    else:
+        user_answers = answers
+        explicit_answer_ids = []
+
+    refined = apply_answers(
+        analysis,
+        user_answers,
+        explicit_answer_ids=set(explicit_answer_ids),
+    )
     refined["architecture_graph"] = build_architecture_graph(refined)
     await persist_diagram_mutation_async(
         request,

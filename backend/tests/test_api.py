@@ -410,6 +410,20 @@ class TestGuidedQuestions:
         )
         assert resp.status_code == 200
 
+    def test_apply_answers_endpoint_preserves_explicit_answer_ids(
+        self, client, analyzed_diagram
+    ):
+        resp = client.post(
+            f"/api/diagrams/{analyzed_diagram}/apply-answers",
+            json={
+                "answers": {"environment": "production"},
+                "explicit_answer_ids": ["environment"],
+            },
+        )
+
+        assert resp.status_code == 200
+        assert resp.json()["guided_answer_explicit_ids"] == ["environment"]
+
 
 # ====================================================================
 # 6. Diagram Export

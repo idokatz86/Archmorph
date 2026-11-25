@@ -21,6 +21,7 @@ const initialState = {
   allQuestions: [],
   questionAssumptions: [],
   answers: {},
+  explicitAnswerIds: [],
   iacCode: null,
   iacValidation: null,
   iacFormat: 'terraform',
@@ -71,8 +72,16 @@ function reducer(state, action) {
       return { ...state, exportLoading: { ...state.exportLoading, [action.key]: action.value } };
     case 'SET_HLD_EXPORT_LOADING':
       return { ...state, hldExportLoading: { ...state.hldExportLoading, [action.key]: action.value } };
-    case 'UPDATE_ANSWER':
-      return { ...state, answers: { ...state.answers, [action.key]: action.value } };
+    case 'UPDATE_ANSWER': {
+      const explicitAnswerIds = action.explicit
+        ? [...new Set([...(state.explicitAnswerIds || []), action.key])]
+        : (state.explicitAnswerIds || []).filter(questionId => questionId !== action.key);
+      return {
+        ...state,
+        answers: { ...state.answers, [action.key]: action.value },
+        explicitAnswerIds,
+      };
+    }
     case 'RESET':
       return { ...initialState };
     default:
@@ -88,7 +97,10 @@ export default function useWorkflow() {
   const addChatMessage = useCallback((msg) => dispatch({ type: 'ADD_CHAT_MESSAGE', payload: msg }), []);
   const setExportLoading = useCallback((key, value) => dispatch({ type: 'SET_EXPORT_LOADING', key, value }), []);
   const setHldExportLoading = useCallback((key, value) => dispatch({ type: 'SET_HLD_EXPORT_LOADING', key, value }), []);
-  const updateAnswer = useCallback((key, value) => dispatch({ type: 'UPDATE_ANSWER', key, value }), []);
+  const updateAnswer = useCallback(
+    (key, value, explicit = true) => dispatch({ type: 'UPDATE_ANSWER', key, value, explicit }),
+    [],
+  );
   const reset = useCallback(() => { clearSession(); dispatch({ type: 'RESET' }); }, []);
 
   const copyWithFeedback = useCallback((text, key) => {

@@ -291,6 +291,7 @@ function buildQuestionState(qData = {}) {
     allQuestions,
     questionAssumptions: assumptions,
     answers,
+    explicitAnswerIds: [],
     questionConstraints: qData.constraints || [],
     regionGroups: qData.region_groups || {},
   };
@@ -442,6 +443,7 @@ export default function DiagramTranslator() {
         allQuestions: cached.allQuestions || cached.questions || [],
         questionAssumptions: cached.questionAssumptions || [],
         answers: cached.answers || {},
+        explicitAnswerIds: cached.explicitAnswerIds ?? cached.analysis?.guided_answer_explicit_ids ?? [],
         iacCode: cached.iacCode || null,
         iacValidation: cached.iacValidation || null,
         iacFormat: normalizeIacFormat(cached.iacFormat),
@@ -484,6 +486,7 @@ export default function DiagramTranslator() {
             allQuestions: data.all_questions || data.questions || [],
             questionAssumptions: data.question_assumptions || [],
             answers: data.answers || {},
+            explicitAnswerIds: data.analysis?.guided_answer_explicit_ids || [],
             iacCode: data.iac_code || null,
             iacValidation: data.iac_validation || null,
             iacFormat: normalizeIacFormat(data.iac_format),
@@ -1181,7 +1184,10 @@ export default function DiagramTranslator() {
     set({ loading: true });
     try {
       const refined = await withRestore(
-        () => api.post(`/diagrams/${state.diagramId}/apply-answers`, state.answers),
+        () => api.post(`/diagrams/${state.diagramId}/apply-answers`, {
+          answers: state.answers,
+          explicit_answer_ids: state.explicitAnswerIds,
+        }),
         { cleanup: () => set({ loading: false }) },
       );
       if (refined) {
@@ -1195,6 +1201,8 @@ export default function DiagramTranslator() {
         });
         updateSessionCache({
           analysis,
+          answers: state.answers,
+          explicitAnswerIds: state.explicitAnswerIds,
           iacCode: null,
           iacValidation: null,
           iacFormat: null,
