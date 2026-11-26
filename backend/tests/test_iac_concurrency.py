@@ -6,13 +6,14 @@ server-side and return HTTP 409 instead of silently overwriting.
 """
 
 import copy
+import json
 import os
 import sys
 import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -126,6 +127,69 @@ class TestIacEtagGeneration:
         assert "etag" in resp.headers, "ETag header must be present after IaC generation"
         assert resp.headers["etag"], "ETag must not be empty"
         assert resp.json()["etag"] == resp.headers["etag"]
+
+    def test_add_services_rejects_stale_transient_snapshot(self, client, diagram_with_analysis):
+        from routers import analysis as analysis_routes
+        from routers.shared import _persist_transient_diagram_snapshot
+
+        def add_service(*, analysis, user_text):
+            updated = copy.deepcopy(analysis)
+            updated["services_added"] = [{"name": "Redis"}]
+            return updated
+
+        async def race_with_guided_answers(request, diagram_id, snapshot, **kwargs):
+            assert kwargs["expected_session_state"] is not None
+            concurrent = copy.deepcopy(SESSION_STORE.peek(diagram_id))
+            concurrent["guided_answers"] = {"deployment_environment": "production"}
+            SESSION_STORE[diagram_id] = concurrent
+            _persist_transient_diagram_snapshot(
+                diagram_id,
+                snapshot,
+                kwargs["expected_session_state"],
+            )
+
+        with (
+            patch.object(analysis_routes, "add_services_from_text", side_effect=add_service),
+            patch.object(analysis_routes, "persist_diagram_mutation_async", side_effect=race_with_guided_answers),
+        ):
+            response = client.post(
+                f"/api/diagrams/{diagram_with_analysis}/add-services",
+                json={"text": "Add Redis"},
+            )
+
+        assert response.status_code == 409
+        latest = SESSION_STORE.peek(diagram_with_analysis)
+        assert latest["guided_answers"] == {"deployment_environment": "production"}
+        assert "services_added" not in latest
+
+    def test_hld_generation_does_not_commit_after_analysis_changes(self, client, diagram_with_analysis):
+        from routers import hld_routes
+        from routers.shared import _persist_transient_diagram_snapshot
+
+        async def race_with_guided_answers(request, diagram_id, snapshot, **kwargs):
+            assert kwargs["expected_session_state"] is not None
+            concurrent = copy.deepcopy(SESSION_STORE.peek(diagram_id))
+            concurrent["guided_answers"] = {"deployment_environment": "production"}
+            SESSION_STORE[diagram_id] = concurrent
+            _persist_transient_diagram_snapshot(
+                diagram_id,
+                snapshot,
+                kwargs["expected_session_state"],
+            )
+
+        with (
+            patch.object(hld_routes, "estimate_services_cost", return_value={"services": []}),
+            patch.object(hld_routes.diagrams_compat, "generate_hld", return_value={"title": "HLD"}),
+            patch.object(hld_routes.diagrams_compat, "generate_hld_markdown", return_value="# HLD"),
+            patch.object(hld_routes, "persist_diagram_mutation_async", side_effect=race_with_guided_answers),
+        ):
+            response = client.post(f"/api/diagrams/{diagram_with_analysis}/generate-hld")
+
+        assert response.status_code == 409
+        assert SESSION_STORE.peek(diagram_with_analysis)["guided_answers"] == {
+            "deployment_environment": "production",
+        }
+        assert "hld" not in SESSION_STORE.peek(diagram_with_analysis)
 
     @patch("routers.iac_routes.generate_iac_code_with_validation", return_value=MOCK_IAC_GENERATION)
     def test_generate_iac_etag_is_deterministic_for_same_code(self, mock_gen, client, diagram_with_analysis):
@@ -430,6 +494,61 @@ class TestIacOptimisticConcurrency:
         assert stored["iac_validation"]["status"] == "passed"
         assert stored["_iac_validation_code_hash"] == _iac_code_hash(newer_code)
 
+    def test_rejected_iac_chat_does_not_restore_stale_history(self, client, diagram_with_analysis):
+        from iac_chat import IAC_CHAT_SESSIONS, process_iac_chat
+        from routers.iac_routes import _iac_code_hash
+
+        code = MOCK_TERRAFORM_CODE
+        initial_history = [
+            {"role": "user", "content": "previous question"},
+            {"role": "assistant", "content": "previous answer"},
+        ]
+        session = copy.deepcopy(SESSION_STORE.peek(diagram_with_analysis))
+        session.update({
+            "iac_code": code,
+            "iac_code_hash": _iac_code_hash(code),
+            "iac_format": "terraform",
+            "iac_chat_history": copy.deepcopy(initial_history),
+        })
+        SESSION_STORE[diagram_with_analysis] = session
+        IAC_CHAT_SESSIONS[f"{diagram_with_analysis}:iac"] = copy.deepcopy(initial_history)
+
+        model_response = MagicMock()
+        model_response.choices = [MagicMock()]
+        model_response.choices[0].message.content = json.dumps({
+            "message": "No changes needed.",
+            "code": code,
+            "changes_summary": [],
+            "services_added": [],
+        })
+        model_response.choices[0].finish_reason = "stop"
+
+        def finish_after_newer_generation(**kwargs):
+            result = process_iac_chat(**kwargs)
+            current = copy.deepcopy(SESSION_STORE.peek(diagram_with_analysis))
+            newer_code = 'resource "terraform_data" "newer" {}'
+            current["iac_code"] = newer_code
+            current["iac_code_hash"] = _iac_code_hash(newer_code)
+            SESSION_STORE[diagram_with_analysis] = current
+            return result
+
+        with (
+            patch("iac_chat.cached_chat_completion", return_value=model_response),
+            patch("routers.iac_routes.process_iac_chat", side_effect=finish_after_newer_generation),
+        ):
+            response = client.post(
+                f"/api/diagrams/{diagram_with_analysis}/iac-chat",
+                json={
+                    "message": "Explain this code",
+                    "code": code,
+                    "format": "terraform",
+                    "code_hash": _iac_code_hash(code),
+                },
+            )
+
+        assert response.status_code == 409
+        assert IAC_CHAT_SESSIONS[f"{diagram_with_analysis}:iac"] == initial_history
+
     def test_iac_chat_commit_uses_atomic_source_state_guard(self, client, diagram_with_analysis):
         from routers import iac_routes
         from routers.iac_routes import _IAC_ETAG_KEY, _compute_iac_etag, _iac_code_hash
@@ -561,6 +680,7 @@ class TestIacOptimisticConcurrency:
 
         assert response.status_code == 200
         assert SESSION_STORE[diagram_with_analysis]["iac_validation"] == validation
+        assert response.json()["validation"] == validation
 
 
 class TestAsyncIacCanonicalState:

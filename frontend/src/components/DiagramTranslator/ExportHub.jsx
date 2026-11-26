@@ -204,6 +204,7 @@ export default function ExportHub({
   onExportCapability,
   onRefreshExportCapability,
   onIacGenerated,
+  iacGenerationEpoch,
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(() => {
@@ -261,6 +262,7 @@ export default function ExportHub({
 
   const handleGenerateAll = async () => {
     if (!diagramId || selectedItems.length === 0) return;
+    const generationEpoch = iacGenerationEpoch;
     setGenerating(true);
     setItemStatus(prev => ({
       ...prev,
@@ -314,10 +316,12 @@ export default function ExportHub({
             if (onExportCapability) onExportCapability(result.exportCapability);
           }
           if (d.id === 'iac' && result.code) {
-            onIacGenerated?.(
-              { code: result.code, validation: result.validation },
-              formats[d.id],
-            );
+            const generated = { code: result.code, validation: result.validation };
+            if (generationEpoch === undefined) {
+              onIacGenerated?.(generated, formats[d.id]);
+            } else {
+              onIacGenerated?.(generated, formats[d.id], generationEpoch);
+            }
           }
           setResults(prev => ({ ...prev, [d.id]: result }));
           setItemStatus(prev => ({ ...prev, [d.id]: 'done' }));

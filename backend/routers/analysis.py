@@ -9,6 +9,7 @@ from strict_models import StrictBaseModel
 from typing import Dict, Any
 import asyncio
 import base64
+import copy
 import logging
 
 from routers.shared import (
@@ -69,6 +70,11 @@ _IAC_STATE_KEYS = (
 
 def _clear_iac_state(analysis: dict) -> None:
     for key in _IAC_STATE_KEYS:
+        analysis.pop(key, None)
+
+
+def _clear_derived_analysis_state(analysis: dict) -> None:
+    for key in ("hld", "hld_markdown", "_cached_cost_estimate", "cost_estimate"):
         analysis.pop(key, None)
 
 
@@ -144,11 +150,12 @@ async def add_services_natural_language(
     to the guided questions or IaC generation.
     """
     analysis = await authorize_diagram_access_async(request, diagram_id, purpose="modify services")
+    source_snapshot = copy.deepcopy(analysis)
 
     try:
         updated = await asyncio.to_thread(
             add_services_from_text,
-            analysis=analysis,
+            analysis=source_snapshot,
             user_text=body.text,
         )
     except Exception as exc:
@@ -168,12 +175,14 @@ async def add_services_natural_language(
     services_added = updated.get("services_added", [])
     if isinstance(services_added, list) and services_added:
         _clear_iac_state(updated)
+        _clear_derived_analysis_state(updated)
     updated["architecture_graph"] = build_architecture_graph(updated)
 
     await persist_diagram_mutation_async(
         request,
         diagram_id,
         updated,
+        expected_session_state=source_snapshot,
         label="analysis-services-added",
     )
     if isinstance(services_added, list) and services_added:
@@ -211,6 +220,7 @@ async def apply_guided_answers(
 ):
     """Apply user answers to refine the Azure architecture analysis."""
     analysis = await authorize_diagram_access_async(request, diagram_id, purpose="apply answers")
+    source_snapshot = copy.deepcopy(analysis)
 
     if "answers" in answers:
         user_answers = answers["answers"]
@@ -234,17 +244,18 @@ async def apply_guided_answers(
         explicit_answer_ids = []
 
     refined = apply_answers(
-        analysis,
+        source_snapshot,
         user_answers,
         explicit_answer_ids=set(explicit_answer_ids),
     )
     _clear_iac_state(refined)
+    _clear_derived_analysis_state(refined)
     refined["architecture_graph"] = build_architecture_graph(refined)
     await persist_diagram_mutation_async(
         request,
         diagram_id,
         refined,
-        expected_session_state=analysis,
+        expected_session_state=source_snapshot,
         label="guided-answers-applied",
     )
     from iac_chat import clear_iac_chat

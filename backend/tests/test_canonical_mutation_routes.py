@@ -194,6 +194,10 @@ def test_guided_answers_clear_iaC_state_from_canonical_snapshot(test_client, dur
             "_iac_validation_format": "terraform",
             "_iac_etag": "old-etag",
             "iac_chat_history": [{"role": "assistant", "content": "old code"}],
+            "hld": {"title": "stale HLD"},
+            "hld_markdown": "# stale HLD",
+            "_cached_cost_estimate": {"mapping_fingerprint": ["stale"]},
+            "cost_estimate": {"total_monthly_estimate": {"low": 1, "high": 2}},
         },
     )
     IAC_CHAT_SESSIONS[f"{diagram_id}:iac"] = [{"role": "assistant", "content": "old code"}]
@@ -220,6 +224,10 @@ def test_guided_answers_clear_iaC_state_from_canonical_snapshot(test_client, dur
         "_iac_validation_format",
         "_iac_etag",
         "iac_chat_history",
+        "hld",
+        "hld_markdown",
+        "_cached_cost_estimate",
+        "cost_estimate",
     ):
         assert key not in hydrated
     assert get_iac_chat_history(diagram_id) == []
@@ -244,6 +252,10 @@ def test_adding_services_clears_stale_iac_from_canonical_snapshot(test_client, d
             "_iac_validation_format": "terraform",
             "_iac_etag": "old-etag",
             "iac_chat_history": [{"role": "assistant", "content": "old code"}],
+            "hld": {"title": "stale HLD"},
+            "hld_markdown": "# stale HLD",
+            "_cached_cost_estimate": {"mapping_fingerprint": ["stale"]},
+            "cost_estimate": {"total_monthly_estimate": {"low": 1, "high": 2}},
         },
     )
     IAC_CHAT_SESSIONS[f"{diagram_id}:iac"] = [{"role": "assistant", "content": "old code"}]
@@ -282,6 +294,10 @@ def test_adding_services_clears_stale_iac_from_canonical_snapshot(test_client, d
         "_iac_validation_format",
         "_iac_etag",
         "iac_chat_history",
+        "hld",
+        "hld_markdown",
+        "_cached_cost_estimate",
+        "cost_estimate",
     ):
         assert key not in hydrated
     assert get_iac_chat_history(diagram_id) == []

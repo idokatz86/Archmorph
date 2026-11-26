@@ -110,7 +110,7 @@ describe('ExportHub accessibility', () => {
       code: 'resource "terraform_data" "new" {}',
       validation: { status: 'failed', format: 'terraform', errors: ['Invalid syntax'] },
     })
-    render(<ExportHub diagramId="diag-1" onIacGenerated={onIacGenerated} />)
+    render(<ExportHub diagramId="diag-1" onIacGenerated={onIacGenerated} iacGenerationEpoch={7} />)
 
     openExportHub()
     for (const label of ['Architecture Package', 'High-Level Design', 'Cost Estimate', 'Migration Timeline', 'PDF Analysis Report']) {
@@ -124,6 +124,7 @@ describe('ExportHub accessibility', () => {
         validation: { status: 'failed', format: 'terraform', errors: ['Invalid syntax'] },
       },
       'terraform',
+      7,
     ))
   })
 

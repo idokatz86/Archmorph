@@ -158,6 +158,22 @@ describe('DiagramTranslator — Session UX Tests', () => {
     await waitFor(() => expect(screen.queryByText('Upload Architecture Diagram')).not.toBeInTheDocument());
   })
 
+  it('shows blocked IaC as blocked in the workbench deliverables status', async () => {
+    mockLoadSession.mockReturnValue({
+      diagramId: 'cached-blocked-iac',
+      analysis: { zones: [], mappings: [], diagram_type: 'AWS Architecture', services_detected: 1 },
+      questions: [],
+      answers: {},
+      iacCode: 'resource "terraform_data" "invalid" {}',
+      iacValidation: { status: 'failed', format: 'terraform', errors: ['Invalid syntax'] },
+      iacFormat: 'terraform',
+      ts: Date.now(),
+    })
+
+    render(<DiagramTranslator />)
+    expect(await screen.findByText('IaC: Blocked')).toBeInTheDocument()
+  })
+
   it('updates cached analysis and clears IaC when guided answers are applied', async () => {
     const analysis = {
       diagram_type: 'AWS Architecture',
@@ -179,6 +195,7 @@ describe('DiagramTranslator — Session UX Tests', () => {
       iacCode: null,
       iacValidation: { status: 'passed', format: 'terraform' },
       iacFormat: 'terraform',
+      hldData: { hld: { title: 'Stale HLD' } },
       ts: Date.now(),
     })
     const refined = {
@@ -196,6 +213,7 @@ describe('DiagramTranslator — Session UX Tests', () => {
       iacCode: null,
       iacValidation: null,
       iacFormat: null,
+      hldData: null,
     })))
   })
 
@@ -229,6 +247,37 @@ describe('DiagramTranslator — Session UX Tests', () => {
       }))
     })
     expect(screen.getByLabelText('IaC status: Draft')).toBeInTheDocument()
+  })
+
+  it('keeps passed validation visible when an unchanged chat response returns it', async () => {
+    const code = 'resource "terraform_data" "current" {}'
+    mockLoadSession.mockReturnValue({
+      diagramId: 'cached-unchanged-iac-chat',
+      analysis: { zones: [], mappings: [], diagram_type: 'AWS Architecture', services_detected: 1 },
+      questions: [],
+      answers: {},
+      iacCode: code,
+      iacValidation: { status: 'passed', format: 'terraform' },
+      iacFormat: 'terraform',
+      ts: Date.now(),
+    })
+    mockApi.post.mockResolvedValueOnce({
+      code,
+      reply: 'This resource creates a data object.',
+      validation: { status: 'passed', format: 'terraform' },
+    })
+
+    render(<DiagramTranslator />)
+    expect(await screen.findByLabelText('IaC status: Validated')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Chat' }))
+    fireEvent.change(screen.getByLabelText('IaC chat message'), { target: { value: 'Explain this code' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(mockUpdateSessionCache).toHaveBeenCalledWith(expect.objectContaining({
+      iacCode: code,
+      iacValidation: { status: 'passed', format: 'terraform' },
+    })))
+    expect(screen.getByLabelText('IaC status: Validated')).toBeInTheDocument()
   })
 
   it('updates the visible IaC viewer after ExportHub regenerates code', async () => {
@@ -866,4 +915,5 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     await waitFor(() => expect(screen.queryByText('Re-upload required after sign-in redirect')).not.toBeInTheDocument())
     expect(sessionStorage.getItem(authPendingUploadKey)).toBeNull()
   })
+
 })

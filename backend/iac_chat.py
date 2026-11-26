@@ -1,4 +1,3 @@
-import re
 """
 Archmorph IaC Chat — GPT-4o powered Terraform/Bicep assistant.
 
@@ -8,9 +7,11 @@ NSGs, IPs, storage, etc.), apply naming conventions, fix issues, and
 explain the generated infrastructure.
 """
 
-import json
+import copy
 import hashlib
+import json
 import logging
+import re
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
@@ -126,6 +127,7 @@ def process_iac_chat(
     current_code: str,
     iac_format: str = "terraform",
     analysis_context: Optional[Dict[str, Any]] = None,
+    persist_history: bool = True,
 ) -> Dict[str, Any]:
     """
     Process a user message to modify IaC code via GPT-4o.
@@ -178,10 +180,7 @@ def process_iac_chat(
         }
 
     # Initialize session history
-    if session_key not in IAC_CHAT_SESSIONS:
-        IAC_CHAT_SESSIONS[session_key] = []
-
-    history = IAC_CHAT_SESSIONS[session_key]
+    history = copy.deepcopy(IAC_CHAT_SESSIONS.get(session_key, []))
 
     # Build context block for GPT-4o
     context_text = ""
@@ -377,7 +376,8 @@ def process_iac_chat(
         "content": reply,
         "ts": datetime.now(timezone.utc).isoformat(),
     })
-    IAC_CHAT_SESSIONS[session_key] = history
+    if persist_history:
+        IAC_CHAT_SESSIONS[session_key] = copy.deepcopy(history)
 
     return {
         "reply": reply,
@@ -385,6 +385,7 @@ def process_iac_chat(
         "changes_summary": changes,
         "services_added": services,
         "validation": validation,
+        "chat_history": history,
         "error": False,
     }
 
@@ -392,6 +393,11 @@ def process_iac_chat(
 def get_iac_chat_history(diagram_id: str) -> List[Dict[str, str]]:
     """Return IaC chat history for a diagram session."""
     return IAC_CHAT_SESSIONS.get(f"{diagram_id}:iac", [])
+
+
+def set_iac_chat_history(diagram_id: str, history: List[Dict[str, str]]) -> None:
+    """Replace transient IaC chat history after its canonical mutation commits."""
+    IAC_CHAT_SESSIONS[f"{diagram_id}:iac"] = copy.deepcopy(history)
 
 
 def clear_iac_chat(diagram_id: str) -> bool:

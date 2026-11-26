@@ -38,7 +38,12 @@ from usage_metrics import (
     record_event_and_funnel_step,
     record_funnel_step,
 )
-from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
+from iac_chat import (
+    process_iac_chat,
+    get_iac_chat_history,
+    set_iac_chat_history,
+    clear_iac_chat,
+)
 from iac_generator import generate_iac_code_with_validation
 from iac_scaffold import generate_scaffold
 
@@ -446,6 +451,7 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
         current_code=code_to_use,
         iac_format=msg.format,
         analysis_context=analysis_context,
+        persist_history=False,
     )
 
     # ── Persist updated code as new canonical state (#842) ───────────────
@@ -473,9 +479,10 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
                 _store_iac_validation(updated_session, validation, new_code, msg.format)
             elif not _iac_validation_matches(latest_session, new_code, msg.format):
                 _clear_iac_validation(updated_session)
-            updated_session["iac_chat_history"] = copy.deepcopy(
-                get_iac_chat_history(diagram_id)
-            )
+            chat_history = result.get("chat_history")
+            if not isinstance(chat_history, list):
+                chat_history = get_iac_chat_history(diagram_id)
+            updated_session["iac_chat_history"] = copy.deepcopy(chat_history)
             new_etag = _store_iac_etag(updated_session, new_code)
             await persist_diagram_mutation_async(
                 request,
@@ -488,9 +495,12 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
                 expected_session_state=session,
                 label=f"iac-{msg.format}-chat",
             )
+            set_iac_chat_history(diagram_id, chat_history)
+            result["validation"] = copy.deepcopy(updated_session.get("iac_validation"))
             # Surface the new hash so clients can synchronise without re-fetching
             result["code_hash"] = updated_session["iac_code_hash"]
             result["etag"] = new_etag
+            result.pop("chat_history", None)
 
     if result.get("services_added"):
         record_event("iac_services_added", {

@@ -16,7 +16,7 @@ import {
   loadCachedImage,
   shouldPersistSensitiveSessionCache,
 } from '../../services/sessionCache';
-import useWorkflow from './useWorkflow';
+import useWorkflow, { DEFAULT_CHAT_MESSAGE } from './useWorkflow';
 import useSSE from '../../hooks/useSSE';
 import useSessionExpiry from '../../hooks/useSessionExpiry';
 import useBeforeUnload from '../../hooks/useBeforeUnload';
@@ -193,8 +193,11 @@ function getWorkbenchSpine(state, reviewSummary = {}) {
 }
 
 function getDeliverableStatuses(state) {
+  const validationStatus = state.iacValidation?.status;
+  const iacBlocked = validationStatus === 'failed' || validationStatus === 'blocked';
+  const iacNeedsReview = !!state.iacCode && validationStatus !== 'passed' && !iacBlocked;
   return [
-    { id: 'iac', label: 'IaC', status: state.generatingIac ? 'generating' : state.iacCode ? 'ready' : state.error && state.step === 'iac' ? 'failed' : 'notGenerated', text: state.generatingIac ? 'Generating' : state.iacCode ? 'Ready' : state.error && state.step === 'iac' ? 'Failed' : 'Not generated' },
+    { id: 'iac', label: 'IaC', status: state.generatingIac ? 'generating' : iacBlocked ? 'failed' : iacNeedsReview ? 'needsReview' : state.iacCode ? 'ready' : state.error && state.step === 'iac' ? 'failed' : 'notGenerated', text: state.generatingIac ? 'Generating' : iacBlocked ? 'Blocked' : iacNeedsReview ? (validationStatus === 'warning' ? 'Needs review' : 'Draft') : state.iacCode ? 'Ready' : state.error && state.step === 'iac' ? 'Failed' : 'Not generated' },
     { id: 'hld', label: 'HLD', status: state.hldLoading ? 'generating' : state.hldData ? 'ready' : state.error && state.step === 'hld' ? 'failed' : 'notGenerated', text: state.hldLoading ? 'Generating' : state.hldData ? 'Ready' : state.error && state.step === 'hld' ? 'Failed' : 'Not generated' },
     { id: 'pricing', label: 'Cost', status: state.costBreakdownLoading ? 'generating' : state.costBreakdown ? 'ready' : 'notGenerated', text: state.costBreakdownLoading ? 'Generating' : state.costBreakdown ? 'Ready' : 'Not generated' },
     { id: 'package', label: 'Package', status: state.exportCapability ? 'ready' : state.iacCode ? 'needsReview' : 'notGenerated', text: state.exportCapability ? 'Ready' : state.iacCode ? 'Needs review' : 'Not generated' },
@@ -363,6 +366,8 @@ export default function DiagramTranslator() {
   const abortRef = useRef(null);           // AbortController for fetch calls
   const persistSensitiveCache = shouldPersistSensitiveSessionCache();
   const stateRef = useRef(state);
+  const analysisMutationEpochRef = useRef(0);
+  const iacChatEpochRef = useRef(0);
 
   useEffect(() => {
     stateRef.current = state;
@@ -542,10 +547,19 @@ export default function DiagramTranslator() {
   // ── Auto-fetch cost breakdown when entering Pricing tab (#401) ──
   useEffect(() => {
     if (state.step === 'pricing' && !state.costBreakdown && !state.costBreakdownLoading && hasDiagramArtifactContext) {
+      const requestEpoch = analysisMutationEpochRef.current;
       set({ costBreakdownLoading: true });
       api.get(`/diagrams/${state.diagramId}/cost-breakdown`)
-        .then(data => set({ costBreakdown: data, costBreakdownLoading: false }))
-        .catch(() => set({ costBreakdownLoading: false }));
+        .then(data => {
+          if (requestEpoch === analysisMutationEpochRef.current) {
+            set({ costBreakdown: data, costBreakdownLoading: false });
+          }
+        })
+        .catch(() => {
+          if (requestEpoch === analysisMutationEpochRef.current) {
+            set({ costBreakdownLoading: false });
+          }
+        });
     }
   }, [hasDiagramArtifactContext, state.diagramId, state.step]);
 
@@ -1191,12 +1205,23 @@ export default function DiagramTranslator() {
         { cleanup: () => set({ loading: false }) },
       );
       if (refined) {
+        analysisMutationEpochRef.current += 1;
+        iacChatEpochRef.current += 1;
         const analysis = { ...state.analysis, ...refined };
         set({
           analysis,
           iacCode: null,
           iacValidation: null,
           iacFormat: null,
+          iacChatOpen: false,
+          iacChatMessages: [DEFAULT_CHAT_MESSAGE],
+          iacChatInput: '',
+          iacChatLoading: false,
+          hldData: null,
+          hldLoading: false,
+          costEstimate: null,
+          costBreakdown: null,
+          costBreakdownLoading: false,
           step: 'results',
         });
         updateSessionCache({
@@ -1206,6 +1231,7 @@ export default function DiagramTranslator() {
           iacCode: null,
           iacValidation: null,
           iacFormat: null,
+          hldData: null,
         });
       }
     } catch (err) {
@@ -1215,6 +1241,7 @@ export default function DiagramTranslator() {
   };
 
   const handleGenerateIac = async (fmt) => {
+    const requestEpoch = analysisMutationEpochRef.current;
     set({ loading: true, iacFormat: fmt, generatingIac: true });
     try {
       const generationPath = state.analysis?.combined && state.projectId
@@ -1224,22 +1251,27 @@ export default function DiagramTranslator() {
         () => api.post(generationPath, undefined, undefined, 180_000),
         { cleanup: () => set({ loading: false, generatingIac: false }) },
       );
-      if (iacData) {
+      if (iacData && requestEpoch === analysisMutationEpochRef.current) {
         set({ iacCode: iacData.code, iacValidation: iacData.validation || null, step: 'iac', generatingIac: false });
         updateSessionCache({ iacCode: iacData.code, iacValidation: iacData.validation || null, iacFormat: fmt }); // #263
         // Fetch cost estimate in parallel (non-blocking)
         api.get(`/diagrams/${state.diagramId}/cost-estimate`).then(cost => {
-          set({ costEstimate: cost });
+          if (requestEpoch === analysisMutationEpochRef.current) set({ costEstimate: cost });
         }).catch(() => {});
       }
     } catch (err) {
-      set({ error: err.message, generatingIac: false });
+      if (requestEpoch === analysisMutationEpochRef.current) {
+        set({ error: err.message, generatingIac: false });
+      }
     }
-    set({ loading: false, generatingIac: false });
+    if (requestEpoch === analysisMutationEpochRef.current) {
+      set({ loading: false, generatingIac: false });
+    }
   };
 
   // Background parallel generation of both IaC + HLD (#task4)
   const handleGenerateAll = async (fmt) => {
+    const requestEpoch = analysisMutationEpochRef.current;
     set({ loading: true, iacFormat: fmt, generatingIac: true, generatingAll: true, genProgress: 'Generating infrastructure code...' });
     try {
       const isCombinedProject = state.analysis?.combined && state.projectId;
@@ -1251,7 +1283,7 @@ export default function DiagramTranslator() {
         () => api.post(generationPath, undefined, undefined, 180_000),
         { cleanup: () => set({ loading: false, generatingIac: false, generatingAll: false }) },
       );
-      if (iacData) {
+      if (iacData && requestEpoch === analysisMutationEpochRef.current) {
         if (isCombinedProject) {
           set({ iacCode: iacData.code, iacValidation: iacData.validation || null, step: 'iac', generatingIac: false, generatingAll: false, genProgress: null });
           updateSessionCache({ iacCode: iacData.code, iacValidation: iacData.validation || null, iacFormat: fmt });
@@ -1264,6 +1296,7 @@ export default function DiagramTranslator() {
           api.post(`/diagrams/${state.diagramId}/generate-hld`, undefined, undefined, 180_000),
           api.get(`/diagrams/${state.diagramId}/cost-estimate`),
         ]);
+        if (requestEpoch !== analysisMutationEpochRef.current) return;
         if (hldData.status === 'fulfilled' && hldData.value?.hld) {
           set({ hldData: hldData.value });
           updateSessionCache({ hldData: hldData.value });
@@ -1274,12 +1307,17 @@ export default function DiagramTranslator() {
         set({ step: 'iac', generatingIac: false, generatingAll: false, genProgress: null });
       }
     } catch (err) {
-      set({ error: err.message, generatingIac: false, generatingAll: false, genProgress: null });
+      if (requestEpoch === analysisMutationEpochRef.current) {
+        set({ error: err.message, generatingIac: false, generatingAll: false, genProgress: null });
+      }
     }
-    set({ loading: false, generatingIac: false, generatingAll: false });
+    if (requestEpoch === analysisMutationEpochRef.current) {
+      set({ loading: false, generatingIac: false, generatingAll: false });
+    }
   };
 
-  const handleExportIacGenerated = (iacData, format) => {
+  const handleExportIacGenerated = (iacData, format, generationEpoch) => {
+    if (generationEpoch !== undefined && generationEpoch !== analysisMutationEpochRef.current) return;
     set({
       previousIacCode: state.iacCode,
       iacCode: iacData.code,
@@ -1384,6 +1422,8 @@ export default function DiagramTranslator() {
   const handleIacChat = async () => {
     const text = state.iacChatInput.trim();
     if (!text || state.iacChatLoading) return;
+    const requestEpoch = analysisMutationEpochRef.current;
+    const chatEpoch = iacChatEpochRef.current;
     set({ iacChatInput: '' });
     addChatMessage({ role: 'user', content: text });
     set({ iacChatLoading: true });
@@ -1391,28 +1431,34 @@ export default function DiagramTranslator() {
       const data = await api.post(`/diagrams/${state.diagramId}/iac-chat`, {
         message: text, code: state.iacCode || '', format: state.iacFormat,
       }, undefined, 180_000);
-      addChatMessage({
-        role: 'assistant',
-        content: data.reply || data.message || 'Done.',
-        changes: data.changes_summary || [],
-        services: data.services_added || [],
-      });
-      if (data.code && !data.error) {
-        const updates = {
-          previousIacCode: state.iacCode,
-          iacCode: data.code,
-          iacValidation: data.validation || null,
-        };
-        set(updates);
-        updateSessionCache({
-          iacCode: data.code,
-          iacValidation: data.validation || null,
+      if (requestEpoch === analysisMutationEpochRef.current && chatEpoch === iacChatEpochRef.current) {
+        addChatMessage({
+          role: 'assistant',
+          content: data.reply || data.message || 'Done.',
+          changes: data.changes_summary || [],
+          services: data.services_added || [],
         });
+        if (data.code && !data.error) {
+          const updates = {
+            previousIacCode: state.iacCode,
+            iacCode: data.code,
+            iacValidation: data.validation || null,
+          };
+          set(updates);
+          updateSessionCache({
+            iacCode: data.code,
+            iacValidation: data.validation || null,
+          });
+        }
       }
     } catch {
-      addChatMessage({ role: 'assistant', content: 'Sorry, couldn\'t connect to the IaC assistant.' });
+      if (requestEpoch === analysisMutationEpochRef.current && chatEpoch === iacChatEpochRef.current) {
+        addChatMessage({ role: 'assistant', content: 'Sorry, couldn\'t connect to the IaC assistant.' });
+      }
     }
-    set({ iacChatLoading: false });
+    if (requestEpoch === analysisMutationEpochRef.current && chatEpoch === iacChatEpochRef.current) {
+      set({ iacChatLoading: false });
+    }
     setTimeout(() => iacChatEndRef.current?.scrollIntoView({ behavior: 'smooth' }), 100);
   };
 
@@ -1443,6 +1489,7 @@ export default function DiagramTranslator() {
   };
 
   const handleGenerateHld = async () => {
+    const requestEpoch = analysisMutationEpochRef.current;
     set({ hldLoading: true, error: null });
     try {
       const controller = new AbortController();
@@ -1454,18 +1501,26 @@ export default function DiagramTranslator() {
       );
       clearTimeout(timeout);
       activeTimeoutsRef.current = activeTimeoutsRef.current.filter(id => id !== timeout);
-      if (data?.hld) { set({ hldData: data }); updateSessionCache({ hldData: data }); } // #263
+      if (data?.hld && requestEpoch === analysisMutationEpochRef.current) {
+        set({ hldData: data });
+        updateSessionCache({ hldData: data });
+      } // #263
     } catch (err) {
       const msg = err.name === 'AbortError'
         ? 'HLD generation timed out. Please try again.'
         : 'HLD generation failed: ' + err.message;
-      set({ error: msg });
+      if (requestEpoch === analysisMutationEpochRef.current) set({ error: msg });
     }
-    set({ hldLoading: false });
+    if (requestEpoch === analysisMutationEpochRef.current) set({ hldLoading: false });
   };
 
   const handleResetChat = () => {
-    set({ iacChatMessages: [{ role: 'assistant', content: 'Chat reset. What would you like to change in your IaC code?' }] });
+    iacChatEpochRef.current += 1;
+    set({
+      iacChatMessages: [{ role: 'assistant', content: 'Chat reset. What would you like to change in your IaC code?' }],
+      iacChatLoading: false,
+      iacChatInput: '',
+    });
     if (state.diagramId) api.delete(`/diagrams/${state.diagramId}/iac-chat`).catch(() => {});
   };
 
@@ -1860,6 +1915,7 @@ export default function DiagramTranslator() {
           }}
           onRefreshExportCapability={refreshExportCapability}
           onIacGenerated={handleExportIacGenerated}
+          iacGenerationEpoch={analysisMutationEpochRef.current}
           reviewItems={reviewItems}
           reviewDispositions={reviewDispositions}
           reviewSummary={reviewSummary}
