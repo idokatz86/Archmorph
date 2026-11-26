@@ -130,7 +130,7 @@ def _enrich_with_provenance(result: dict) -> dict:
         try:
             m["confidence_provenance"] = build_provenance(
                 m,
-                source_provider=result.get("source_provider"),
+                source_provider=m.get("source_provider") or result.get("source_provider"),
             )
         except Exception:
             logger.debug("Provenance enrichment skipped for mapping")
@@ -197,7 +197,11 @@ def _normalize_analysis(result: dict) -> dict:
                 continue
             if not isinstance(mapping.get("evidence"), dict):
                 mapping.pop("evidence", None)
-            if isinstance(source_provider, str) and source_provider.strip():
+            if (
+                isinstance(source_provider, str)
+                and source_provider.strip()
+                and not (isinstance(mapping.get("source_provider"), str) and mapping["source_provider"].strip())
+            ):
                 mapping["source_provider"] = source_provider
         run_metadata = build_run_metadata(result)
         result["run_id"] = run_metadata["run_id"]

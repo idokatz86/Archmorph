@@ -231,6 +231,8 @@ class TestEstimateServicesCost:
         assert service["price_source_id"] == "azure_retail_prices_api"
         assert service["price_source"] == "Azure Retail Prices API"
         assert service["price_evidence"]["returned_meter"] == "Execution Time"
+        assert "$0.1 per unit" in service["formula"]
+        assert "730 configured estimate conversion factor" in service["formula"]
         assert service["price_evidence"]["cache_age_days"] is None
         assert service["price_evidence"]["observed_at"]
         assert service["price_source_url"] == pricing.AZURE_PRICING_API

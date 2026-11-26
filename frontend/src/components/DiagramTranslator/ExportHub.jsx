@@ -267,10 +267,10 @@ export default function ExportHub({
     }));
     setResults({});
 
-    // Deliverables that consume/produce one-time export-capability tokens must run
-    // sequentially so each call receives the latest token from the previous response.
-    // All other deliverables are independent and can run in parallel.
-    const CAPABILITY_IDS = new Set(['architecture-package', 'hld', 'cost', 'timeline', 'pdf-report']);
+    // IaC runs before capability-gated exports so an architecture package reads
+    // the validation state produced by this batch rather than the previous one.
+    // Capability-gated deliverables also chain one-time tokens sequentially.
+    const CAPABILITY_IDS = new Set(['iac', 'architecture-package', 'hld', 'cost', 'timeline', 'pdf-report']);
     const freeItems = selectedItems.filter(d => !CAPABILITY_IDS.has(d.id));
     const capItems  = selectedItems.filter(d =>  CAPABILITY_IDS.has(d.id));
 

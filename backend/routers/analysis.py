@@ -215,13 +215,28 @@ async def apply_guided_answers(
         user_answers,
         explicit_answer_ids=set(explicit_answer_ids),
     )
+    for key in (
+        "iac_code",
+        "iac_code_hash",
+        "iac_format",
+        "iac_validation",
+        "_iac_validation_code_hash",
+        "_iac_validation_format",
+        "_iac_etag",
+        "iac_chat_history",
+    ):
+        refined.pop(key, None)
     refined["architecture_graph"] = build_architecture_graph(refined)
     await persist_diagram_mutation_async(
         request,
         diagram_id,
         refined,
+        expected_session_state=analysis,
         label="guided-answers-applied",
     )
+    from iac_chat import clear_iac_chat
+
+    clear_iac_chat(diagram_id)
     record_event("answers_applied", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "answers")
     persisted = SESSION_STORE.peek(diagram_id)

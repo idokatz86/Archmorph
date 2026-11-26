@@ -63,6 +63,25 @@ def test_normalized_analysis_builds_mapping_evidence_before_graph_projection():
     assert analysis["architecture_graph"]["nodes"][0]["evidence"] == evidence
 
 
+def test_mapping_provider_survives_normalization_and_drives_provenance():
+    from routers.diagrams import _normalize_analysis
+
+    analysis = _normalize_analysis({
+        "source_provider": "aws",
+        "mappings": [{
+            "source_service": "GKE",
+            "source_provider": "gcp",
+            "azure_service": "AKS",
+            "confidence": 0.92,
+        }],
+    })
+
+    mapping = analysis["mappings"][0]
+    assert mapping["source_provider"] == "gcp"
+    assert mapping["confidence_provenance"]["source_provider"] == "gcp"
+    assert analysis["architecture_graph"]["nodes"][0]["source_provider"] == "gcp"
+
+
 def test_missing_provider_remains_unknown():
     graph = build_architecture_graph({
         "mappings": [{"source_service": "Service", "azure_service": "Azure Service"}],

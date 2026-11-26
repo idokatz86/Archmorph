@@ -199,6 +199,38 @@ describe('DiagramTranslator — Session UX Tests', () => {
     })))
   })
 
+  it('clears stale IaC validation when chat returns code without validation metadata', async () => {
+    mockLoadSession.mockReturnValue({
+      diagramId: 'cached-iac-chat',
+      analysis: { zones: [], mappings: [], diagram_type: 'AWS Architecture', services_detected: 1 },
+      questions: [],
+      answers: {},
+      iacCode: 'resource "terraform_data" "old" {}',
+      iacValidation: { status: 'passed', format: 'terraform' },
+      iacFormat: 'terraform',
+      ts: Date.now(),
+    })
+    mockApi.post.mockResolvedValueOnce({
+      code: 'resource "terraform_data" "new" { input = ??? }',
+      reply: 'Updated code.',
+      validation: null,
+    })
+
+    render(<DiagramTranslator />)
+    expect(await screen.findByLabelText('IaC status: Validated')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Chat' }))
+    fireEvent.change(screen.getByLabelText('IaC chat message'), { target: { value: 'Explain this code' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => {
+      expect(mockUpdateSessionCache).toHaveBeenCalledWith(expect.objectContaining({
+        iacCode: 'resource "terraform_data" "new" { input = ??? }',
+        iacValidation: null,
+      }))
+    })
+    expect(screen.getByLabelText('IaC status: Draft')).toBeInTheDocument()
+  })
+
   it('does not call diagram-only endpoints for combined project pseudo ids', async () => {
     mockLoadSession.mockReturnValue({
       diagramId: 'project-demo-project',

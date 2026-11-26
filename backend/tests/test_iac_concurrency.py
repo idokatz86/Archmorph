@@ -225,6 +225,32 @@ class TestIacOptimisticConcurrency:
         )
         assert r2.status_code == 200
 
+    def test_generation_conflicts_instead_of_overwriting_concurrent_analysis(
+        self,
+        client,
+        diagram_with_analysis,
+    ):
+        def finish_after_analysis_change(**_kwargs):
+            current = copy.deepcopy(SESSION_STORE[diagram_with_analysis])
+            current["mappings"][0]["azure_service"] = "Concurrent mapping update"
+            SESSION_STORE[diagram_with_analysis] = current
+            return MOCK_IAC_GENERATION
+
+        with patch(
+            "routers.iac_routes.generate_iac_code_with_validation",
+            side_effect=finish_after_analysis_change,
+        ):
+            response = client.post(
+                f"/api/diagrams/{diagram_with_analysis}/generate",
+                params={"format": "terraform"},
+            )
+
+        assert response.status_code == 409
+        assert response.json()["error"]["details"]["error"] == "analysis_version_conflict"
+        latest = SESSION_STORE[diagram_with_analysis]
+        assert latest["mappings"][0]["azure_service"] == "Concurrent mapping update"
+        assert "iac_code" not in latest
+
     def test_async_generate_with_stale_if_match_returns_409(self, client, owned_diagram_with_analysis):
         """Async generation must honor the same stale If-Match guard as sync generation."""
         from routers.iac_routes import _IAC_ETAG_KEY, _compute_iac_etag

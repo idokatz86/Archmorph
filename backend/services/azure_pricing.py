@@ -1257,6 +1257,15 @@ def fetch_prices_for_region(
                 "source": "azure_retail_prices_api",
                 "source_label": "Azure Retail Prices API",
                 "source_url": AZURE_PRICING_API,
+                "retail_price": api_price,
+                "monthly_conversion_factor": query.get("unit_multiplier", 730),
+                "monthly_conversion_description": (
+                    f"{query['unit_multiplier']:g} GB per estimated TB"
+                    if query.get("unit_multiplier")
+                    else "730 assumed hours/month"
+                    if "hour" in str(api_details.get("unit_of_measure") or "").lower()
+                    else "730 configured estimate conversion factor"
+                ),
                 "requested_service_name": query.get("serviceName", service_name),
                 "requested_sku": query.get("skuName"),
                 "requested_meter": query.get("meterName"),
@@ -1790,6 +1799,26 @@ def estimate_services_cost(
                 "source_url": None,
                 "note": "A price value was supplied without source metadata.",
             }
+        formula = _build_price_evidence_formula(
+            source_record,
+            price_source_id,
+            azure_svc,
+            sku_name,
+            base_price,
+            adjusted,
+            multiplier,
+            sku_strategy,
+        )
+        if price_source_id == "azure_retail_prices_api":
+            assumptions_list = [
+                f"Retail Prices API unit rate: {source_record.get('unit_of_measure') or 'unit not reported'}",
+                (
+                    "Monthly estimate applies "
+                    f"{source_record.get('monthly_conversion_description', 'the configured conversion factor')}; "
+                    "workload-specific usage is not modeled."
+                ),
+                "Estimate excludes workload-specific discounts and reservations.",
+            ]
         price_evidence = {
             **source_record,
             "region": region,
@@ -1855,3 +1884,47 @@ def estimate_services_cost(
         "pricing_cache_scope": pricing_cache_scope,
         "pricing_cache_cached_at": cache_timestamp,
     }
+
+
+def _build_price_evidence_formula(
+    source_record: dict[str, Any],
+    source_id: str,
+    service_name: str,
+    sku_name: str,
+    base_price: float,
+    adjusted: float,
+    multiplier: float,
+    strategy: str,
+) -> str:
+    """Describe the exact monthly estimate calculation without inventing a meter rate."""
+    if source_id == "azure_retail_prices_api":
+        retail_price = source_record.get("retail_price")
+        conversion_factor = source_record.get("monthly_conversion_factor")
+        if isinstance(retail_price, (int, float)) and isinstance(conversion_factor, (int, float)):
+            unit = source_record.get("unit_of_measure") or "unit"
+            conversion_description = source_record.get(
+                "monthly_conversion_description",
+                f"{conversion_factor:g} configured estimate conversion factor",
+            )
+            formula = (
+                f"${retail_price:g} per {unit} × {conversion_description} = "
+                f"${base_price:.2f}/month"
+            )
+        else:
+            formula = (
+                f"Cached Azure Retail Prices monthly value: ${base_price:.2f}; "
+                "original unit conversion details are unavailable"
+            )
+    elif source_id == "built_in_estimate":
+        label = f" for {sku_name}" if sku_name else ""
+        formula = f"Built-in estimate{label}: ${base_price:.2f}/month"
+    elif source_id == "cached_source_unknown":
+        formula = f"Cached monthly price (source unverified): ${base_price:.2f}/month"
+    elif base_price > 0:
+        formula = f"Estimated monthly price for {service_name}: ${base_price:.2f}/month"
+    else:
+        return "Pricing not available"
+
+    if multiplier != 1.0:
+        formula += f" × {multiplier:.1f} ({strategy}) = ${adjusted:.2f}/month"
+    return formula

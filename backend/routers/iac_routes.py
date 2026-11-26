@@ -374,6 +374,7 @@ async def generate_iac(
         request,
         diagram_id,
         updated_session,
+        expected_session_state=session,
         artifact_type=format,
         artifact_format=format,
         artifact_content=code,

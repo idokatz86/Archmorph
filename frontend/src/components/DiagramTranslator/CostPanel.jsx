@@ -384,7 +384,7 @@ export default function CostPanel({ costEstimate, diagramId, api }) {
       <div className="mt-4 pt-3 border-t border-border flex items-start gap-2">
         <Info className="w-3.5 h-3.5 text-text-muted shrink-0 mt-0.5" />
         <p className="text-[11px] text-text-muted leading-relaxed">
-          These figures are approximate estimates based on Azure Retail Prices and may not reflect your final costs. Actual charges will vary depending on usage, configuration, reserved capacity, and applicable discounts. For an accurate cost projection, please use the <a href="https://azure.microsoft.com/en-us/pricing/calculator/" target="_blank" rel="noopener noreferrer" className="text-cta hover:underline">Azure Pricing Calculator</a>.
+          These are approximate estimates using the price sources shown for each service, plus the listed assumptions. Actual charges vary with usage, configuration, reservations, and discounts. For a tailored estimate, use the <a href="https://azure.microsoft.com/en-us/pricing/calculator/" target="_blank" rel="noopener noreferrer" className="text-cta hover:underline">Azure Pricing Calculator</a>.
         </p>
       </div>
     </Card>

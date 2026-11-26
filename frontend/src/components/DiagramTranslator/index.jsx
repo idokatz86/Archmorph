@@ -1387,12 +1387,12 @@ export default function DiagramTranslator() {
         const updates = {
           previousIacCode: state.iacCode,
           iacCode: data.code,
-          ...(data.validation ? { iacValidation: data.validation } : {}),
+          iacValidation: data.validation || null,
         };
         set(updates);
         updateSessionCache({
           iacCode: data.code,
-          ...(data.validation ? { iacValidation: data.validation } : {}),
+          iacValidation: data.validation || null,
         });
       }
     } catch {

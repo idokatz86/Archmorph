@@ -170,26 +170,36 @@ describe('ExportHub accessibility', () => {
   })
 })
 
-describe('ExportHub parallel generation', () => {
+describe('ExportHub generation dependencies', () => {
   beforeEach(() => {
     api.post.mockReset()
     api.get.mockReset()
     api.download.mockReset()
   })
 
-  it('runs the independent IaC lane in parallel with the sequential capability lane', async () => {
+  it('generates IaC before an architecture package that records its validation', async () => {
     let resolveIac
-    let resolveCost
-    api.post.mockImplementation(() => new Promise(resolve => { resolveIac = resolve }))
-    api.download.mockImplementation(() => new Promise(resolve => { resolveCost = resolve }))
+    api.post.mockImplementation((path) => {
+      if (path.includes('/generate?format=terraform')) {
+        return new Promise(resolve => { resolveIac = resolve })
+      }
+      if (path.includes('/export-architecture-package')) {
+        return Promise.resolve({
+          content: '<html>Architecture package</html>',
+          filename: 'architecture.html',
+          manifest: {},
+        })
+      }
+      return Promise.reject(new Error(`Unexpected export request: ${path}`))
+    })
 
     const user = userEvent.setup()
     render(<ExportHub diagramId="diag-1" />)
 
     openExportHub()
 
-    // Keep one free artifact and one capability-gated artifact selected.
-    for (const label of ['Architecture Package', 'High-Level Design', 'Migration Timeline', 'PDF Analysis Report']) {
+    // Keep only IaC and the package whose manifest records IaC validation.
+    for (const label of ['High-Level Design', 'Cost Estimate', 'Migration Timeline', 'PDF Analysis Report']) {
       await user.click(await screen.findByLabelText(`Include ${label}`))
     }
 
@@ -202,19 +212,31 @@ describe('ExportHub parallel generation', () => {
         undefined,
         180_000,
       )
-      expect(api.download).toHaveBeenCalledWith(
-        '/diagrams/diag-1/cost-estimate/export',
-        { headers: {} },
-      )
+    })
+    expect(api.post).not.toHaveBeenCalledWith(
+      expect.stringContaining('/export-architecture-package'),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+      expect.anything(),
+    )
+
+    await act(async () => {
+      resolveIac({
+        code: 'resource {}',
+        filename: 'archmorph-iac.tf',
+        validation: { status: 'failed', errors: ['Invalid syntax'] },
+      })
     })
 
-    resolveIac({ code: 'resource {}', filename: 'archmorph-iac.tf' })
-    resolveCost(downloadResponse('Service,Monthly Low\nTOTAL,0\n', 'text/csv', 'cost.csv', 'next-token'))
-
-    await waitFor(
-      () => expect(screen.getByRole('button', { name: /Generate All Selected/i })).not.toBeDisabled(),
-      { timeout: 3000 }
-    )
+    await waitFor(() => expect(api.post).toHaveBeenCalledWith(
+      expect.stringContaining('/export-architecture-package'),
+      undefined,
+      undefined,
+      undefined,
+      {},
+    ))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Generate All Selected/i })).not.toBeDisabled())
   })
 
   it('capability-gated deliverables chain export tokens sequentially', async () => {

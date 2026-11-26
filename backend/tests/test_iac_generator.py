@@ -7,6 +7,7 @@ import pytest
 from iac_generator import (
     _apply_validation,
     _terraform_cli_validation_safe,
+    _validate_iac_code,
     _validate_bicep_cli,
     generate_iac_code,
     generate_iac_code_with_validation,
@@ -98,6 +99,17 @@ class TestGenerateIaCCode:
         assert result["validation"]["status"] == "failed"
         assert result["validation"]["errors"] == ["synthetic validation error"]
         assert "failed terraform validate: synthetic validation error" in result["code"]
+
+    def test_static_only_terraform_checks_are_not_reported_as_passed(self, monkeypatch):
+        monkeypatch.setenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "1")
+        result = _validate_iac_code(
+            'resource "terraform_data" "broken" { input = ??? }',
+            "terraform",
+        )
+
+        assert result["status"] == "warning"
+        assert "static_structure_checks" in result["checks"]
+        assert any("only static checks" in warning for warning in result["warnings"])
 
     @patch("iac_generator.cached_chat_completion")
     def test_fallback_on_empty_analysis(self, mock_cached):

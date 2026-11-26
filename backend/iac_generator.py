@@ -394,7 +394,9 @@ def _validate_terraform_cli(code: str) -> List[Tuple[str, str]] | None:
 def _validate_terraform(code: str) -> List[Tuple[str, str]]:
     """Validate Terraform with opt-in CLI execution, otherwise using static checks."""
     if not _terraform_cli_validation_enabled():
-        return _validate_terraform_static(code)
+        return _validate_terraform_static(code) + [
+            ("warning", "Terraform CLI validation is disabled; only static checks were performed")
+        ]
     try:
         cli_issues = _validate_terraform_cli(code)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -404,7 +406,9 @@ def _validate_terraform(code: str) -> List[Tuple[str, str]]:
         )
         cli_issues = None
     if cli_issues is None:
-        return _validate_terraform_static(code)
+        return _validate_terraform_static(code) + [
+            ("warning", "Terraform CLI validation was unavailable; only static checks were performed")
+        ]
     return cli_issues + _terraform_policy_checks(code)
 
 
@@ -499,7 +503,9 @@ def _validate_bicep_cli(code: str) -> List[Tuple[str, str]] | None:
 def _validate_bicep(code: str) -> List[Tuple[str, str]]:
     """Validate Bicep with opt-in CLI execution, otherwise using static checks."""
     if not _iac_cli_validation_enabled():
-        return _validate_bicep_static(code)
+        return _validate_bicep_static(code) + [
+            ("warning", "Bicep CLI validation is disabled; only static checks were performed")
+        ]
     try:
         cli_issues = _validate_bicep_cli(code)
     except (OSError, subprocess.SubprocessError) as exc:
@@ -509,7 +515,9 @@ def _validate_bicep(code: str) -> List[Tuple[str, str]]:
         )
         cli_issues = None
     if cli_issues is None:
-        return _validate_bicep_static(code)
+        return _validate_bicep_static(code) + [
+            ("warning", "Bicep CLI validation was unavailable; only static checks were performed")
+        ]
     return cli_issues + _bicep_policy_checks(code)
 
 
@@ -602,7 +610,12 @@ def _validate_iac_code(code: str, iac_format: str) -> dict:
         "schema_version": "iac-validation/v1",
         "status": status,
         "format": iac_format,
-        "checks": ["format_validation", "static_security_scan"],
+        "checks": [
+            "static_structure_checks"
+            if any("only static checks" in message for _, message in warnings)
+            else "format_validation",
+            "static_security_scan",
+        ],
         "errors": [message for _, message in errors],
         "warnings": [message for _, message in warnings],
         "checked_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),

@@ -175,6 +175,56 @@ def test_analysis_add_and_apply_each_survive_cache_loss(test_client, durable_run
     assert hydrated["architecture_graph"]["nodes"][0]["target_service"] == "Refined Azure target"
 
 
+def test_guided_answers_clear_iaC_state_from_canonical_snapshot(test_client, durable_runtime):
+    from iac_chat import IAC_CHAT_SESSIONS, get_iac_chat_history
+
+    owner, tenant, headers = _identity()
+    diagram_id = f"diag-guided-clears-iac-{uuid.uuid4().hex}"
+    _seed(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        extra={
+            "iac_code": 'resource "terraform_data" "old" {}',
+            "iac_code_hash": "old-hash",
+            "iac_format": "terraform",
+            "iac_validation": {"status": "passed", "format": "terraform"},
+            "_iac_validation_code_hash": "old-hash",
+            "_iac_validation_format": "terraform",
+            "_iac_etag": "old-etag",
+            "iac_chat_history": [{"role": "assistant", "content": "old code"}],
+        },
+    )
+    IAC_CHAT_SESSIONS[f"{diagram_id}:iac"] = [{"role": "assistant", "content": "old code"}]
+
+    response = test_client.post(
+        f"/api/diagrams/{diagram_id}/apply-answers",
+        headers=headers,
+        json={"answers": {}, "explicit_answer_ids": []},
+    )
+
+    assert response.status_code == 200, response.text
+    hydrated = _hydrate_after_cache_loss(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+    )
+    for key in (
+        "iac_code",
+        "iac_code_hash",
+        "iac_format",
+        "iac_validation",
+        "_iac_validation_code_hash",
+        "_iac_validation_format",
+        "_iac_etag",
+        "iac_chat_history",
+    ):
+        assert key not in hydrated
+    assert get_iac_chat_history(diagram_id) == []
+
+
 def test_review_disposition_survives_cache_loss(test_client, durable_runtime):
     owner, tenant, headers = _identity()
     diagram_id = f"diag-review-mutation-{uuid.uuid4().hex}"

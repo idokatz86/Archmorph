@@ -113,6 +113,25 @@ describe('CostPanel', () => {
     expect(screen.getByText('Azure Pricing Calculator')).toBeInTheDocument()
   })
 
+  it('does not imply built-in estimates all use Retail Prices API data', () => {
+    const costEstimate = {
+      pricing_source: 'Built-in estimate',
+      total_monthly_estimate: { low: 10, high: 20 },
+      services: [{
+        service: 'Azure Functions',
+        monthly_low: 10,
+        monthly_high: 20,
+        price_source: 'Built-in estimate',
+      }],
+    }
+
+    render(<CostPanel costEstimate={costEstimate} />)
+
+    expect(screen.getAllByText('Built-in estimate')).toHaveLength(2)
+    expect(screen.getByText(/price sources shown for each service/i)).toBeInTheDocument()
+    expect(screen.queryByText(/based on Azure Retail Prices/i)).not.toBeInTheDocument()
+  })
+
   it('shows pricing unavailable when all costs are zero', () => {
     const costEstimate = {
       total_monthly_estimate: { low: 0, high: 0 },
