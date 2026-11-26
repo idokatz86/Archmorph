@@ -133,7 +133,8 @@ async def generate_hld_endpoint(
         request, diagram_id, purpose="generate an HLD"
     )
 
-    updated_session = copy.deepcopy(session)
+    source_snapshot = copy.deepcopy(session)
+    updated_session = copy.deepcopy(source_snapshot)
     analysis = updated_session
 
     # Get cost estimate — use cached if available (#177)
@@ -171,6 +172,7 @@ async def generate_hld_endpoint(
         artifact_type="hld",
         artifact_format="markdown",
         artifact_content=markdown,
+        expected_session_state=source_snapshot,
         label="hld-generated",
     )
 
@@ -196,7 +198,8 @@ async def _ensure_hld(request: Request, session: dict, diagram_id: str) -> dict:
         return session
 
     try:
-        updated_session = copy.deepcopy(session)
+        source_snapshot = copy.deepcopy(session)
+        updated_session = copy.deepcopy(source_snapshot)
         cost_estimate = updated_session.get("_cached_cost_estimate")
         if cost_estimate is None:
             iac_params = updated_session.get("iac_parameters", {})
@@ -222,6 +225,7 @@ async def _ensure_hld(request: Request, session: dict, diagram_id: str) -> dict:
             artifact_type="hld",
             artifact_format="markdown",
             artifact_content=markdown,
+            expected_session_state=source_snapshot,
             label="hld-auto-generated",
         )
         session = updated_session

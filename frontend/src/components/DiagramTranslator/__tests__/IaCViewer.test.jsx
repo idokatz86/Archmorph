@@ -55,6 +55,17 @@ describe('IaCViewer', () => {
     expect(screen.getByText('4 lines generated')).toBeInTheDocument()
   })
 
+  it('distinguishes validated, draft, and blocked IaC status', () => {
+    const { rerender } = render(<IaCViewer {...defaultProps} />)
+    expect(screen.getByLabelText('IaC status: Draft')).toHaveTextContent('Validation has not run')
+
+    rerender(<IaCViewer {...defaultProps} iacValidation={{ status: 'passed', scope: 'Static checks only.' }} />)
+    expect(screen.getByLabelText('IaC status: Validated')).toHaveTextContent('Format and static security checks passed.')
+
+    rerender(<IaCViewer {...defaultProps} iacValidation={{ status: 'failed', errors: ['Invalid syntax'] }} />)
+    expect(screen.getByLabelText('IaC status: Blocked')).toHaveTextContent('Invalid syntax')
+  })
+
   it('renders Copy and Download buttons', () => {
     render(<IaCViewer {...defaultProps} />)
     expect(screen.getByText('Copy')).toBeInTheDocument()

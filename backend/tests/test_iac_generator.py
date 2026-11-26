@@ -7,8 +7,10 @@ import pytest
 from iac_generator import (
     _apply_validation,
     _terraform_cli_validation_safe,
+    _validate_iac_code,
     _validate_bicep_cli,
     generate_iac_code,
+    generate_iac_code_with_validation,
 )
 
 
@@ -71,6 +73,43 @@ class TestGenerateIaCCode:
         )
 
         mock_validation.assert_called_once()
+
+    @patch("iac_generator.cached_chat_completion")
+    def test_generation_returns_failed_validation_as_explicit_metadata(self, mock_cached, monkeypatch):
+        import iac_generator
+
+        code = 'resource "azurerm_resource_group" "main" {}'
+        mock_cached.return_value = MagicMock(
+            choices=[MagicMock(message=MagicMock(content=code))]
+        )
+        monkeypatch.setattr(iac_generator, "_verify_iac_completeness", lambda source, *_args: source)
+        monkeypatch.setattr(
+            iac_generator,
+            "_validate_terraform",
+            lambda _source: [("error", "synthetic validation error")],
+        )
+        monkeypatch.setattr(iac_generator, "_scan_security", lambda *_args: [])
+
+        result = generate_iac_code_with_validation(
+            analysis=MOCK_ANALYSIS,
+            iac_format="terraform",
+            params={},
+        )
+
+        assert result["validation"]["status"] == "failed"
+        assert result["validation"]["errors"] == ["synthetic validation error"]
+        assert "failed terraform validate: synthetic validation error" in result["code"]
+
+    def test_static_only_terraform_checks_are_not_reported_as_passed(self, monkeypatch):
+        monkeypatch.setenv("ARCHMORPH_DISABLE_IAC_CLI_VALIDATION", "1")
+        result = _validate_iac_code(
+            'resource "terraform_data" "broken" { input = ??? }',
+            "terraform",
+        )
+
+        assert result["status"] == "warning"
+        assert "static_structure_checks" in result["checks"]
+        assert any("only static checks" in warning for warning in result["warnings"])
 
     @patch("iac_generator.cached_chat_completion")
     def test_fallback_on_empty_analysis(self, mock_cached):

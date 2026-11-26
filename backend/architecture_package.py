@@ -21,6 +21,7 @@ from azure_landing_zone import generate_landing_zone_svg
 from azure_landing_zone_schema import infer_dr_mode, infer_regions, infer_tiers_from_mappings
 from cost_assumptions import DIRECTIONAL_COST_NOTICE, build_cost_assumptions_artifact
 from customer_intent import build_customer_intent_profile
+from architecture_graph import build_architecture_graph
 from source_provider import normalize_source_provider
 from traceability_map import build_traceability_map, traceability_summary
 
@@ -429,6 +430,18 @@ def _build_manifest(
 
     # ── Run metadata / trust provenance (#1130) ──
     run_metadata = _build_run_metadata(analysis, analysis_id=analysis_id)
+    architecture_graph = build_architecture_graph(analysis)
+    graph_warnings = [
+        str(warning)
+        for warning in architecture_graph.get("warnings", [])
+        if warning
+    ]
+    iac_validation = analysis.get("iac_validation")
+    if not isinstance(iac_validation, dict):
+        iac_validation = {
+            "status": "not_run",
+            "reason": "No IaC validation result is available for this analysis.",
+        }
 
     manifest = {
         "schema_version": "architecture-package-manifest/v1",
@@ -447,11 +460,13 @@ def _build_manifest(
             for name, role, artifact_format in _manifest_artifacts(artifact_filenames, format)
         ],
         "mapping_references": _mapping_references(analysis),
+        "architecture_graph": architecture_graph,
+        "iac_validation": iac_validation,
         "alz_profile": build_alz_profile(analysis),
         "traceability_map": build_traceability_map(analysis),
         "dr_readiness": dr_readiness,
         "cost_assumptions": cost_assumptions,
-        "warnings": raw_warnings[:10],
+        "warnings": (raw_warnings + graph_warnings)[:20],
         "limitations": [
             {"title": title, "detail": detail}
             for title, detail in limitations
@@ -527,17 +542,21 @@ def _build_run_metadata(
     """Build customer-safe run metadata for the manifest (#1130)."""
     try:
         from mapping_evidence import build_run_metadata  # type: ignore[import]
+        run_id = analysis.get("run_id") or analysis.get("correlation_id") or analysis_id
         meta = build_run_metadata(
             {**analysis, "analysis_id": analysis_id or analysis.get("analysis_id")},
-            run_id=str(analysis_id or ""),
+            run_id=str(run_id) if run_id else None,
         )
         return meta
     except Exception:  # noqa: BLE001
         pass
     return {
         "schema_version": "run-metadata/v1",
-        "run_id": str(analysis_id or ""),
-        "analysis_timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
+        "run_id": str(analysis.get("run_id") or analysis.get("correlation_id") or analysis_id or ""),
+        "analysis_timestamp": str(
+            analysis.get("analysis_timestamp")
+            or datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        ),
         "source_provider": str(analysis.get("source_provider") or "aws").lower(),
         "target_provider": "azure",
     }
@@ -907,8 +926,15 @@ def _source_label(analysis: dict[str, Any]) -> str:
     mappings = analysis.get("mappings", [])
     if isinstance(mappings, list):
         for mapping in mappings:
-            if isinstance(mapping, dict) and mapping.get("source_provider") is not None:
-                add_provider(mapping["source_provider"])
+            if not isinstance(mapping, dict):
+                continue
+            provider = mapping.get("source_provider")
+            if isinstance(provider, str):
+                provider = provider.strip()
+                if not provider or provider.lower() == "user":
+                    continue
+            if provider is not None:
+                add_provider(provider)
 
     return "/".join(provider.upper() for provider in providers)
 

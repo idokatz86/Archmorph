@@ -45,6 +45,9 @@ Answers = dict[str, Any]
 import json
 import os
 from customer_intent import build_customer_intent_profile
+from confidence_provenance import build_provenance
+from mapping_evidence import build_mapping_evidence
+from source_provider import normalize_source_provider
 
 _data_file_QUESTION_BANK = os.path.join(os.path.dirname(__file__), 'assets', 'guided_questions_bank.json')
 try:
@@ -421,7 +424,159 @@ def _question_reason(question: dict, touches_low_confidence: bool, inferred_answ
     return "High-impact architecture choice; reviewing it can change generated Azure resources."
 
 
-def apply_answers(analysis_result: dict, answers: dict) -> dict:
+_SPARK_RUNTIME_DEFAULT = "Azure Synapse Spark Pools"
+
+
+def _guided_target_question_id(original: dict, mapping: dict) -> str | None:
+    source_service = str(original.get("source_service") or "")
+    previous_target = str(original.get("azure_service") or "")
+    selected_target = str(mapping.get("azure_service") or "")
+
+    if "EMR" in source_service or "Elastic MapReduce" in source_service:
+        return "data_spark_runtime"
+    if "Kinesis" in source_service or "MSK" in source_service:
+        return "data_streaming_engine"
+    if "TwinMaker" in source_service:
+        return "iot_digital_twins"
+    if any(service in source_service for service in ("ECS", "Fargate", "App Runner")):
+        return "container_runtime_pref"
+    if (
+        "Cosmos DB" in previous_target
+        and previous_target != selected_target
+        and "multi-region writes" in selected_target
+    ):
+        return "arch_ha"
+    if previous_target != selected_target and (
+        previous_target.replace("Standard", "Premium") == selected_target
+        or previous_target.replace("Premium", "Standard") == selected_target
+    ):
+        return "arch_sku_strategy"
+    return None
+
+
+def _guided_detection_source(
+    original: dict,
+    original_evidence: dict | None,
+    user_selected: bool,
+) -> str:
+    if user_selected:
+        return "user"
+
+    source = (
+        original_evidence.get("detection_source")
+        if isinstance(original_evidence, dict)
+        else None
+    ) or original.get("source")
+    if not isinstance(source, str) or not source or source.lower() == "user":
+        return "ai"
+    return source
+
+
+def _refresh_guided_mapping_evidence(
+    analysis: dict,
+    original_mappings: list[dict],
+    mappings: list[dict],
+    answers: dict,
+    explicit_answer_ids: set[str],
+    effective_answers: Answers,
+) -> None:
+    source_provider = analysis.get("source_provider")
+    for original, mapping in zip(original_mappings, mappings):
+        target_changed = original.get("azure_service") != mapping.get("azure_service")
+        confidence_changed = original.get("confidence") != mapping.get("confidence")
+        question_id = _guided_target_question_id(original, mapping)
+        user_selected = question_id is not None and question_id in explicit_answer_ids
+        if not target_changed and not confidence_changed and not user_selected:
+            continue
+
+        original_evidence = original.get("original_detection_evidence")
+        if not isinstance(original_evidence, dict):
+            original_evidence = original.get("evidence")
+        original_provenance = original.get("original_detection_confidence_provenance")
+        if not isinstance(original_provenance, dict):
+            original_provenance = original.get("confidence_provenance")
+
+        if target_changed or user_selected:
+            if isinstance(original_evidence, dict):
+                mapping.setdefault(
+                    "original_detection_evidence",
+                    copy.deepcopy(original_evidence),
+                )
+            if isinstance(original_provenance, dict):
+                mapping.setdefault(
+                    "original_detection_confidence_provenance",
+                    copy.deepcopy(original_provenance),
+                )
+
+            choice = effective_answers.get(question_id) if question_id else None
+            if question_id == "data_spark_runtime" and choice is None:
+                choice = _SPARK_RUNTIME_DEFAULT
+            mapping["guided_choice"] = {
+                "question_id": question_id,
+                "answer": choice,
+                "answer_source": (
+                    "user" if user_selected
+                    else "assumption" if question_id in answers
+                    else "default"
+                ) if question_id else "guided_answers",
+                "previous_target": original.get("azure_service"),
+                "selected_target": mapping.get("azure_service"),
+            }
+
+            detection_confidence = (
+                original_evidence.get("detection_confidence", original.get("confidence"))
+                if isinstance(original_evidence, dict)
+                else original.get("confidence")
+            )
+            guided_evidence_mapping = {
+                **mapping,
+                "source": _guided_detection_source(original, original_evidence, user_selected),
+                "user_override": user_selected,
+                "user_confirmed": user_selected,
+                "confidence": detection_confidence,
+                "notes": "",
+                "alternatives": [],
+                "feature_gaps": [],
+                "limitations": [],
+            }
+            if not user_selected:
+                guided_evidence_mapping.pop("review_status", None)
+                guided_evidence_mapping.pop("user_added", None)
+            if "source_provider" not in guided_evidence_mapping:
+                guided_evidence_mapping["source_provider"] = source_provider
+            mapping["evidence"] = build_mapping_evidence(
+                guided_evidence_mapping,
+                run_id=(
+                    (original_evidence.get("run_id") if isinstance(original_evidence, dict) else None)
+                    or analysis.get("run_id")
+                ),
+                analysis_timestamp=(
+                    (original_evidence.get("generated_at") if isinstance(original_evidence, dict) else None)
+                    or analysis.get("analysis_timestamp")
+                ),
+            )
+            mapping["needs_review"] = mapping["evidence"]["needs_review"]
+
+        provenance_provider = mapping.get("source_provider") or source_provider
+        if provenance_provider is not None:
+            try:
+                provenance_provider = normalize_source_provider(provenance_provider)
+            except ValueError:
+                provenance_provider = None
+        provenance_mapping = dict(mapping)
+        provenance_mapping.pop("source_provider", None)
+        mapping["confidence_provenance"] = build_provenance(
+            provenance_mapping,
+            source_provider=provenance_provider,
+        )
+
+
+def apply_answers(
+    analysis_result: dict,
+    answers: dict,
+    *,
+    explicit_answer_ids: set[str] | None = None,
+) -> dict:
     """Apply user answers to refine an Azure architecture analysis.
 
     Creates a **deep copy** of *analysis_result* and mutates the copy — the
@@ -431,6 +586,7 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
       • Swapping Azure service mappings (e.g. EMR → Databricks instead of Synapse).
       • Upgrading or downgrading SKU references in mapping notes.
       • Modifying confidence scores when the user confirms preferences.
+      • Preserving detection evidence while refreshing provenance for guided changes.
       • Appending compliance / networking / DR warnings.
       • Adding IaC parameter recommendations under a new ``iac_parameters`` key.
 
@@ -438,16 +594,20 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
         analysis_result: The dict returned by the ``/api/diagrams/{id}/analyze``
             endpoint (or equivalent).  Expected keys: ``mappings``, ``warnings``,
             and optional ``iac_parameters``.
-        answers: ``{question_id: user_answer}`` mapping.  Any question not
-            present is treated as accepting the default.
+        answers: ``{question_id: answer}`` mapping, including defaults and
+            inferred assumptions.
+        explicit_answer_ids: Question IDs the user explicitly selected or
+            confirmed. Other provided answers remain assumptions.
 
     Returns:
         A new analysis dict with adjusted mappings, updated warnings, refined
         confidence scores, and an ``iac_parameters`` section.
     """
     result: dict = copy.deepcopy(analysis_result)
+    explicit_answer_ids = set(explicit_answer_ids or ()) & set(answers or {})
 
     mappings: list[dict] = result.get("mappings", [])
+    original_mappings = copy.deepcopy(mappings)
     warnings: list[str] = result.get("warnings", [])
     iac_params: dict[str, Any] = result.get("iac_parameters", {})
 
@@ -461,7 +621,12 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
     _apply_compliance(effective, mappings, warnings, iac_params)
     _apply_network_isolation(effective, mappings, warnings, iac_params)
     _apply_storage_redundancy(effective, mappings, iac_params)
-    _apply_spark_runtime(effective, mappings, warnings)
+    _apply_spark_runtime(
+        effective,
+        mappings,
+        warnings,
+        user_selected="data_spark_runtime" in explicit_answer_ids,
+    )
     _apply_functions_plan(effective, mappings, iac_params)
     _apply_cosmosdb(effective, mappings, iac_params)
     _apply_cache_tier(effective, mappings, iac_params)
@@ -475,10 +640,19 @@ def apply_answers(analysis_result: dict, answers: dict) -> dict:
     _apply_deploy_region(effective, iac_params)
     _apply_encryption(effective, mappings, warnings, iac_params)
 
+    _refresh_guided_mapping_evidence(
+        result,
+        original_mappings,
+        mappings,
+        answers or {},
+        explicit_answer_ids,
+        effective,
+    )
     result["mappings"] = mappings
     result["warnings"] = warnings
     result["iac_parameters"] = iac_params
     result["guided_answers"] = copy.deepcopy(answers or {})
+    result["guided_answer_explicit_ids"] = sorted(explicit_answer_ids)
     result["customer_intent"] = build_customer_intent_profile(effective)
 
     # ── Recalculate confidence_summary after all rule adjustments ──
@@ -832,8 +1006,10 @@ def _apply_spark_runtime(
     answers: Answers,
     mappings: list[dict],
     warnings: list[str],
+    *,
+    user_selected: bool,
 ) -> None:
-    runtime = answers.get("data_spark_runtime", "Azure Synapse Spark Pools")
+    runtime = answers.get("data_spark_runtime", _SPARK_RUNTIME_DEFAULT)
     runtime_map = {
         "Azure Synapse Spark Pools": "Azure Synapse Spark Pool",
         "Azure HDInsight": "Azure HDInsight",
@@ -847,11 +1023,12 @@ def _apply_spark_runtime(
         if "EMR" in src or "Elastic MapReduce" in src:
             if any(frag in azure for frag in ["Synapse", "HDInsight", "Databricks"]):
                 m["azure_service"] = target
-                m["notes"] = f"{m.get('notes', '')} | User selected: {runtime}"
-                m["confidence"] = min(1.0, m.get("confidence", 0.8) + 0.05)
-                _add_confidence_reason(
-                    m, f"User confirmed Spark runtime: {runtime} — explicit selection increases confidence (+5%)"
-                )
+                if user_selected:
+                    m["notes"] = f"{m.get('notes', '')} | User selected: {runtime}"
+                    m["confidence"] = min(1.0, m.get("confidence", 0.8) + 0.05)
+                    _add_confidence_reason(
+                        m, f"User confirmed Spark runtime: {runtime} — explicit selection increases confidence (+5%)"
+                    )
 
     if target == "Azure Databricks":
         warnings.append(

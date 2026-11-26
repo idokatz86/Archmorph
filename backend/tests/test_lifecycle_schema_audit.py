@@ -447,7 +447,7 @@ def test_archived_cache_cannot_authorize_hld_or_iac_route(
 
     with (
         patch("routers.hld_routes.diagrams_compat.generate_hld") as hld_generator,
-        patch("routers.iac_routes.generate_iac_code") as iac_generator,
+        patch("routers.iac_routes.generate_iac_code_with_validation") as iac_generator,
     ):
         hld = test_client.post(
             f"/api/diagrams/{diagram_id}/generate-hld",

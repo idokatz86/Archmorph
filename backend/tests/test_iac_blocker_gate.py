@@ -145,7 +145,7 @@ class TestIaCGateSync:
         _put_session_with_blocker(diagram_id)
         _cleanup_session.append(diagram_id)
 
-        with patch("routers.iac_routes.generate_iac_code", return_value="# stubbed\n"):
+        with patch("routers.iac_routes.generate_iac_code_with_validation", return_value={"code": "# stubbed\n", "validation": {"status": "passed", "errors": [], "warnings": []}}):
             resp = client.post(
                 f"/api/diagrams/{diagram_id}/generate?format=terraform&force=true"
             )
@@ -157,7 +157,7 @@ class TestIaCGateSync:
         _put_session_without_blockers(diagram_id)
         _cleanup_session.append(diagram_id)
 
-        with patch("routers.iac_routes.generate_iac_code", return_value="# ok\n"):
+        with patch("routers.iac_routes.generate_iac_code_with_validation", return_value={"code": "# ok\n", "validation": {"status": "passed", "errors": [], "warnings": []}}):
             resp = client.post(f"/api/diagrams/{diagram_id}/generate?format=terraform")
         assert resp.status_code == 200, resp.text
 
@@ -166,7 +166,7 @@ class TestIaCGateSync:
         _put_session_with_warning_only(diagram_id)
         _cleanup_session.append(diagram_id)
 
-        with patch("routers.iac_routes.generate_iac_code", return_value="# ok\n"):
+        with patch("routers.iac_routes.generate_iac_code_with_validation", return_value={"code": "# ok\n", "validation": {"status": "passed", "errors": [], "warnings": []}}):
             resp = client.post(f"/api/diagrams/{diagram_id}/generate?format=terraform")
         assert resp.status_code == 200, resp.text
 

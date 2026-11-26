@@ -11,7 +11,7 @@
  * - HLD data loss on navigation
  * - Signed-out PDF upload → analyze → auth recovery (#1027)
  */
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { describe, it, expect, vi, beforeAll, beforeEach, afterEach } from 'vitest'
 import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import DiagramTranslator from '../../DiagramTranslator'
 
@@ -25,6 +25,10 @@ vi.mock('prismjs', () => ({
 }))
 vi.mock('prismjs/components/prism-hcl', () => ({}))
 vi.mock('prismjs/components/prism-json', () => ({}))
+
+beforeAll(() => {
+  Element.prototype.scrollTo = vi.fn()
+})
 
 // Mock sessionCache
 const mockSaveSession = vi.fn()
@@ -152,6 +156,171 @@ describe('DiagramTranslator — Session UX Tests', () => {
     await act(async () => { render(<DiagramTranslator />) });
     // With auto-restore (#269), cached session is loaded and step advances to results
     await waitFor(() => expect(screen.queryByText('Upload Architecture Diagram')).not.toBeInTheDocument());
+  })
+
+  it('shows blocked IaC as blocked in the workbench deliverables status', async () => {
+    mockLoadSession.mockReturnValue({
+      diagramId: 'cached-blocked-iac',
+      analysis: { zones: [], mappings: [], diagram_type: 'AWS Architecture', services_detected: 1 },
+      questions: [],
+      answers: {},
+      iacCode: 'resource "terraform_data" "invalid" {}',
+      iacValidation: { status: 'failed', format: 'terraform', errors: ['Invalid syntax'] },
+      iacFormat: 'terraform',
+      ts: Date.now(),
+    })
+
+    render(<DiagramTranslator />)
+    expect(await screen.findByText('IaC: Blocked')).toBeInTheDocument()
+  })
+
+  it('updates cached analysis and clears IaC when guided answers are applied', async () => {
+    const analysis = {
+      diagram_type: 'AWS Architecture',
+      zones: [],
+      mappings: [],
+      services_detected: 0,
+    }
+    mockLoadSession.mockReturnValue({
+      diagramId: 'cached-answers',
+      analysis,
+      questions: [{
+        id: 'region',
+        question: 'Which region?',
+        category: 'infrastructure',
+        type: 'single_choice',
+        options: [{ value: 'eastus', label: 'East US' }],
+      }],
+      answers: { region: 'eastus' },
+      iacCode: null,
+      iacValidation: { status: 'passed', format: 'terraform' },
+      iacFormat: 'terraform',
+      hldData: { hld: { title: 'Stale HLD' } },
+      ts: Date.now(),
+    })
+    const refined = {
+      mappings: [{ source_service: 'EC2', azure_service: 'Virtual Machines' }],
+    }
+    mockApi.post.mockResolvedValueOnce(refined)
+
+    render(<DiagramTranslator />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Back to Questions' }))
+    await screen.findByText('Customize Your Azure Architecture')
+    fireEvent.click(screen.getByRole('button', { name: 'Apply and View Results' }))
+
+    await waitFor(() => expect(mockUpdateSessionCache).toHaveBeenCalledWith(expect.objectContaining({
+      analysis: expect.objectContaining({ mappings: refined.mappings }),
+      iacCode: null,
+      iacValidation: null,
+      iacFormat: null,
+      hldData: null,
+    })))
+  })
+
+  it('clears stale IaC validation when chat returns code without validation metadata', async () => {
+    mockLoadSession.mockReturnValue({
+      diagramId: 'cached-iac-chat',
+      analysis: { zones: [], mappings: [], diagram_type: 'AWS Architecture', services_detected: 1 },
+      questions: [],
+      answers: {},
+      iacCode: 'resource "terraform_data" "old" {}',
+      iacValidation: { status: 'passed', format: 'terraform' },
+      iacFormat: 'terraform',
+      ts: Date.now(),
+    })
+    mockApi.post.mockResolvedValueOnce({
+      code: 'resource "terraform_data" "new" { input = ??? }',
+      reply: 'Updated code.',
+      validation: null,
+    })
+
+    render(<DiagramTranslator />)
+    expect(await screen.findByLabelText('IaC status: Validated')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Chat' }))
+    fireEvent.change(screen.getByLabelText('IaC chat message'), { target: { value: 'Explain this code' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => {
+      expect(mockUpdateSessionCache).toHaveBeenCalledWith(expect.objectContaining({
+        iacCode: 'resource "terraform_data" "new" { input = ??? }',
+        iacValidation: null,
+      }))
+    })
+    expect(screen.getByLabelText('IaC status: Draft')).toBeInTheDocument()
+  })
+
+  it('keeps passed validation visible when an unchanged chat response returns it', async () => {
+    const code = 'resource "terraform_data" "current" {}'
+    mockLoadSession.mockReturnValue({
+      diagramId: 'cached-unchanged-iac-chat',
+      analysis: { zones: [], mappings: [], diagram_type: 'AWS Architecture', services_detected: 1 },
+      questions: [],
+      answers: {},
+      iacCode: code,
+      iacValidation: { status: 'passed', format: 'terraform' },
+      iacFormat: 'terraform',
+      ts: Date.now(),
+    })
+    mockApi.post.mockResolvedValueOnce({
+      code,
+      reply: 'This resource creates a data object.',
+      validation: { status: 'passed', format: 'terraform' },
+    })
+
+    render(<DiagramTranslator />)
+    expect(await screen.findByLabelText('IaC status: Validated')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Open Chat' }))
+    fireEvent.change(screen.getByLabelText('IaC chat message'), { target: { value: 'Explain this code' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Send message' }))
+
+    await waitFor(() => expect(mockUpdateSessionCache).toHaveBeenCalledWith(expect.objectContaining({
+      iacCode: code,
+      iacValidation: { status: 'passed', format: 'terraform' },
+    })))
+    expect(screen.getByLabelText('IaC status: Validated')).toBeInTheDocument()
+  })
+
+  it('updates the visible IaC viewer after ExportHub regenerates code', async () => {
+    const oldCode = 'resource "terraform_data" "old" {}'
+    const newCode = 'resource "terraform_data" "new" {}'
+    mockLoadSession.mockReturnValue({
+      diagramId: 'cached-export-iac',
+      analysis: { zones: [], mappings: [], diagram_type: 'AWS Architecture', services_detected: 1 },
+      questions: [],
+      answers: {},
+      iacCode: oldCode,
+      iacValidation: { status: 'passed', format: 'terraform' },
+      iacFormat: 'terraform',
+      ts: Date.now(),
+    })
+    mockApi.get.mockResolvedValue({ items: [], summary: { gated: false } })
+    mockApi.post.mockResolvedValue({
+      code: newCode,
+      validation: { status: 'failed', format: 'terraform', errors: ['Invalid syntax'] },
+    })
+
+    render(<DiagramTranslator />)
+    expect(await screen.findByLabelText('IaC status: Validated')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Analysis' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Export All' }))
+    await screen.findByRole('dialog', { name: 'Generate Deliverables' })
+    for (const label of ['Architecture Package', 'High-Level Design', 'Cost Estimate', 'Migration Timeline', 'PDF Analysis Report']) {
+      fireEvent.click(await screen.findByLabelText(`Include ${label}`))
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Generate All Selected' }))
+
+    await screen.findByRole('button', { name: 'Download Infrastructure Code' })
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: /Deliverables/ }))
+
+    expect(await screen.findByLabelText('IaC status: Blocked')).toBeInTheDocument()
+    expect(screen.getByText(newCode)).toBeInTheDocument()
+    expect(screen.queryByText(oldCode)).not.toBeInTheDocument()
+    expect(mockUpdateSessionCache).toHaveBeenCalledWith(expect.objectContaining({
+      iacCode: newCode,
+      iacValidation: { status: 'failed', format: 'terraform', errors: ['Invalid syntax'] },
+      iacFormat: 'terraform',
+    }))
   })
 
   it('does not call diagram-only endpoints for combined project pseudo ids', async () => {
@@ -746,4 +915,5 @@ describe('DiagramTranslator — Signed-out auth recovery', () => {
     await waitFor(() => expect(screen.queryByText('Re-upload required after sign-in redirect')).not.toBeInTheDocument())
     expect(sessionStorage.getItem(authPendingUploadKey)).toBeNull()
   })
+
 })

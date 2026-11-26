@@ -307,10 +307,11 @@ function MappingRow({ m, sourceProvider }) {
 }
 
 export default function AnalysisResults({
-  analysis, loading, generatingIac, iacFormat, exportLoading,
+  analysis, loading, generatingIac, iacFormat, iacValidation, exportLoading,
   copyFeedback, genProgress, notifyEmail, onNotifyEmail,
   onSetStep, onGenerateIac, onExportDiagram, onCopyWithFeedback,
   diagramId, exportCapability, onExportCapability, onRefreshExportCapability,
+  onIacGenerated, iacGenerationEpoch,
   assumptions = [], questionsCount = 0, onReviewAssumptions,
   reviewItems = [], reviewDispositions = {}, reviewSummary = {}, onDispose, reviewLoading = false,
   onExportPackage, exportingPackage,
@@ -586,9 +587,12 @@ export default function AnalysisResults({
       {hasDiagramExports && (
         <ExportHub
           diagramId={diagramId}
+          iacValidation={iacValidation}
           exportCapability={exportCapability}
           onExportCapability={onExportCapability}
           onRefreshExportCapability={onRefreshExportCapability}
+          onIacGenerated={onIacGenerated}
+          iacGenerationEpoch={iacGenerationEpoch}
         />
       )}
 

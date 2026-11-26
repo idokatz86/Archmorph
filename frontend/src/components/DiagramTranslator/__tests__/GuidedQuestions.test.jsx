@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import GuidedQuestions from '../../DiagramTranslator/GuidedQuestions'
 
@@ -110,6 +110,21 @@ describe('GuidedQuestions', () => {
     render(<GuidedQuestions {...defaultProps} />)
     await user.click(screen.getByText('West US'))
     expect(defaultProps.onUpdateAnswer).toHaveBeenCalledWith('q1', 'westus')
+  })
+
+  it('does not mark constraint-normalized answers as explicit', async () => {
+    const onUpdateAnswer = vi.fn()
+    render(
+      <GuidedQuestions
+        {...defaultProps}
+        answers={{ ...defaultProps.answers, q1: 'invalid' }}
+        onUpdateAnswer={onUpdateAnswer}
+      />,
+    )
+
+    await waitFor(() => {
+      expect(onUpdateAnswer).toHaveBeenCalledWith('q1', 'eastus', false)
+    })
   })
 
   it('renders Skip All button', () => {

@@ -85,12 +85,13 @@ export async function generateDeliverable(diagramId, deliverable, format, hldInc
     const data = await api.post(`/diagrams/${diagramId}/generate?format=${format}`, undefined, undefined, 180_000);
     const content = data.code || JSON.stringify(data, null, 2);
     const ext = format === 'terraform' ? 'tf' : format === 'bicep' ? 'bicep' : format;
-    return artifactFromText(content, {
+    const artifact = artifactFromText(content, {
       filename: data.filename || `archmorph-iac.${ext}`,
       format,
       mimeType: 'text/plain',
       provenance: { endpoint: `/diagrams/${diagramId}/generate`, source: 'backend' },
     });
+    return { ...artifact, code: data.code, validation: data.validation || null };
   }
 
   if (id === 'architecture-package') {
@@ -197,10 +198,13 @@ function downloadBlob(blob, filename) {
 
 export default function ExportHub({
   diagramId,
+  iacValidation = null,
   hldIncludeDiagrams = true,
   exportCapability = null,
   onExportCapability,
   onRefreshExportCapability,
+  onIacGenerated,
+  iacGenerationEpoch,
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(() => {
@@ -258,6 +262,7 @@ export default function ExportHub({
 
   const handleGenerateAll = async () => {
     if (!diagramId || selectedItems.length === 0) return;
+    const generationEpoch = iacGenerationEpoch;
     setGenerating(true);
     setItemStatus(prev => ({
       ...prev,
@@ -265,10 +270,10 @@ export default function ExportHub({
     }));
     setResults({});
 
-    // Deliverables that consume/produce one-time export-capability tokens must run
-    // sequentially so each call receives the latest token from the previous response.
-    // All other deliverables are independent and can run in parallel.
-    const CAPABILITY_IDS = new Set(['architecture-package', 'hld', 'cost', 'timeline', 'pdf-report']);
+    // IaC runs before capability-gated exports so an architecture package reads
+    // the validation state produced by this batch rather than the previous one.
+    // Capability-gated deliverables also chain one-time tokens sequentially.
+    const CAPABILITY_IDS = new Set(['iac', 'architecture-package', 'hld', 'cost', 'timeline', 'pdf-report']);
     const freeItems = selectedItems.filter(d => !CAPABILITY_IDS.has(d.id));
     const capItems  = selectedItems.filter(d =>  CAPABILITY_IDS.has(d.id));
 
@@ -309,6 +314,14 @@ export default function ExportHub({
           if (result.exportCapability) {
             currentExportCapability = result.exportCapability;
             if (onExportCapability) onExportCapability(result.exportCapability);
+          }
+          if (d.id === 'iac' && result.code) {
+            const generated = { code: result.code, validation: result.validation };
+            if (generationEpoch === undefined) {
+              onIacGenerated?.(generated, formats[d.id]);
+            } else {
+              onIacGenerated?.(generated, formats[d.id], generationEpoch);
+            }
           }
           setResults(prev => ({ ...prev, [d.id]: result }));
           setItemStatus(prev => ({ ...prev, [d.id]: 'done' }));
@@ -375,6 +388,25 @@ export default function ExportHub({
           {DELIVERABLES.map(d => {
             const Icon = d.icon;
             const status = itemStatus[d.id];
+            const selectedFormat = formats[d.id] || d.defaultFormat;
+            const validation = d.id === 'iac'
+              ? [results[d.id]?.validation, iacValidation]
+                .find(candidate => candidate?.format === selectedFormat) || null
+              : null;
+            const validationLabel = validation?.status === 'passed'
+              ? 'Validated'
+              : validation?.status === 'failed'
+                ? 'Blocked'
+                : validation?.status === 'warning'
+                  ? 'Draft · Warnings'
+                : 'Draft';
+            const validationClass = validation?.status === 'passed'
+              ? 'text-success'
+              : validation?.status === 'failed'
+                ? 'text-danger'
+                : 'text-warning';
+            const validationErrors = Array.isArray(validation?.errors) ? validation.errors : [];
+            const validationWarnings = Array.isArray(validation?.warnings) ? validation.warnings : [];
             const checkboxId = `export-hub-${d.id}`;
             return (
               <div
@@ -398,10 +430,27 @@ export default function ExportHub({
                     className="accent-cta w-4 h-4 shrink-0 cursor-pointer focus:outline-none focus:ring-2 focus:ring-cta/50 focus:ring-offset-2 focus:ring-offset-primary rounded-sm"
                     aria-label={`Include ${d.label}`}
                   />
-                  <label htmlFor={checkboxId} className="flex items-center gap-3 min-w-0 cursor-pointer">
-                    <Icon className={`w-4 h-4 shrink-0 ${selected[d.id] ? 'text-cta' : 'text-text-muted'}`} aria-hidden="true" />
-                    <span className={`text-sm font-medium ${selected[d.id] ? 'text-text-primary' : 'text-text-muted'}`}>{d.label}</span>
-                  </label>
+                  <div className="min-w-0">
+                    <label htmlFor={checkboxId} className="flex items-center gap-3 min-w-0 cursor-pointer">
+                      <Icon className={`w-4 h-4 shrink-0 ${selected[d.id] ? 'text-cta' : 'text-text-muted'}`} aria-hidden="true" />
+                      <span className={`text-sm font-medium ${selected[d.id] ? 'text-text-primary' : 'text-text-muted'}`}>{d.label}</span>
+                      {d.id === 'iac' && (
+                        <span className={`text-[10px] font-semibold ${validationClass}`} aria-label={`IaC status: ${validationLabel}`}>
+                          {validationLabel}
+                        </span>
+                      )}
+                    </label>
+                    {d.id === 'iac' && validationErrors.length > 0 && (
+                      <p className="ml-10 mt-1 text-[10px] text-danger" aria-label="IaC validation errors">
+                        {validationErrors.map(String).join(' ')}
+                      </p>
+                    )}
+                    {d.id === 'iac' && validationWarnings.length > 0 && (
+                      <p className="ml-10 mt-1 text-[10px] text-warning" aria-label="IaC validation warnings">
+                        {validationWarnings.map(String).join(' ')}
+                      </p>
+                    )}
+                  </div>
                 </div>
 
                 <div className="flex items-center gap-2 shrink-0">

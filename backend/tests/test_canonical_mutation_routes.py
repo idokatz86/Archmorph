@@ -133,6 +133,7 @@ def test_analysis_add_and_apply_each_survive_cache_loss(test_client, durable_run
         updated = copy.deepcopy(analysis)
         updated["services_added"] = ["Azure Cache for Redis"]
         updated["services_detected"] += 1
+        updated["mappings"][0]["azure_service"] = "Updated Azure target"
         return updated
 
     with patch("routers.analysis.add_services_from_text", side_effect=add_service):
@@ -149,10 +150,12 @@ def test_analysis_add_and_apply_each_survive_cache_loss(test_client, durable_run
         tenant_id=tenant,
     )
     assert hydrated["services_added"] == ["Azure Cache for Redis"]
+    assert hydrated["architecture_graph"]["nodes"][0]["target_service"] == "Updated Azure target"
 
-    def apply_answers(analysis, answers):
+    def apply_answers(analysis, answers, *, explicit_answer_ids=None):
         updated = copy.deepcopy(analysis)
         updated["guided_answers"] = answers
+        updated["mappings"][0]["azure_service"] = "Refined Azure target"
         return updated
 
     with patch("routers.analysis.apply_answers", side_effect=apply_answers):
@@ -169,6 +172,137 @@ def test_analysis_add_and_apply_each_survive_cache_loss(test_client, durable_run
         tenant_id=tenant,
     )
     assert hydrated["guided_answers"] == {"availability": "zone-redundant"}
+    assert hydrated["architecture_graph"]["nodes"][0]["target_service"] == "Refined Azure target"
+
+
+def test_guided_answers_clear_iaC_state_from_canonical_snapshot(test_client, durable_runtime):
+    from iac_chat import IAC_CHAT_SESSIONS, get_iac_chat_history
+
+    owner, tenant, headers = _identity()
+    diagram_id = f"diag-guided-clears-iac-{uuid.uuid4().hex}"
+    _seed(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        extra={
+            "iac_code": 'resource "terraform_data" "old" {}',
+            "iac_code_hash": "old-hash",
+            "iac_format": "terraform",
+            "iac_validation": {"status": "passed", "format": "terraform"},
+            "_iac_validation_code_hash": "old-hash",
+            "_iac_validation_format": "terraform",
+            "_iac_etag": "old-etag",
+            "iac_chat_history": [{"role": "assistant", "content": "old code"}],
+            "hld": {"title": "stale HLD"},
+            "hld_markdown": "# stale HLD",
+            "_cached_cost_estimate": {"mapping_fingerprint": ["stale"]},
+            "cost_estimate": {"total_monthly_estimate": {"low": 1, "high": 2}},
+        },
+    )
+    IAC_CHAT_SESSIONS[f"{diagram_id}:iac"] = [{"role": "assistant", "content": "old code"}]
+
+    response = test_client.post(
+        f"/api/diagrams/{diagram_id}/apply-answers",
+        headers=headers,
+        json={"answers": {}, "explicit_answer_ids": []},
+    )
+
+    assert response.status_code == 200, response.text
+    hydrated = _hydrate_after_cache_loss(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+    )
+    for key in (
+        "iac_code",
+        "iac_code_hash",
+        "iac_format",
+        "iac_validation",
+        "_iac_validation_code_hash",
+        "_iac_validation_format",
+        "_iac_etag",
+        "iac_chat_history",
+        "hld",
+        "hld_markdown",
+        "_cached_cost_estimate",
+        "cost_estimate",
+    ):
+        assert key not in hydrated
+    assert get_iac_chat_history(diagram_id) == []
+
+
+def test_adding_services_clears_stale_iac_from_canonical_snapshot(test_client, durable_runtime):
+    from iac_chat import IAC_CHAT_SESSIONS, get_iac_chat_history
+
+    owner, tenant, headers = _identity()
+    diagram_id = f"diag-added-services-clear-iac-{uuid.uuid4().hex}"
+    _seed(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        extra={
+            "iac_code": 'resource "terraform_data" "old" {}',
+            "iac_code_hash": "old-hash",
+            "iac_format": "terraform",
+            "iac_validation": {"status": "passed", "format": "terraform"},
+            "_iac_validation_code_hash": "old-hash",
+            "_iac_validation_format": "terraform",
+            "_iac_etag": "old-etag",
+            "iac_chat_history": [{"role": "assistant", "content": "old code"}],
+            "hld": {"title": "stale HLD"},
+            "hld_markdown": "# stale HLD",
+            "_cached_cost_estimate": {"mapping_fingerprint": ["stale"]},
+            "cost_estimate": {"total_monthly_estimate": {"low": 1, "high": 2}},
+        },
+    )
+    IAC_CHAT_SESSIONS[f"{diagram_id}:iac"] = [{"role": "assistant", "content": "old code"}]
+
+    def add_service(*, analysis, user_text):
+        updated = copy.deepcopy(analysis)
+        updated["mappings"].append({
+            "source_service": "User Added: Redis",
+            "source_provider": "user",
+            "azure_service": "Azure Cache for Redis",
+            "confidence": 1.0,
+        })
+        updated["services_added"] = [{"name": "Redis", "azure_service": "Azure Cache for Redis"}]
+        return updated
+
+    with patch("routers.analysis.add_services_from_text", side_effect=add_service):
+        response = test_client.post(
+            f"/api/diagrams/{diagram_id}/add-services",
+            headers=headers,
+            json={"text": "Add Redis"},
+        )
+
+    assert response.status_code == 200, response.text
+    hydrated = _hydrate_after_cache_loss(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+    )
+    for key in (
+        "iac_code",
+        "iac_code_hash",
+        "iac_format",
+        "iac_validation",
+        "_iac_validation_code_hash",
+        "_iac_validation_format",
+        "_iac_etag",
+        "iac_chat_history",
+        "hld",
+        "hld_markdown",
+        "_cached_cost_estimate",
+        "cost_estimate",
+    ):
+        assert key not in hydrated
+    assert get_iac_chat_history(diagram_id) == []
+    assert hydrated["architecture_graph"]["nodes"][-1]["source_provider"] is None
+    assert "unsupported_source_provider_3" not in hydrated["architecture_graph"]["warnings"]
 
 
 def test_review_disposition_survives_cache_loss(test_client, durable_runtime):
@@ -239,7 +373,7 @@ def test_sync_hld_and_iac_artifacts_survive_cache_loss(test_client, durable_runt
     assert hld_artifacts[0].version_id
 
     code = 'resource "azurerm_resource_group" "main" {}'
-    with patch("routers.iac_routes.generate_iac_code", return_value=code):
+    with patch("routers.iac_routes.generate_iac_code_with_validation", return_value={"code": code, "validation": {"status": "passed", "errors": [], "warnings": []}}):
         response = test_client.post(
             f"/api/diagrams/{diagram_id}/generate?format=terraform",
             headers=headers,
@@ -338,7 +472,7 @@ def test_api_key_iac_mutation_survives_cache_loss(test_client, durable_runtime, 
     SESSION_STORE.set(diagram_id, session)
     code = 'resource "azurerm_resource_group" "api_key" {}'
 
-    with patch("routers.iac_routes.generate_iac_code", return_value=code):
+    with patch("routers.iac_routes.generate_iac_code_with_validation", return_value={"code": code, "validation": {"status": "passed", "errors": [], "warnings": []}}):
         response = test_client.post(
             f"/api/diagrams/{diagram_id}/generate?format=terraform",
             headers={"X-API-Key": api_key},
@@ -379,8 +513,12 @@ def test_iac_idempotency_is_scoped_to_the_canonical_source_version(
     terraform_v2 = 'resource "azurerm_resource_group" "second" {}'
 
     with patch(
-        "routers.iac_routes.generate_iac_code",
-        side_effect=[terraform_v1, bicep, terraform_v2],
+        "routers.iac_routes.generate_iac_code_with_validation",
+        side_effect=[
+            {"code": terraform_v1, "validation": {"status": "passed", "errors": [], "warnings": []}},
+            {"code": bicep, "validation": {"status": "passed", "errors": [], "warnings": []}},
+            {"code": terraform_v2, "validation": {"status": "passed", "errors": [], "warnings": []}},
+        ],
     ):
         responses = [
             test_client.post(
@@ -1501,8 +1639,11 @@ def _wait_for_job(test_client, job_id, headers):
         (
             "generate-async?format=terraform",
             "generate_iac",
-            "routers.iac_routes.generate_iac_code",
-            'resource "azurerm_resource_group" "async" {}',
+            "routers.iac_routes.generate_iac_code_with_validation",
+            {
+                "code": 'resource "azurerm_resource_group" "async" {}',
+                "validation": {"status": "passed", "errors": [], "warnings": []},
+            },
             "terraform",
             "iac_code",
         ),
@@ -1565,7 +1706,8 @@ def test_async_artifact_paths_survive_cache_loss(
         owner_user_id=owner,
         tenant_id=tenant,
     )
-    assert hydrated[snapshot_key] == patch_value
+    expected_snapshot_value = patch_value["code"] if job_type == "generate_iac" else patch_value
+    assert hydrated[snapshot_key] == expected_snapshot_value
     artifacts = _artifacts(durable_runtime, analysis_id, artifact_type)
     assert len(artifacts) == 1
     assert artifacts[0].version_id

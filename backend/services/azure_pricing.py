@@ -953,6 +953,21 @@ _price_cache: dict[str, Any] = {}
 _cache_loaded = False
 
 
+class PriceFetchResult(dict[str, float]):
+    """Price mapping with the provenance captured when each value was obtained."""
+
+    def __init__(
+        self,
+        prices: dict[str, float],
+        price_metadata: dict[str, dict[str, Any]],
+        *,
+        cache_timestamp: float | None = None,
+    ) -> None:
+        super().__init__(prices)
+        self.price_metadata = price_metadata
+        self.cache_timestamp = cache_timestamp
+
+
 def _get_blob_client():
     """Return an Azure BlobClient for pricing cache persistence, or None.
 
@@ -1101,7 +1116,9 @@ def _fetch_price_from_api(
     arm_region: str,
     sku_name: str | None = None,
     meter_name: str | None = None,
-) -> float | None:
+    *,
+    include_details: bool = False,
+) -> float | dict[str, Any] | None:
     """Query Azure Retail Prices API for a specific service/SKU."""
     if not HAS_HTTPX:
         return None
@@ -1130,6 +1147,18 @@ def _fetch_price_from_api(
                 for item in items:
                     price = item.get("retailPrice", 0)
                     if price > 0:
+                        if include_details:
+                            return {
+                                "retail_price": price,
+                                "service_name": item.get("serviceName"),
+                                "product_name": item.get("productName"),
+                                "sku_name": item.get("skuName"),
+                                "meter_name": item.get("meterName"),
+                                "unit_of_measure": item.get("unitOfMeasure"),
+                                "effective_start_date": item.get("effectiveStartDate"),
+                                "currency_code": item.get("currencyCode"),
+                                "arm_region_name": item.get("armRegionName"),
+                            }
                         return price
     except Exception as e:
         logger.warning("Azure pricing API error for %s: %s", service_name, e)
@@ -1156,12 +1185,41 @@ def fetch_prices_for_region(
     """
     cache = _load_cache(mutate=persist_cache)
     cache_key = f"prices_{arm_region}"
+    metadata_key = f"price_metadata_{arm_region}"
 
     if cache_key in cache:
         logger.info("Using cached prices for region %s", str(arm_region).replace("\n", "").replace("\r", ""))  # lgtm[py/log-injection]
-        return cache[cache_key]
+        cached_prices = cache[cache_key]
+        if not isinstance(cached_prices, dict):
+            raise ValueError(f"Cached pricing data for {arm_region} must be an object")
+        cached_metadata = cache.get(metadata_key)
+        cached_metadata = cached_metadata if isinstance(cached_metadata, dict) else {}
+        cache_timestamp = cache.get("cached_at")
+        price_metadata: dict[str, dict[str, Any]] = {}
+        for service_name in cached_prices:
+            metadata = cached_metadata.get(service_name)
+            if isinstance(metadata, dict):
+                price_metadata[service_name] = {
+                    **metadata,
+                    "is_cached": True,
+                }
+            else:
+                price_metadata[service_name] = {
+                    "source": "cached_source_unknown",
+                    "source_label": "Cached value (source unverified)",
+                    "source_url": None,
+                    "is_cached": True,
+                    "note": "This cache entry predates recorded price-source metadata.",
+                }
+        return PriceFetchResult(
+            cached_prices,
+            price_metadata,
+            cache_timestamp=cache_timestamp if isinstance(cache_timestamp, (int, float)) else None,
+        )
 
     prices: dict[str, float] = {}
+    price_metadata: dict[str, dict[str, Any]] = {}
+    observed_at = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
     queries_to_fetch = SERVICE_PRICE_QUERIES.items()
     if needed_services:
@@ -1173,12 +1231,20 @@ def fetch_prices_for_region(
     for service_name, query in queries_to_fetch:
         fallback = query.get("fallback_monthly", 0)
 
-        api_price = _fetch_price_from_api(
+        api_result = _fetch_price_from_api(
             service_name=query.get("serviceName", service_name),
             arm_region=arm_region,
             sku_name=query.get("skuName"),
             meter_name=query.get("meterName"),
+            include_details=True,
         )
+        api_details = api_result if isinstance(api_result, dict) else {}
+        if api_details:
+            api_price = api_details.get("retail_price")
+        elif isinstance(api_result, (int, float)):
+            api_price = float(api_result)
+        else:
+            api_price = None
 
         if api_price is not None and api_price > 0:
             # Convert hourly price to monthly
@@ -1187,8 +1253,48 @@ def fetch_prices_for_region(
             else:
                 monthly = api_price * 730  # hours in a month
             prices[service_name] = round(monthly, 2)
+            price_metadata[service_name] = {
+                "source": "azure_retail_prices_api",
+                "source_label": "Azure Retail Prices API",
+                "source_url": AZURE_PRICING_API,
+                "retail_price": api_price,
+                "monthly_conversion_factor": query.get("unit_multiplier", 730),
+                "monthly_conversion_description": (
+                    f"{query['unit_multiplier']:g} GB per estimated TB"
+                    if query.get("unit_multiplier")
+                    else "730 assumed hours/month"
+                    if "hour" in str(api_details.get("unit_of_measure") or "").lower()
+                    else "730 configured estimate conversion factor"
+                ),
+                "requested_service_name": query.get("serviceName", service_name),
+                "requested_sku": query.get("skuName"),
+                "requested_meter": query.get("meterName"),
+                "returned_service_name": api_details.get("service_name"),
+                "returned_product_name": api_details.get("product_name"),
+                "returned_sku": api_details.get("sku_name"),
+                "returned_meter": api_details.get("meter_name"),
+                "unit_of_measure": api_details.get("unit_of_measure"),
+                "effective_start_date": api_details.get("effective_start_date"),
+                "currency_code": api_details.get("currency_code") or "USD",
+                "arm_region_name": api_details.get("arm_region_name") or arm_region,
+                "observed_at": observed_at,
+                "is_cached": False,
+            }
         else:
             prices[service_name] = fallback
+            price_metadata[service_name] = {
+                "source": "built_in_estimate",
+                "source_label": "Built-in estimate",
+                "source_url": None,
+                "requested_service_name": query.get("serviceName", service_name),
+                "requested_sku": query.get("skuName"),
+                "requested_meter": query.get("meterName"),
+                "currency_code": "USD",
+                "arm_region_name": arm_region,
+                "observed_at": observed_at,
+                "is_cached": False,
+                "note": "Retail Prices API returned no usable price; a built-in estimate was used.",
+            }
 
     # Also populate fallback prices for any remaining needed services
     # that didn't need an API call (ensures comprehensive coverage)
@@ -1196,62 +1302,96 @@ def fetch_prices_for_region(
         for svc in needed_services:
             if svc not in prices and svc in SERVICE_PRICE_QUERIES:
                 prices[svc] = SERVICE_PRICE_QUERIES[svc].get("fallback_monthly", 0)
+                query = SERVICE_PRICE_QUERIES[svc]
+                price_metadata[svc] = {
+                    "source": "built_in_estimate",
+                    "source_label": "Built-in estimate",
+                    "source_url": None,
+                    "requested_service_name": query.get("serviceName", svc),
+                    "requested_sku": query.get("skuName"),
+                    "requested_meter": query.get("meterName"),
+                    "currency_code": "USD",
+                    "arm_region_name": arm_region,
+                    "observed_at": observed_at,
+                    "is_cached": False,
+                    "note": "No Retail Prices API record was available for this service.",
+                }
 
     # Only cache a full fetch (all services) to avoid partial caches
     if not needed_services and persist_cache:
         if not cache:
             cache = {"cached_at": time.time()}
         cache[cache_key] = prices
+        cache[metadata_key] = price_metadata
         _save_cache(cache)
 
-    return prices
+    return PriceFetchResult(
+        prices,
+        price_metadata,
+        cache_timestamp=(
+            cache.get("cached_at")
+            if cache_key in cache and isinstance(cache.get("cached_at"), (int, float))
+            else None
+        ),
+    )
 
 
-def _find_best_price_match(azure_service: str, prices: dict[str, float]) -> float:
-    """Find the best matching price for an Azure service name."""
+def _find_best_price_key(azure_service: str, prices: dict[str, float]) -> str | None:
+    """Find the price or built-in estimate key matching an Azure service name."""
     # 0. Strip "[Manual mapping needed]" prefix
     if azure_service.startswith("[Manual mapping needed]"):
-        return 0
+        return None
 
     # 1. Exact match in prices dict
     if azure_service in prices:
-        return prices[azure_service]
+        return azure_service
 
     # 2. Check alias map → canonical key → prices
     canonical = _SERVICE_ALIASES.get(azure_service)
     if canonical and canonical in prices:
-        return prices[canonical]
+        return canonical
 
     # 3. Try prefix match (e.g. "Azure Blob Storage (Raw)" → "Azure Blob Storage")
     service_lower = azure_service.lower()
-    for key, price in prices.items():
+    for key in prices:
         if key.lower() in service_lower or service_lower.startswith(key.lower()):
-            return price
+            return key
 
     # 4. Try partial word match (need ≥ 2 overlapping words)
     words = set(service_lower.replace("(", "").replace(")", "").split())
     best_match = None
     best_score = 0
-    for key, price in prices.items():
+    for key in prices:
         key_words = set(key.lower().replace("(", "").replace(")", "").split())
         overlap = len(words & key_words)
         if overlap > best_score and overlap >= 2:
             best_score = overlap
-            best_match = price
+            best_match = key
 
     if best_match is not None:
         return best_match
 
     # 5. Check SERVICE_PRICE_QUERIES fallback via alias → query
     if canonical and canonical in SERVICE_PRICE_QUERIES:
-        return SERVICE_PRICE_QUERIES[canonical].get("fallback_monthly", 0)
+        return canonical
 
     # 6. Check SERVICE_PRICE_QUERIES fallback via substring
-    for key, query in SERVICE_PRICE_QUERIES.items():
+    for key in SERVICE_PRICE_QUERIES:
         if key.lower() in service_lower or service_lower.startswith(key.lower()):
-            return query.get("fallback_monthly", 0)
+            return key
 
-    return 0
+    return None
+
+
+def _find_best_price_match(azure_service: str, prices: dict[str, float]) -> float:
+    """Find the best matching price for an Azure service name."""
+    key = _find_best_price_key(azure_service, prices)
+    if key is None:
+        return 0
+    if key in prices:
+        return prices[key]
+    query = SERVICE_PRICE_QUERIES.get(key)
+    return float(query.get("fallback_monthly", 0)) if query else 0
 
 
 # ─────────────────────────────────────────────────────────────
@@ -1489,6 +1629,7 @@ def _build_cost_formula(
                 assumptions.append(f"Strategy multiplier: {multiplier:.1f}x ({strategy})")
             return formula, assumptions
 
+
     # Generic fallback with hourly rate if available
     if hourly_rate > 0 and sku_name:
         formula = f"{azure_service} [{sku_name}]: ${hourly_rate:.4f}/hr × 730 hrs/mo = ${base_price:.2f}/mo"
@@ -1518,6 +1659,18 @@ def _build_cost_formula(
         "No pricing data available for this service",
         "Check https://azure.microsoft.com/en-us/pricing/calculator/",
     ]
+
+
+def _observed_at_timestamp(value: object) -> float | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        observed_at = datetime.fromisoformat(value.replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if observed_at.tzinfo is None:
+        observed_at = observed_at.replace(tzinfo=timezone.utc)
+    return observed_at.timestamp()
 
 
 def estimate_services_cost(
@@ -1563,6 +1716,9 @@ def estimate_services_cost(
     pricing_cache_scope = "partial" if needed_keys and not used_regional_cache else "global"
     metadata_cache = pricing_cache or _price_cache
     cache_timestamp = metadata_cache.get("cached_at") if pricing_cache_scope == "global" and metadata_cache else None
+    if cache_timestamp is None:
+        cache_timestamp = getattr(prices, "cache_timestamp", None)
+    price_metadata = getattr(prices, "price_metadata", {})
 
     # SKU strategy multipliers
     strategy_multipliers = {
@@ -1587,6 +1743,7 @@ def estimate_services_cost(
             continue
         seen_services.add(azure_svc)
 
+        price_key = _find_best_price_key(azure_svc, prices)
         base_price = _find_best_price_match(azure_svc, prices)
         adjusted = round(base_price * multiplier, 2)
 
@@ -1611,6 +1768,71 @@ def estimate_services_cost(
             sku_name, meter_name, hourly_rate, region_display,
         )
 
+        source_record = price_metadata.get(price_key) if isinstance(price_metadata, dict) and price_key else None
+        if base_price <= 0:
+            price_source_id = "price_unavailable"
+            price_source = "No price available"
+            source_record = {
+                "source": price_source_id,
+                "source_label": price_source,
+                "source_url": None,
+                "note": "No matching Retail Prices API record or built-in estimate was available.",
+            }
+        elif isinstance(source_record, dict):
+            price_source_id = str(source_record.get("source") or "source_unverified")
+            price_source = str(source_record.get("source_label") or "Price source unknown")
+        elif price_key in SERVICE_PRICE_QUERIES and price_key not in prices:
+            price_source_id = "built_in_estimate"
+            price_source = "Built-in estimate"
+            source_record = {
+                "source": price_source_id,
+                "source_label": price_source,
+                "source_url": None,
+                "note": "The estimate used a built-in fallback because no fetched price was available.",
+            }
+        else:
+            price_source_id = "source_unverified"
+            price_source = "Price source unknown"
+            source_record = {
+                "source": price_source_id,
+                "source_label": price_source,
+                "source_url": None,
+                "note": "A price value was supplied without source metadata.",
+            }
+        formula = _build_price_evidence_formula(
+            source_record,
+            price_source_id,
+            azure_svc,
+            sku_name,
+            base_price,
+            adjusted,
+            multiplier,
+            sku_strategy,
+        )
+        if price_source_id == "azure_retail_prices_api":
+            assumptions_list = [
+                f"Retail Prices API unit rate: {source_record.get('unit_of_measure') or 'unit not reported'}",
+                (
+                    "Monthly estimate applies "
+                    f"{source_record.get('monthly_conversion_description', 'the configured conversion factor')}; "
+                    "workload-specific usage is not modeled."
+                ),
+                "Estimate excludes workload-specific discounts and reservations.",
+            ]
+        price_evidence = {
+            **source_record,
+            "region": region,
+            "currency_code": source_record.get("currency_code") or "USD",
+            "requested_sku": source_record.get("requested_sku") or sku_name or None,
+            "requested_meter": source_record.get("requested_meter") or meter_name or None,
+            "cache_age_days": (
+                round(max(0, time.time() - observed_timestamp) / 86400, 1)
+                if source_record.get("is_cached")
+                and (observed_timestamp := _observed_at_timestamp(source_record.get("observed_at"))) is not None
+                else None
+            ),
+        }
+
         service_costs.append({
             "service": azure_svc,
             "sku": sku_name or "Default tier",
@@ -1621,7 +1843,10 @@ def estimate_services_cost(
             "zone": m.get("notes", "").split("Zone ")[-1].split(" ")[0] if "Zone" in m.get("notes", "") else "",
             "category": m.get("category", "Other"),
             # ── Cost rationale (#354) ──
-            "price_source": "Azure Retail Prices API" if HAS_HTTPX and base_price > 0 else "built-in estimate",
+            "price_source": price_source,
+            "price_source_id": price_source_id,
+            "price_source_url": price_evidence.get("source_url"),
+            "price_evidence": price_evidence,
             "base_price_usd": base_price,
             "hourly_rate_usd": hourly_rate,
             "sku_multiplier": multiplier,
@@ -1634,6 +1859,13 @@ def estimate_services_cost(
 
     total_low = sum(s["monthly_low"] for s in service_costs)
     total_high = sum(s["monthly_high"] for s in service_costs)
+    pricing_sources = {service["price_source"] for service in service_costs}
+    if not pricing_sources:
+        pricing_source = "No pricing data available"
+    elif len(pricing_sources) == 1:
+        pricing_source = next(iter(pricing_sources))
+    else:
+        pricing_source = "Mixed pricing sources"
 
     return {
         "total_monthly_estimate": {
@@ -1646,8 +1878,53 @@ def estimate_services_cost(
         "sku_strategy": sku_strategy,
         "services": service_costs,
         "service_count": len(service_costs),
-        "pricing_source": "Azure Retail Prices API" if HAS_HTTPX else "built-in estimates",
+        "pricing_source": pricing_source,
+        "pricing_sources": sorted(pricing_sources),
         "cache_age_days": round((time.time() - cache_timestamp) / 86400, 1) if cache_timestamp else None,
         "pricing_cache_scope": pricing_cache_scope,
         "pricing_cache_cached_at": cache_timestamp,
     }
+
+
+def _build_price_evidence_formula(
+    source_record: dict[str, Any],
+    source_id: str,
+    service_name: str,
+    sku_name: str,
+    base_price: float,
+    adjusted: float,
+    multiplier: float,
+    strategy: str,
+) -> str:
+    """Describe the exact monthly estimate calculation without inventing a meter rate."""
+    if source_id == "azure_retail_prices_api":
+        retail_price = source_record.get("retail_price")
+        conversion_factor = source_record.get("monthly_conversion_factor")
+        if isinstance(retail_price, (int, float)) and isinstance(conversion_factor, (int, float)):
+            unit = source_record.get("unit_of_measure") or "unit"
+            conversion_description = source_record.get(
+                "monthly_conversion_description",
+                f"{conversion_factor:g} configured estimate conversion factor",
+            )
+            formula = (
+                f"${retail_price:g} per {unit} × {conversion_description} = "
+                f"${base_price:.2f}/month"
+            )
+        else:
+            formula = (
+                f"Cached Azure Retail Prices monthly value: ${base_price:.2f}; "
+                "original unit conversion details are unavailable"
+            )
+    elif source_id == "built_in_estimate":
+        label = f" for {sku_name}" if sku_name else ""
+        formula = f"Built-in estimate{label}: ${base_price:.2f}/month"
+    elif source_id == "cached_source_unknown":
+        formula = f"Cached monthly price (source unverified): ${base_price:.2f}/month"
+    elif base_price > 0:
+        formula = f"Estimated monthly price for {service_name}: ${base_price:.2f}/month"
+    else:
+        return "Pricing not available"
+
+    if multiplier != 1.0:
+        formula += f" × {multiplier:.1f} ({strategy}) = ${adjusted:.2f}/month"
+    return formula

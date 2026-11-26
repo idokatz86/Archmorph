@@ -38,8 +38,13 @@ from usage_metrics import (
     record_event_and_funnel_step,
     record_funnel_step,
 )
-from iac_chat import process_iac_chat, get_iac_chat_history, clear_iac_chat
-from iac_generator import generate_iac_code
+from iac_chat import (
+    process_iac_chat,
+    get_iac_chat_history,
+    set_iac_chat_history,
+    clear_iac_chat,
+)
+from iac_generator import generate_iac_code_with_validation
 from iac_scaffold import generate_scaffold
 
 logger = logging.getLogger(__name__)
@@ -231,6 +236,62 @@ def _iac_code_hash(code: str) -> str:
     return hashlib.sha256(code.encode()).hexdigest()
 
 
+_IAC_VALIDATION_CODE_HASH_KEY = "_iac_validation_code_hash"
+_IAC_VALIDATION_FORMAT_KEY = "_iac_validation_format"
+
+
+def _store_iac_validation(session: dict, validation: dict, code: str, iac_format: str) -> None:
+    session["iac_validation"] = validation
+    session[_IAC_VALIDATION_CODE_HASH_KEY] = _iac_code_hash(code)
+    session[_IAC_VALIDATION_FORMAT_KEY] = iac_format
+
+
+def _clear_iac_validation(session: dict) -> None:
+    session.pop("iac_validation", None)
+    session.pop(_IAC_VALIDATION_CODE_HASH_KEY, None)
+    session.pop(_IAC_VALIDATION_FORMAT_KEY, None)
+
+
+def _iac_validation_matches(session: dict, code: str, iac_format: str) -> bool:
+    validation = session.get("iac_validation")
+    return (
+        isinstance(validation, dict)
+        and validation.get("format", iac_format) == iac_format
+        and session.get("iac_format") == iac_format
+        and session.get(_IAC_VALIDATION_CODE_HASH_KEY) == _iac_code_hash(code)
+        and session.get(_IAC_VALIDATION_FORMAT_KEY) == iac_format
+    )
+
+
+def _iac_chat_source_state(session: dict) -> dict[str, Any]:
+    return {
+        key: copy.deepcopy(session.get(key))
+        for key in (
+            "_analysis_version",
+            "iac_code",
+            "iac_code_hash",
+            "iac_format",
+            "iac_validation",
+            _IAC_ETAG_KEY,
+            _IAC_VALIDATION_CODE_HASH_KEY,
+            _IAC_VALIDATION_FORMAT_KEY,
+        )
+    }
+
+
+def _iac_chat_source_matches(session: dict, source_state: dict[str, Any]) -> bool:
+    return all(session.get(key) == value for key, value in source_state.items())
+
+
+def _raise_iac_chat_version_conflict() -> None:
+    raise ArchmorphException(
+        409,
+        "IaC code changed while this chat request was running. "
+        "Re-fetch the current version and retry.",
+        details={"error": "iac_version_conflict"},
+    )
+
+
 class IaCChatMessage(StrictBaseModel):
     """Request body for IaC chat messages.
 
@@ -283,8 +344,8 @@ async def generate_iac(
     _check_architecture_blockers(diagram_id, session, force)
 
     try:
-        code = await asyncio.to_thread(
-            generate_iac_code,
+        generation = await asyncio.to_thread(
+            generate_iac_code_with_validation,
             analysis=session if session else None,
             iac_format=format,
             params=iac_params,
@@ -296,6 +357,8 @@ async def generate_iac(
         )
         raise ArchmorphException(500, "IaC generation failed. Please try again.")
 
+    code = generation["code"]
+    validation = generation["validation"]
     record_event_and_funnel_step(
         f"iac_generated_{format}",
         {"diagram_id": diagram_id},
@@ -310,11 +373,13 @@ async def generate_iac(
     updated_session["iac_code"] = code
     updated_session["iac_code_hash"] = _iac_code_hash(code)
     updated_session["iac_format"] = format
+    _store_iac_validation(updated_session, validation, code, format)
     new_etag = _store_iac_etag(updated_session, code)
     await persist_diagram_mutation_async(
         request,
         diagram_id,
         updated_session,
+        expected_session_state=session,
         artifact_type=format,
         artifact_format=format,
         artifact_content=code,
@@ -327,6 +392,7 @@ async def generate_iac(
             "code": code,
             "code_hash": updated_session["iac_code_hash"],
             "etag": new_etag,
+            "validation": validation,
         },
         headers={"ETag": new_etag},
     )
@@ -344,11 +410,15 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
     rather than the client-supplied ``code`` field to prevent state overwrite from
     tampered request bodies (#842). When the client supplies ``code_hash`` it must
     match the server's SHA-256 digest; a mismatch returns 409 so the client knows
-    to refresh.
+    to refresh. A second version check prevents a chat response from overwriting
+    code changed while the model request was in flight. Validation is reused only
+    when its recorded code hash and format match the committed artifact.
     """
     record_event("iac_chat_messages", {"diagram_id": diagram_id})
 
     session = await authorize_diagram_access_async(request, diagram_id, purpose="chat about IaC")
+    source_state = _iac_chat_source_state(session)
+    source_version = session.get("_analysis_version")
     durable_history = session.get("iac_chat_history")
     if isinstance(durable_history, list) and not get_iac_chat_history(diagram_id):
         from iac_chat import IAC_CHAT_SESSIONS
@@ -381,20 +451,38 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
         current_code=code_to_use,
         iac_format=msg.format,
         analysis_context=analysis_context,
+        persist_history=False,
     )
 
     # ── Persist updated code as new canonical state (#842) ───────────────
     if not result.get("error"):
         new_code = result.get("code")
         if new_code:
-            latest_session = SESSION_STORE.peek(diagram_id) or session
+            latest_session = SESSION_STORE.peek(diagram_id)
+            if (
+                not isinstance(latest_session, dict)
+                or not _iac_chat_source_matches(latest_session, source_state)
+            ):
+                _raise_iac_chat_version_conflict()
             updated_session = copy.deepcopy(latest_session)
             updated_session["iac_code"] = new_code
             updated_session["iac_code_hash"] = _iac_code_hash(new_code)
             updated_session["iac_format"] = msg.format
-            updated_session["iac_chat_history"] = copy.deepcopy(
-                get_iac_chat_history(diagram_id)
-            )
+            validation = result.get("validation")
+            if validation is not None:
+                if not isinstance(validation, dict) or validation.get("format", msg.format) != msg.format:
+                    raise ArchmorphException(
+                        500,
+                        "IaC chat returned validation for a different format.",
+                        details={"error": "iac_validation_format_mismatch"},
+                    )
+                _store_iac_validation(updated_session, validation, new_code, msg.format)
+            elif not _iac_validation_matches(latest_session, new_code, msg.format):
+                _clear_iac_validation(updated_session)
+            chat_history = result.get("chat_history")
+            if not isinstance(chat_history, list):
+                chat_history = get_iac_chat_history(diagram_id)
+            updated_session["iac_chat_history"] = copy.deepcopy(chat_history)
             new_etag = _store_iac_etag(updated_session, new_code)
             await persist_diagram_mutation_async(
                 request,
@@ -403,11 +491,16 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
                 artifact_type=msg.format,
                 artifact_format=msg.format,
                 artifact_content=new_code,
+                expected_version=source_version,
+                expected_session_state=session,
                 label=f"iac-{msg.format}-chat",
             )
+            set_iac_chat_history(diagram_id, chat_history)
+            result["validation"] = copy.deepcopy(updated_session.get("iac_validation"))
             # Surface the new hash so clients can synchronise without re-fetching
             result["code_hash"] = updated_session["iac_code_hash"]
             result["etag"] = new_etag
+            result.pop("chat_history", None)
 
     if result.get("services_added"):
         record_event("iac_services_added", {
@@ -568,12 +661,14 @@ async def _run_iac_job(
 
         job_manager.update_progress(job_id, 30, "Calling GPT-4o for code generation...")
 
-        code = await asyncio.to_thread(
-            generate_iac_code,
+        generation = await asyncio.to_thread(
+            generate_iac_code_with_validation,
             analysis=session if session else None,
             iac_format=iac_format,
             params=iac_params,
         )
+        code = generation["code"]
+        validation = generation["validation"]
 
         if not job_manager.owns_current_lease(job_id):
             return
@@ -610,6 +705,7 @@ async def _run_iac_job(
             updated["iac_code"] = code
             updated["iac_code_hash"] = code_hash
             updated["iac_format"] = iac_format
+            _store_iac_validation(updated, validation, code, iac_format)
             return updated
 
         latest_session = SESSION_STORE.peek(diagram_id)
@@ -661,6 +757,7 @@ async def _run_iac_job(
                 "code": code,
                 "code_hash": code_hash,
                 "etag": new_etag,
+                "validation": validation,
                 "canonical_state_persisted": canonical_state_persisted,
                 "canonical_state_conflict": canonical_state_changed,
                 "current_etag": current_etag,

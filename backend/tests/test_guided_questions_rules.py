@@ -388,6 +388,207 @@ class TestApplyAnswersIntegration:
         vm = [m for m in result["mappings"] if "EC2" in m["source_service"]][0]
         assert "Premium" in vm["azure_service"] or "premium" in vm.get("notes", "").lower()
 
+    def test_spark_target_change_separates_detection_evidence_and_refreshes_provenance(self):
+        from architecture_graph import build_architecture_graph
+
+        original_evidence = {
+            "detection_source": "ai",
+            "rationale": "Synapse was selected for EMR.",
+            "run_id": "run-1",
+            "generated_at": "2026-01-01T00:00:00Z",
+        }
+        original_provenance = {
+            "azure_service": "synapse analytics",
+            "feature_parity": {"total_features": 1},
+        }
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [
+                {
+                    "source_service": "Amazon EMR",
+                    "azure_service": "Azure Synapse Spark Pool",
+                    "confidence": 0.8,
+                    "source": "ai",
+                    "needs_review": True,
+                    "evidence": original_evidence,
+                    "confidence_provenance": original_provenance,
+                }
+            ],
+        }
+
+        refined = apply_answers(
+            analysis,
+            {"data_spark_runtime": "Azure Databricks"},
+            explicit_answer_ids={"data_spark_runtime"},
+        )
+        mapping = refined["mappings"][0]
+        node = build_architecture_graph(refined)["nodes"][0]
+
+        assert mapping["azure_service"] == "Azure Databricks"
+        assert mapping["original_detection_evidence"] == original_evidence
+        assert mapping["original_detection_confidence_provenance"] == original_provenance
+        assert mapping["guided_choice"] == {
+            "question_id": "data_spark_runtime",
+            "answer": "Azure Databricks",
+            "answer_source": "user",
+            "previous_target": "Azure Synapse Spark Pool",
+            "selected_target": "Azure Databricks",
+        }
+        assert mapping["evidence"]["detection_source"] == "user"
+        assert mapping["evidence"]["user_confirmed"] is True
+        assert mapping["evidence"]["needs_review"] is False
+        assert mapping["needs_review"] is False
+        assert "Azure Databricks" in mapping["evidence"]["rationale"]
+        assert mapping["confidence_provenance"]["azure_service"] == "Azure Databricks"
+        assert node["evidence"] == mapping["evidence"]
+        assert node["confidence_provenance"] == mapping["confidence_provenance"]
+
+    def test_explicit_spark_confirmation_refreshes_evidence_when_target_is_unchanged(self):
+        from architecture_graph import build_architecture_graph
+
+        original_evidence = {
+            "detection_source": "ai",
+            "detection_confidence": 0.65,
+            "rationale": "Default Synapse mapping.",
+            "run_id": "run-2",
+        }
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [
+                {
+                    "source_service": "Amazon EMR",
+                    "azure_service": "Azure Synapse Spark Pool",
+                    "confidence": 1.0,
+                    "source": "ai",
+                    "needs_review": True,
+                    "guided_choice": {
+                        "question_id": "data_spark_runtime",
+                        "answer": "Azure Synapse Spark Pools",
+                        "answer_source": "default",
+                        "previous_target": "Azure Databricks",
+                        "selected_target": "Azure Synapse Spark Pool",
+                    },
+                    "evidence": original_evidence,
+                }
+            ],
+        }
+
+        refined = apply_answers(
+            analysis,
+            {"data_spark_runtime": "Azure Synapse Spark Pools"},
+            explicit_answer_ids={"data_spark_runtime"},
+        )
+        mapping = refined["mappings"][0]
+        node = build_architecture_graph(refined)["nodes"][0]
+
+        assert mapping["azure_service"] == "Azure Synapse Spark Pool"
+        assert mapping["guided_choice"]["answer_source"] == "user"
+        assert mapping["guided_choice"]["previous_target"] == "Azure Synapse Spark Pool"
+        assert mapping["guided_choice"]["selected_target"] == "Azure Synapse Spark Pool"
+        assert mapping["original_detection_evidence"] == original_evidence
+        assert mapping["evidence"]["detection_source"] == "user"
+        assert mapping["evidence"]["user_confirmed"] is True
+        assert mapping["evidence"]["needs_review"] is False
+        assert mapping["needs_review"] is False
+        assert node["needs_review"] is False
+
+    def test_inferred_spark_answer_does_not_confirm_or_increase_confidence(self):
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [
+                {
+                    "source_service": "Amazon EMR",
+                    "azure_service": "Azure Databricks",
+                    "confidence": 0.55,
+                    "source": "ai",
+                    "needs_review": True,
+                    "evidence": {
+                        "detection_source": "ai",
+                        "detection_confidence": 0.55,
+                    },
+                }
+            ],
+        }
+
+        mapping = apply_answers(
+            analysis,
+            {"data_spark_runtime": "Azure Synapse Spark Pools"},
+        )["mappings"][0]
+
+        assert mapping["azure_service"] == "Azure Synapse Spark Pool"
+        assert mapping["confidence"] == 0.55
+        assert mapping["guided_choice"]["answer_source"] == "assumption"
+        assert mapping["evidence"]["detection_source"] == "ai"
+        assert mapping["evidence"]["user_confirmed"] is False
+        assert mapping["needs_review"] is True
+
+    def test_unchanged_sku_target_is_not_user_confirmed(self):
+        original_evidence = {
+            "detection_source": "ai",
+            "detection_confidence": 0.55,
+            "user_confirmed": False,
+            "needs_review": True,
+        }
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [
+                {
+                    "source_service": "AWS Lambda",
+                    "azure_service": "Azure Functions",
+                    "confidence": 0.55,
+                    "source": "ai",
+                    "needs_review": True,
+                    "evidence": original_evidence,
+                }
+            ],
+        }
+
+        mapping = apply_answers(
+            analysis,
+            {"arch_sku_strategy": "Cost-optimized (lowest viable tier)"},
+            explicit_answer_ids={"arch_sku_strategy"},
+        )["mappings"][0]
+
+        assert mapping["azure_service"] == "Azure Functions"
+        assert "guided_choice" not in mapping
+        assert mapping["evidence"] == original_evidence
+        assert mapping["needs_review"] is True
+
+    def test_default_spark_runtime_does_not_confirm_or_clear_review(self):
+        analysis = {
+            "source_provider": "aws",
+            "mappings": [
+                {
+                    "source_service": "Amazon EMR",
+                    "azure_service": "Azure Databricks",
+                    "confidence": 0.55,
+                    "source": "ai",
+                    "needs_review": False,
+                    "evidence": {
+                        "detection_source": "ai",
+                        "detection_confidence": 0.55,
+                    },
+                }
+            ],
+        }
+
+        mapping = apply_answers(analysis, {})["mappings"][0]
+
+        assert mapping["azure_service"] == "Azure Synapse Spark Pool"
+        assert mapping["guided_choice"]["answer_source"] == "default"
+        assert mapping["guided_choice"]["answer"] == "Azure Synapse Spark Pools"
+        assert mapping["confidence"] == 0.55
+        assert "User selected:" not in mapping.get("notes", "")
+        assert not any(
+            "User confirmed Spark runtime" in reason
+            for reason in mapping.get("confidence_explanation", [])
+        )
+        assert mapping["evidence"]["detection_source"] == "ai"
+        assert mapping["evidence"]["user_override"] is False
+        assert mapping["evidence"]["user_confirmed"] is False
+        assert mapping["evidence"]["needs_review"] is True
+        assert mapping["needs_review"] is True
+
 
 # ====================================================================
 # QUESTION_BANK — new categories (Issues #60-#67)

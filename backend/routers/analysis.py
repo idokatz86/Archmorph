@@ -4,11 +4,12 @@ Analysis routes — guided questions, apply answers, add services, export diagra
 Split from diagrams.py for maintainability (#284).
 """
 
-from fastapi import APIRouter, Request, Depends
+from fastapi import APIRouter, HTTPException, Request, Depends
 from strict_models import StrictBaseModel
 from typing import Dict, Any
 import asyncio
 import base64
+import copy
 import logging
 
 from routers.shared import (
@@ -38,6 +39,7 @@ from service_builder import (
     add_services_from_text,
 )
 from architecture_package import generate_architecture_package
+from architecture_graph import build_architecture_graph
 from error_envelope import ArchmorphException
 from export_capabilities import (
     attach_export_capability_for_request,
@@ -53,6 +55,27 @@ from export_artifacts import persist_generated_export_async
 logger = logging.getLogger(__name__)
 
 router = APIRouter()
+
+_IAC_STATE_KEYS = (
+    "iac_code",
+    "iac_code_hash",
+    "iac_format",
+    "iac_validation",
+    "_iac_validation_code_hash",
+    "_iac_validation_format",
+    "_iac_etag",
+    "iac_chat_history",
+)
+
+
+def _clear_iac_state(analysis: dict) -> None:
+    for key in _IAC_STATE_KEYS:
+        analysis.pop(key, None)
+
+
+def _clear_derived_analysis_state(analysis: dict) -> None:
+    for key in ("hld", "hld_markdown", "_cached_cost_estimate", "cost_estimate"):
+        analysis.pop(key, None)
 
 
 class AddServicesRequest(StrictBaseModel):
@@ -127,11 +150,12 @@ async def add_services_natural_language(
     to the guided questions or IaC generation.
     """
     analysis = await authorize_diagram_access_async(request, diagram_id, purpose="modify services")
+    source_snapshot = copy.deepcopy(analysis)
 
     try:
         updated = await asyncio.to_thread(
             add_services_from_text,
-            analysis=analysis,
+            analysis=source_snapshot,
             user_text=body.text,
         )
     except Exception as exc:
@@ -148,13 +172,23 @@ async def add_services_natural_language(
         "text": body.text,
         "services_added": updated.get("services_added", []),
     })
+    services_added = updated.get("services_added", [])
+    if isinstance(services_added, list) and services_added:
+        _clear_iac_state(updated)
+        _clear_derived_analysis_state(updated)
+    updated["architecture_graph"] = build_architecture_graph(updated)
 
     await persist_diagram_mutation_async(
         request,
         diagram_id,
         updated,
+        expected_session_state=source_snapshot,
         label="analysis-services-added",
     )
+    if isinstance(services_added, list) and services_added:
+        from iac_chat import clear_iac_chat
+
+        clear_iac_chat(diagram_id)
 
     record_event("services_added_nl", {
         "diagram_id": diagram_id,
@@ -186,14 +220,47 @@ async def apply_guided_answers(
 ):
     """Apply user answers to refine the Azure architecture analysis."""
     analysis = await authorize_diagram_access_async(request, diagram_id, purpose="apply answers")
+    source_snapshot = copy.deepcopy(analysis)
 
-    refined = apply_answers(analysis, answers)
+    if "answers" in answers:
+        user_answers = answers["answers"]
+        explicit_answer_ids = answers.get("explicit_answer_ids", [])
+        if not isinstance(user_answers, dict):
+            raise HTTPException(status_code=422, detail="'answers' must be an object")
+        if not isinstance(explicit_answer_ids, list) or not all(
+            isinstance(question_id, str) for question_id in explicit_answer_ids
+        ):
+            raise HTTPException(
+                status_code=422,
+                detail="'explicit_answer_ids' must be a list of question IDs",
+            )
+        if not set(explicit_answer_ids).issubset(user_answers):
+            raise HTTPException(
+                status_code=422,
+                detail="Every explicit answer ID must have a corresponding answer",
+            )
+    else:
+        user_answers = answers
+        explicit_answer_ids = []
+
+    refined = apply_answers(
+        source_snapshot,
+        user_answers,
+        explicit_answer_ids=set(explicit_answer_ids),
+    )
+    _clear_iac_state(refined)
+    _clear_derived_analysis_state(refined)
+    refined["architecture_graph"] = build_architecture_graph(refined)
     await persist_diagram_mutation_async(
         request,
         diagram_id,
         refined,
+        expected_session_state=source_snapshot,
         label="guided-answers-applied",
     )
+    from iac_chat import clear_iac_chat
+
+    clear_iac_chat(diagram_id)
     record_event("answers_applied", {"diagram_id": diagram_id})
     record_funnel_step(diagram_id, "answers")
     persisted = SESSION_STORE.peek(diagram_id)

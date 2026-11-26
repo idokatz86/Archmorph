@@ -2232,7 +2232,9 @@ export interface paths {
          *     rather than the client-supplied ``code`` field to prevent state overwrite from
          *     tampered request bodies (#842). When the client supplies ``code_hash`` it must
          *     match the server's SHA-256 digest; a mismatch returns 409 so the client knows
-         *     to refresh.
+         *     to refresh. A second version check prevents a chat response from overwriting
+         *     code changed while the model request was in flight. Validation is reused only
+         *     when its recorded code hash and format match the committed artifact.
          */
         post: operations["iac_chat_endpoint_api_diagrams__diagram_id__iac_chat_post"];
         /**
@@ -6836,7 +6838,9 @@ export interface paths {
          *     rather than the client-supplied ``code`` field to prevent state overwrite from
          *     tampered request bodies (#842). When the client supplies ``code_hash`` it must
          *     match the server's SHA-256 digest; a mismatch returns 409 so the client knows
-         *     to refresh.
+         *     to refresh. A second version check prevents a chat response from overwriting
+         *     code changed while the model request was in flight. Validation is reused only
+         *     when its recorded code hash and format match the committed artifact.
          */
         post: operations["iac_chat_endpoint_v1_api_v1_diagrams__diagram_id__iac_chat_post"];
         /**
@@ -10110,8 +10114,19 @@ export interface components {
             monthly_high: number;
             /** Monthly Low */
             monthly_low: number;
+            /** Price Evidence */
+            price_evidence?: {
+                [key: string]: unknown;
+            };
             /** Price Source */
             price_source: string;
+            /**
+             * Price Source Id
+             * @default source_unverified
+             */
+            price_source_id: string;
+            /** Price Source Url */
+            price_source_url?: string | null;
             /** Quantity */
             quantity: number;
             /** Quantity Assumption */
@@ -10156,6 +10171,8 @@ export interface components {
             missing_cost_warnings?: string[];
             /** Pricing Source */
             pricing_source: string;
+            /** Pricing Sources */
+            pricing_sources?: string[];
             /** Region */
             region: string;
             /** Schema Version */

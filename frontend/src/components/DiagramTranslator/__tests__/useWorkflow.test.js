@@ -43,6 +43,15 @@ describe('useWorkflow', () => {
     const { result } = renderHook(() => useWorkflow())
     act(() => { result.current.updateAnswer('q1', 'yes') })
     expect(result.current.state.answers.q1).toBe('yes')
+    expect(result.current.state.explicitAnswerIds).toEqual(['q1'])
+  })
+
+  it('does not mark normalized answers as explicit', () => {
+    const { result } = renderHook(() => useWorkflow())
+    act(() => { result.current.updateAnswer('q1', 'yes') })
+    act(() => { result.current.updateAnswer('q1', 'no', false) })
+    expect(result.current.state.answers.q1).toBe('no')
+    expect(result.current.state.explicitAnswerIds).toEqual([])
   })
 
   it('setExportLoading() sets export loading state', () => {

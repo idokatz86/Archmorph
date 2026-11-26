@@ -107,13 +107,16 @@ export default function GuidedQuestions({
 
       if (q.type === 'single_choice') {
         if (!validValues.includes(currentAnswer)) {
-          onUpdateAnswer(q.id, q.options.length > 0 ? (typeof q.options[0] === 'string' ? q.options[0] : q.options[0].value) : '');
+          const fallback = q.options.length > 0
+            ? (typeof q.options[0] === 'string' ? q.options[0] : q.options[0].value)
+            : '';
+          onUpdateAnswer(q.id, fallback, false);
         }
       } else if (q.type === 'multiple_choice' || q.type === 'multi_choice') {
         if (Array.isArray(currentAnswer)) {
           const filtered = currentAnswer.filter(v => validValues.includes(v));
           if (filtered.length !== currentAnswer.length) {
-            onUpdateAnswer(q.id, filtered);
+            onUpdateAnswer(q.id, filtered, false);
           }
         }
       }

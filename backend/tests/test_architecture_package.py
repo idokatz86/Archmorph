@@ -171,6 +171,10 @@ def test_architecture_package_html_manifest_contains_traceability_fields():
     assert manifest["target_provider"] == "Azure"
     assert manifest["export"] == {"format": "html", "diagram": "primary"}
     assert manifest["renderer"] == {"name": "architecture_package", "version": "1"}
+    assert manifest["architecture_graph"]["schema_version"] == "architecture-graph/v1"
+    assert len(manifest["architecture_graph"]["nodes"]) == len(SAMPLE_ANALYSIS["mappings"])
+    assert manifest["architecture_graph"]["edges"] == []
+    assert manifest["iac_validation"]["status"] == "not_run"
     assert len(manifest["customer_intent_profile_hash"]) == 64
     assert result["filename"] in manifest["artifact_filenames"]
     assert any(
@@ -419,6 +423,29 @@ def test_export_architecture_package_endpoint_returns_dr_svg(test_client):
     ET.fromstring(data["content"])
 
 
+def test_architecture_package_accepts_user_added_mapping():
+    analysis = {
+        **SAMPLE_ANALYSIS,
+        "mappings": [
+            *SAMPLE_ANALYSIS["mappings"],
+            {
+                "source_service": "User Added: Redis",
+                "source_provider": "user",
+                "azure_service": "Azure Cache for Redis",
+                "category": "Database",
+                "confidence": 1.0,
+            },
+        ],
+    }
+
+    result = generate_architecture_package(analysis, format="html")
+
+    assert result["manifest"]["source_provider"] == "AWS"
+    user_node = result["manifest"]["architecture_graph"]["nodes"][-1]
+    assert user_node["source_provider"] is None
+    assert "unsupported_source_provider_4" not in result["manifest"]["architecture_graph"]["warnings"]
+
+
 def test_export_architecture_package_rejects_oversized_analysis_with_413(test_client):
     diagram_id = "package-endpoint-oversized-test"
     SESSION_STORE[diagram_id] = {
@@ -554,6 +581,35 @@ def test_manifest_run_metadata_analysis_id_in_run_id():
     result = generate_architecture_package(SAMPLE_ANALYSIS, format="html", analysis_id="specific-run-id")
     run_meta = result["manifest"]["run_metadata"]
     assert run_meta["run_id"] == "specific-run-id"
+
+
+def test_manifest_reuses_analysis_run_metadata_and_rebuilds_graph():
+    analysis_timestamp = "2026-01-02T03:04:05Z"
+    analysis = {
+        **SAMPLE_ANALYSIS,
+        "run_id": "canonical-run-id",
+        "analysis_timestamp": analysis_timestamp,
+        "mappings": [{
+            "source_service": "EC2",
+            "azure_service": "Azure Virtual Machines",
+            "confidence": 0.9,
+        }],
+        "architecture_graph": {
+            "schema_version": "architecture-graph/v1",
+            "source_provider": "aws",
+            "target_provider": "azure",
+            "nodes": [],
+            "edges": [],
+            "warnings": [],
+        },
+    }
+
+    result = generate_architecture_package(analysis, format="html", analysis_id="diagram-id")
+    manifest = result["manifest"]
+
+    assert manifest["run_metadata"]["run_id"] == "canonical-run-id"
+    assert manifest["run_metadata"]["analysis_timestamp"] == analysis_timestamp
+    assert manifest["architecture_graph"]["nodes"][0]["target_service"] == "Azure Virtual Machines"
 
 
 def test_manifest_mapping_references_include_evidence_when_present():

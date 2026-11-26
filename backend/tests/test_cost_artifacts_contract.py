@@ -463,6 +463,45 @@ def test_cost_assumptions_builder_flags_missing_prices(cost_contract_fixture):
     assert artifact["services"][0]["source_service"] == "Legacy MQ"
 
 
+def test_cost_assumptions_preserve_price_source_evidence():
+    from cost_assumptions import build_cost_assumptions_artifact
+
+    estimate = {
+        "currency": "USD",
+        "region": "West Europe",
+        "arm_region": "westeurope",
+        "pricing_source": "Azure Retail Prices API",
+        "pricing_sources": ["Azure Retail Prices API"],
+        "services": [{
+            "service": "Azure Functions",
+            "sku": "Consumption",
+            "meter": "Execution Time",
+            "monthly_low": 10,
+            "monthly_high": 20,
+            "monthly_estimate": 15,
+            "price_source": "Azure Retail Prices API",
+            "price_source_id": "azure_retail_prices_api",
+            "price_source_url": "https://prices.azure.com/api/retail/prices",
+            "price_evidence": {
+                "returned_sku": "Consumption",
+                "returned_meter": "Execution Time",
+                "observed_at": "2026-07-05T12:00:00Z",
+            },
+        }],
+    }
+
+    artifact = build_cost_assumptions_artifact(
+        {"mappings": [{"source_service": "Lambda", "azure_service": "Azure Functions"}]},
+        cost_estimate=estimate,
+    )
+
+    assert artifact["pricing_sources"] == ["Azure Retail Prices API"]
+    service = artifact["services"][0]
+    assert service["price_source_id"] == "azure_retail_prices_api"
+    assert service["price_source_url"] == "https://prices.azure.com/api/retail/prices"
+    assert service["price_evidence"]["returned_meter"] == "Execution Time"
+
+
 def test_cost_assumptions_builder_uses_cached_estimate_and_applies_overrides(monkeypatch, cost_contract_fixture):
     from cost_assumptions import build_cost_assumptions_artifact
 
