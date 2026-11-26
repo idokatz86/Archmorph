@@ -311,6 +311,7 @@ export default function AnalysisResults({
   copyFeedback, genProgress, notifyEmail, onNotifyEmail,
   onSetStep, onGenerateIac, onExportDiagram, onCopyWithFeedback,
   diagramId, exportCapability, onExportCapability, onRefreshExportCapability,
+  onIacGenerated,
   assumptions = [], questionsCount = 0, onReviewAssumptions,
   reviewItems = [], reviewDispositions = {}, reviewSummary = {}, onDispose, reviewLoading = false,
   onExportPackage, exportingPackage,
@@ -590,6 +591,7 @@ export default function AnalysisResults({
           exportCapability={exportCapability}
           onExportCapability={onExportCapability}
           onRefreshExportCapability={onRefreshExportCapability}
+          onIacGenerated={onIacGenerated}
         />
       )}
 

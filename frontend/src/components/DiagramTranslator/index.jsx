@@ -1279,6 +1279,20 @@ export default function DiagramTranslator() {
     set({ loading: false, generatingIac: false, generatingAll: false });
   };
 
+  const handleExportIacGenerated = (iacData, format) => {
+    set({
+      previousIacCode: state.iacCode,
+      iacCode: iacData.code,
+      iacValidation: iacData.validation || null,
+      iacFormat: format,
+    });
+    updateSessionCache({
+      iacCode: iacData.code,
+      iacValidation: iacData.validation || null,
+      iacFormat: format,
+    });
+  };
+
   const handleHldExport = async (fmt) => {
     setHldExportLoading(fmt, true);
     try {
@@ -1845,6 +1859,7 @@ export default function DiagramTranslator() {
             rememberExportCapability(token);
           }}
           onRefreshExportCapability={refreshExportCapability}
+          onIacGenerated={handleExportIacGenerated}
           reviewItems={reviewItems}
           reviewDispositions={reviewDispositions}
           reviewSummary={reviewSummary}

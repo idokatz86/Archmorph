@@ -55,6 +55,22 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
+_IAC_STATE_KEYS = (
+    "iac_code",
+    "iac_code_hash",
+    "iac_format",
+    "iac_validation",
+    "_iac_validation_code_hash",
+    "_iac_validation_format",
+    "_iac_etag",
+    "iac_chat_history",
+)
+
+
+def _clear_iac_state(analysis: dict) -> None:
+    for key in _IAC_STATE_KEYS:
+        analysis.pop(key, None)
+
 
 class AddServicesRequest(StrictBaseModel):
     """Request body for natural language service additions."""
@@ -149,6 +165,9 @@ async def add_services_natural_language(
         "text": body.text,
         "services_added": updated.get("services_added", []),
     })
+    services_added = updated.get("services_added", [])
+    if isinstance(services_added, list) and services_added:
+        _clear_iac_state(updated)
     updated["architecture_graph"] = build_architecture_graph(updated)
 
     await persist_diagram_mutation_async(
@@ -157,6 +176,10 @@ async def add_services_natural_language(
         updated,
         label="analysis-services-added",
     )
+    if isinstance(services_added, list) and services_added:
+        from iac_chat import clear_iac_chat
+
+        clear_iac_chat(diagram_id)
 
     record_event("services_added_nl", {
         "diagram_id": diagram_id,
@@ -215,17 +238,7 @@ async def apply_guided_answers(
         user_answers,
         explicit_answer_ids=set(explicit_answer_ids),
     )
-    for key in (
-        "iac_code",
-        "iac_code_hash",
-        "iac_format",
-        "iac_validation",
-        "_iac_validation_code_hash",
-        "_iac_validation_format",
-        "_iac_etag",
-        "iac_chat_history",
-    ):
-        refined.pop(key, None)
+    _clear_iac_state(refined)
     refined["architecture_graph"] = build_architecture_graph(refined)
     await persist_diagram_mutation_async(
         request,

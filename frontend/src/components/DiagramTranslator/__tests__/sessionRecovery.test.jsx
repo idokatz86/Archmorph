@@ -231,6 +231,49 @@ describe('DiagramTranslator — Session UX Tests', () => {
     expect(screen.getByLabelText('IaC status: Draft')).toBeInTheDocument()
   })
 
+  it('updates the visible IaC viewer after ExportHub regenerates code', async () => {
+    const oldCode = 'resource "terraform_data" "old" {}'
+    const newCode = 'resource "terraform_data" "new" {}'
+    mockLoadSession.mockReturnValue({
+      diagramId: 'cached-export-iac',
+      analysis: { zones: [], mappings: [], diagram_type: 'AWS Architecture', services_detected: 1 },
+      questions: [],
+      answers: {},
+      iacCode: oldCode,
+      iacValidation: { status: 'passed', format: 'terraform' },
+      iacFormat: 'terraform',
+      ts: Date.now(),
+    })
+    mockApi.get.mockResolvedValue({ items: [], summary: { gated: false } })
+    mockApi.post.mockResolvedValue({
+      code: newCode,
+      validation: { status: 'failed', format: 'terraform', errors: ['Invalid syntax'] },
+    })
+
+    render(<DiagramTranslator />)
+    expect(await screen.findByLabelText('IaC status: Validated')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Back to Analysis' }))
+    fireEvent.click(await screen.findByRole('button', { name: 'Export All' }))
+    await screen.findByRole('dialog', { name: 'Generate Deliverables' })
+    for (const label of ['Architecture Package', 'High-Level Design', 'Cost Estimate', 'Migration Timeline', 'PDF Analysis Report']) {
+      fireEvent.click(await screen.findByLabelText(`Include ${label}`))
+    }
+    fireEvent.click(screen.getByRole('button', { name: 'Generate All Selected' }))
+
+    await screen.findByRole('button', { name: 'Download Infrastructure Code' })
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }))
+    fireEvent.click(screen.getByRole('button', { name: /Deliverables/ }))
+
+    expect(await screen.findByLabelText('IaC status: Blocked')).toBeInTheDocument()
+    expect(screen.getByText(newCode)).toBeInTheDocument()
+    expect(screen.queryByText(oldCode)).not.toBeInTheDocument()
+    expect(mockUpdateSessionCache).toHaveBeenCalledWith(expect.objectContaining({
+      iacCode: newCode,
+      iacValidation: { status: 'failed', format: 'terraform', errors: ['Invalid syntax'] },
+      iacFormat: 'terraform',
+    }))
+  })
+
   it('does not call diagram-only endpoints for combined project pseudo ids', async () => {
     mockLoadSession.mockReturnValue({
       diagramId: 'project-demo-project',

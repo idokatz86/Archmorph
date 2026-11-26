@@ -225,6 +225,70 @@ def test_guided_answers_clear_iaC_state_from_canonical_snapshot(test_client, dur
     assert get_iac_chat_history(diagram_id) == []
 
 
+def test_adding_services_clears_stale_iac_from_canonical_snapshot(test_client, durable_runtime):
+    from iac_chat import IAC_CHAT_SESSIONS, get_iac_chat_history
+
+    owner, tenant, headers = _identity()
+    diagram_id = f"diag-added-services-clear-iac-{uuid.uuid4().hex}"
+    _seed(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+        extra={
+            "iac_code": 'resource "terraform_data" "old" {}',
+            "iac_code_hash": "old-hash",
+            "iac_format": "terraform",
+            "iac_validation": {"status": "passed", "format": "terraform"},
+            "_iac_validation_code_hash": "old-hash",
+            "_iac_validation_format": "terraform",
+            "_iac_etag": "old-etag",
+            "iac_chat_history": [{"role": "assistant", "content": "old code"}],
+        },
+    )
+    IAC_CHAT_SESSIONS[f"{diagram_id}:iac"] = [{"role": "assistant", "content": "old code"}]
+
+    def add_service(*, analysis, user_text):
+        updated = copy.deepcopy(analysis)
+        updated["mappings"].append({
+            "source_service": "User Added: Redis",
+            "source_provider": "user",
+            "azure_service": "Azure Cache for Redis",
+            "confidence": 1.0,
+        })
+        updated["services_added"] = [{"name": "Redis", "azure_service": "Azure Cache for Redis"}]
+        return updated
+
+    with patch("routers.analysis.add_services_from_text", side_effect=add_service):
+        response = test_client.post(
+            f"/api/diagrams/{diagram_id}/add-services",
+            headers=headers,
+            json={"text": "Add Redis"},
+        )
+
+    assert response.status_code == 200, response.text
+    hydrated = _hydrate_after_cache_loss(
+        durable_runtime,
+        diagram_id=diagram_id,
+        owner_user_id=owner,
+        tenant_id=tenant,
+    )
+    for key in (
+        "iac_code",
+        "iac_code_hash",
+        "iac_format",
+        "iac_validation",
+        "_iac_validation_code_hash",
+        "_iac_validation_format",
+        "_iac_etag",
+        "iac_chat_history",
+    ):
+        assert key not in hydrated
+    assert get_iac_chat_history(diagram_id) == []
+    assert hydrated["architecture_graph"]["nodes"][-1]["source_provider"] is None
+    assert "unsupported_source_provider_3" not in hydrated["architecture_graph"]["warnings"]
+
+
 def test_review_disposition_survives_cache_loss(test_client, durable_runtime):
     owner, tenant, headers = _identity()
     diagram_id = f"diag-review-mutation-{uuid.uuid4().hex}"

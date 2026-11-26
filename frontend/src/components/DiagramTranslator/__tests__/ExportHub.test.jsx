@@ -103,6 +103,30 @@ describe('ExportHub accessibility', () => {
     expect(screen.getByLabelText('IaC validation errors')).toHaveTextContent('Invalid syntax')
   })
 
+  it('reports newly generated IaC to the owning workbench state', async () => {
+    const user = userEvent.setup()
+    const onIacGenerated = vi.fn()
+    api.post.mockResolvedValueOnce({
+      code: 'resource "terraform_data" "new" {}',
+      validation: { status: 'failed', format: 'terraform', errors: ['Invalid syntax'] },
+    })
+    render(<ExportHub diagramId="diag-1" onIacGenerated={onIacGenerated} />)
+
+    openExportHub()
+    for (const label of ['Architecture Package', 'High-Level Design', 'Cost Estimate', 'Migration Timeline', 'PDF Analysis Report']) {
+      await user.click(await screen.findByLabelText(`Include ${label}`))
+    }
+    await user.click(screen.getByRole('button', { name: /Generate All Selected/i }))
+
+    await waitFor(() => expect(onIacGenerated).toHaveBeenCalledWith(
+      {
+        code: 'resource "terraform_data" "new" {}',
+        validation: { status: 'failed', format: 'terraform', errors: ['Invalid syntax'] },
+      },
+      'terraform',
+    ))
+  })
+
   it('only shows validation status for the selected IaC format', async () => {
     const user = userEvent.setup()
     render(<ExportHub

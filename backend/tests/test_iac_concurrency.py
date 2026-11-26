@@ -8,8 +8,10 @@ server-side and return HTTP 409 instead of silently overwriting.
 import copy
 import os
 import sys
+import threading
 import time
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 import pytest
@@ -250,6 +252,58 @@ class TestIacOptimisticConcurrency:
         latest = SESSION_STORE[diagram_with_analysis]
         assert latest["mappings"][0]["azure_service"] == "Concurrent mapping update"
         assert "iac_code" not in latest
+
+    def test_concurrent_initial_generations_detect_newly_added_iac_keys(
+        self,
+        client,
+        diagram_with_analysis,
+    ):
+        started = threading.Event()
+        release = threading.Event()
+        lock = threading.Lock()
+        count = 0
+
+        def finish_generation(**_kwargs):
+            nonlocal count
+            with lock:
+                count += 1
+                generation = count
+            if generation == 1:
+                started.set()
+                assert release.wait(10)
+                return {
+                    "code": 'resource "terraform_data" "first" {}',
+                    "validation": {"status": "passed", "format": "terraform"},
+                }
+            return {
+                "code": 'resource "terraform_data" "second" {}',
+                "validation": {"status": "failed", "format": "terraform"},
+            }
+
+        with patch(
+            "routers.iac_routes.generate_iac_code_with_validation",
+            side_effect=finish_generation,
+        ):
+            with ThreadPoolExecutor(max_workers=1) as pool:
+                first_request = pool.submit(
+                    client.post,
+                    f"/api/diagrams/{diagram_with_analysis}/generate?format=terraform",
+                )
+                assert started.wait(10)
+                second = client.post(
+                    f"/api/diagrams/{diagram_with_analysis}/generate?format=terraform"
+                )
+                assert second.status_code == 200, second.text
+                try:
+                    release.set()
+                    first = first_request.result(timeout=10)
+                finally:
+                    release.set()
+
+        assert first.status_code == 409, first.text
+        latest = SESSION_STORE[diagram_with_analysis]
+        assert latest["iac_code"] == 'resource "terraform_data" "second" {}'
+        assert latest["iac_validation"]["status"] == "failed"
 
     def test_async_generate_with_stale_if_match_returns_409(self, client, owned_diagram_with_analysis):
         """Async generation must honor the same stale If-Match guard as sync generation."""

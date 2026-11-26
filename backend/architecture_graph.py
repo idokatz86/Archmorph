@@ -182,6 +182,8 @@ def build_architecture_graph(analysis: dict[str, Any]) -> dict[str, Any]:
 def _normalize_provider(value: object, warnings: list[str], *, index: int | None = None) -> str | None:
     if value is None:
         return None
+    if isinstance(value, str) and value.strip().lower() == "user":
+        return None
     try:
         return normalize_source_provider(value)
     except ValueError:

@@ -597,8 +597,14 @@ def build_provenance(
     """
     source = _norm(mapping.get("source_service", ""))
     azure = _norm(mapping.get("azure_service", mapping.get("target_service", "")))
-    provider_value = mapping.get("source_provider", source_provider)
-    provider = normalize_source_provider(provider_value) if provider_value is not None else None
+    mapping_provider = mapping.get("source_provider")
+    if isinstance(mapping_provider, str) and not mapping_provider.strip():
+        mapping_provider = None
+    provider_value = mapping_provider or source_provider
+    if isinstance(provider_value, str) and provider_value.strip().lower() == "user":
+        provider = None
+    else:
+        provider = normalize_source_provider(provider_value) if provider_value is not None else None
     overall = mapping.get("confidence", 0)
     # Normalise to 0-100 scale
     if isinstance(overall, (int, float)) and overall <= 1.0:

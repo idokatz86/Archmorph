@@ -423,6 +423,29 @@ def test_export_architecture_package_endpoint_returns_dr_svg(test_client):
     ET.fromstring(data["content"])
 
 
+def test_architecture_package_accepts_user_added_mapping():
+    analysis = {
+        **SAMPLE_ANALYSIS,
+        "mappings": [
+            *SAMPLE_ANALYSIS["mappings"],
+            {
+                "source_service": "User Added: Redis",
+                "source_provider": "user",
+                "azure_service": "Azure Cache for Redis",
+                "category": "Database",
+                "confidence": 1.0,
+            },
+        ],
+    }
+
+    result = generate_architecture_package(analysis, format="html")
+
+    assert result["manifest"]["source_provider"] == "AWS"
+    user_node = result["manifest"]["architecture_graph"]["nodes"][-1]
+    assert user_node["source_provider"] is None
+    assert "unsupported_source_provider_4" not in result["manifest"]["architecture_graph"]["warnings"]
+
+
 def test_export_architecture_package_rejects_oversized_analysis_with_413(test_client):
     diagram_id = "package-endpoint-oversized-test"
     SESSION_STORE[diagram_id] = {

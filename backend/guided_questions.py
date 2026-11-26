@@ -557,7 +557,7 @@ def _refresh_guided_mapping_evidence(
             )
             mapping["needs_review"] = mapping["evidence"]["needs_review"]
 
-        provenance_provider = mapping.get("source_provider", source_provider)
+        provenance_provider = mapping.get("source_provider") or source_provider
         if provenance_provider is not None:
             try:
                 provenance_provider = normalize_source_provider(provenance_provider)

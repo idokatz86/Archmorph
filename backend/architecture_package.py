@@ -926,8 +926,15 @@ def _source_label(analysis: dict[str, Any]) -> str:
     mappings = analysis.get("mappings", [])
     if isinstance(mappings, list):
         for mapping in mappings:
-            if isinstance(mapping, dict) and mapping.get("source_provider") is not None:
-                add_provider(mapping["source_provider"])
+            if not isinstance(mapping, dict):
+                continue
+            provider = mapping.get("source_provider")
+            if isinstance(provider, str):
+                provider = provider.strip()
+                if not provider or provider.lower() == "user":
+                    continue
+            if provider is not None:
+                add_provider(provider)
 
     return "/".join(provider.upper() for provider in providers)
 

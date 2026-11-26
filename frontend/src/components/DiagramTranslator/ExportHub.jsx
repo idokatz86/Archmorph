@@ -91,7 +91,7 @@ export async function generateDeliverable(diagramId, deliverable, format, hldInc
       mimeType: 'text/plain',
       provenance: { endpoint: `/diagrams/${diagramId}/generate`, source: 'backend' },
     });
-    return { ...artifact, validation: data.validation || null };
+    return { ...artifact, code: data.code, validation: data.validation || null };
   }
 
   if (id === 'architecture-package') {
@@ -203,6 +203,7 @@ export default function ExportHub({
   exportCapability = null,
   onExportCapability,
   onRefreshExportCapability,
+  onIacGenerated,
 }) {
   const [open, setOpen] = useState(false);
   const [selected, setSelected] = useState(() => {
@@ -311,6 +312,12 @@ export default function ExportHub({
           if (result.exportCapability) {
             currentExportCapability = result.exportCapability;
             if (onExportCapability) onExportCapability(result.exportCapability);
+          }
+          if (d.id === 'iac' && result.code) {
+            onIacGenerated?.(
+              { code: result.code, validation: result.validation },
+              formats[d.id],
+            );
           }
           setResults(prev => ({ ...prev, [d.id]: result }));
           setItemStatus(prev => ({ ...prev, [d.id]: 'done' }));

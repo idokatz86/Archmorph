@@ -485,7 +485,7 @@ async def iac_chat_endpoint(request: Request, diagram_id: str, msg: IaCChatMessa
                 artifact_format=msg.format,
                 artifact_content=new_code,
                 expected_version=source_version,
-                expected_session_state=source_state,
+                expected_session_state=session,
                 label=f"iac-{msg.format}-chat",
             )
             # Surface the new hash so clients can synchronise without re-fetching

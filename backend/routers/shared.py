@@ -1171,8 +1171,7 @@ def _persist_transient_diagram_snapshot(
 
     committed, _ = SESSION_STORE.update_if(
         diagram_id,
-        lambda current: isinstance(current, dict)
-        and all(current.get(key) == value for key, value in expected_session_state.items()),
+        lambda current: isinstance(current, dict) and current == expected_session_state,
         lambda _current: snapshot,
     )
     if not committed:
